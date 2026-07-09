@@ -32,3 +32,23 @@ def test_priority_picks_attention_over_work():
     e.handle({"event": "Notification", "session": "b",
               "notification_type": "permission_prompt"}, now=0.0)
     assert e.display_state(now=0.0) == "attention"
+
+
+def test_debounce_holds_fast_tool_switch():
+    e = StateEngine()
+    # a fast Read then an immediate Edit within the debounce window
+    e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Read"}, now=0.0)
+    e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Edit"}, now=0.2)
+    # still inside 0.8s hold -> the search motion is still what shows
+    assert e.display_state(now=0.3) == "work_search"
+    # after the hold expires, the pending Edit is promoted
+    assert e.display_state(now=0.9) == "work_computer"
+
+
+def test_same_tool_repeats_do_not_reset_forever():
+    e = StateEngine()
+    e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Read"}, now=0.0)
+    e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Grep"}, now=0.1)
+    # Grep is also work_search — no visible change, no pending needed
+    assert e.display_state(now=0.2) == "work_search"
+    assert e.display_state(now=1.0) == "work_search"

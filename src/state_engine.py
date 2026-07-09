@@ -94,9 +94,22 @@ class StateEngine:
         # PostToolUse / SubagentStop / unknown: liveness refresh only
 
     def _set_work(self, s, work_state, now):
+        # Guarantee the current work motion shows >= DEBOUNCE before switching
+        # to a *different* work motion; remember the latest as pending.
+        if s.state in WORK_STATES and (now - s.since) < DEBOUNCE:
+            if work_state != s.state:
+                s.pending = work_state
+            return
         s.set_state(work_state, now)
 
+    def _age(self, s, now):
+        # promote a deferred work state once the current one has held long enough
+        if s.pending and s.state in WORK_STATES and (now - s.since) >= DEBOUNCE:
+            s.set_state(s.pending, now)
+
     def display_state(self, now):
+        for s in self.sessions.values():
+            self._age(s, now)
         if not self.sessions:
             return "sleeping"
         return max((s.state for s in self.sessions.values()),
