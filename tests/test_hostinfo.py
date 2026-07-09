@@ -1,0 +1,30 @@
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import hostinfo
+
+
+def test_detect_vscode_by_term_program():
+    assert hostinfo.detect_host({"TERM_PROGRAM": "vscode"}) == "vscode"
+
+def test_detect_vscode_by_pid():
+    assert hostinfo.detect_host({"VSCODE_PID": "123"}) == "vscode"
+
+def test_detect_jetbrains():
+    assert hostinfo.detect_host({"TERMINAL_EMULATOR": "JetBrains-JediTerm"}) == "jetbrains"
+
+def test_detect_konsole():
+    assert hostinfo.detect_host({"KONSOLE_VERSION": "250801"}) == "konsole"
+
+def test_detect_unknown():
+    assert hostinfo.detect_host({}) == "unknown"
+
+def test_host_classes():
+    assert hostinfo.host_classes("vscode") == ["code"]
+    assert hostinfo.host_classes("konsole") == ["konsole"]
+    assert hostinfo.host_classes("unknown") == []
+    assert hostinfo.host_classes("nonsense") == []
+
+def test_session_sock_path(monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    assert hostinfo.session_sock("abc") == "/run/user/1000/claude-pet-abc.sock"
+    assert hostinfo.session_sock(None) == "/run/user/1000/claude-pet-default.sock"
