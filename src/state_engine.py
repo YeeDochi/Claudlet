@@ -27,6 +27,8 @@ DEBOUNCE = 0.8
 SLEEP_TIMEOUT = 60.0
 CELEBRATE_DUR = 1.6
 ERROR_DUR = 2.0
+WORK_TIMEOUT = 120.0   # work_*/thinking with no events this long -> assume the
+                       # turn ended without a Stop (e.g. user interrupt) -> idle
 
 
 def tool_to_state(tool_name):
@@ -108,6 +110,11 @@ class StateEngine:
             s.set_state(s.pending, now)
         # transient states (celebrate/error) decay back to calm idle
         if s.expiry is not None and now >= s.expiry:
+            s.set_state("idle", now)
+        # work/thinking gone quiet for a long time: no Stop ever came (e.g. the
+        # user interrupted with ESC), so fall back to calm idle.
+        if (s.state in WORK_STATES or s.state == "thinking") and \
+           (now - s.last_event) >= WORK_TIMEOUT:
             s.set_state("idle", now)
         # calm idle falls asleep after a long quiet spell
         if s.state == "idle" and (now - s.last_event) >= SLEEP_TIMEOUT:

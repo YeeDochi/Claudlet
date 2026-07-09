@@ -101,3 +101,19 @@ def test_sessionend_drops_session():
     e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Edit"}, now=0.0)
     e.handle({"event": "SessionEnd", "session": "a"}, now=0.1)
     assert e.display_state(now=0.1) == "sleeping"
+
+
+def test_work_state_times_out_when_no_stop_fires():
+    # user interrupts (ESC) mid-Bash: no Stop, no further events
+    e = StateEngine()
+    e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Bash"}, now=0.0)
+    assert e.display_state(now=10.0) == "work_computer"
+    # after WORK_TIMEOUT of silence it falls back and (being long-quiet) sleeps
+    assert e.display_state(now=121.0) == "sleeping"
+
+
+def test_thinking_times_out_when_no_stop_fires():
+    e = StateEngine()
+    e.handle({"event": "UserPromptSubmit", "session": "a"}, now=0.0)
+    assert e.display_state(now=10.0) == "thinking"
+    assert e.display_state(now=121.0) == "sleeping"
