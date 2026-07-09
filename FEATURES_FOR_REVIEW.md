@@ -6,9 +6,9 @@
 
 ## 리뷰 대기 (완성됨)
 
-### ✅ `feat/session-bound-pets` — 세션당 펫 재설계
-- **브랜치**: `feat/session-bound-pets` (커밋 6a6d023→1673728, master 기준 5커밋)
-- **테스트**: 38/38 통과. 전체-브랜치 리뷰(opus) 통과 — "리뷰 대기 OK".
+### 🟢 `feat/session-bound-pets` — 세션당 펫 재설계 — **MERGED (2026-07-09)**
+- 실동작 확인(펫 2마리 독립 반응 / SessionEnd 시 해당 펫만 퇴장) 후 master 머지. 훅도 실제 설치됨 → 새 세션 열면 펫 자동 등장. 브랜치 삭제됨.
+- **테스트**: 38/38 통과. 전체-브랜치 리뷰(opus) 통과.
 - **한 것**:
   - `src/hostinfo.py` 신설 — 호스트 감지(vscode/jetbrains/konsole/unknown) + 세션별 소켓 경로 (훅·펫 공유)
   - `src/focus.py` — `terminal_focused(classes)` 호스트-인식 + `xprop`/kdotool로 활성창 읽기 (이 머신에서도 포커스 판정 가능해짐)
@@ -29,7 +29,7 @@
 
 | 우선 | 브랜치 | 내용 | 왜 추천 |
 |---|---|---|---|
-| 1 | `feat/session-bound-pets` ✅ | **완성 — 위 "리뷰 대기" 참고.** | — |
+| 1 | `feat/session-bound-pets` 🟢 | **MERGED — 훅 설치 완료, 새 세션에서 자동 실행.** | — |
 | 2 | `feat/bubble-text` ✅ | **완성 — 위 "리뷰 대기" 참고.** | — |
 | 3 | `feat/held-render` 📋 | 드래그 중(held) 렌더 상태 정리 — 들려있을 때 팔다리 버둥/놀란 표정 | 지금 어정쩡한 렌더 개선, 작고 안전 |
 | 4 | `feat/multimonitor` | 배회·바닥 계산을 전체 모니터 기준으로 (3모니터 대응) | 멀티모니터 실사용, 명확히 테스트 가능 |
