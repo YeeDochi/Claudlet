@@ -33,6 +33,7 @@ from state_engine import StateEngine
 import focus
 import hostinfo
 import physics
+import windows
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
@@ -87,6 +88,8 @@ class Pet(QWidget):
         self.claude_state = "sleeping"       # last state the engine reported
         self.dnd = False                     # do-not-disturb
         self._quit_timer = None              # pending SessionEnd -> quit timer
+        self._wins = []                      # last window-geometry poll
+        self._contain = None                 # Win we're living inside, or None
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -106,6 +109,11 @@ class Pet(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / FPS))
+
+        self._win_timer = QTimer(self)
+        self._win_timer.timeout.connect(self._poll_windows)
+        self._win_timer.start(500)
+        self._poll_windows()
 
         # drop the taskbar/pager entry once the window is mapped (KWin script)
         QTimer.singleShot(400, self._skip_taskbar)
@@ -189,11 +197,11 @@ class Pet(QWidget):
             # stationary Claude state (working / attention / thinking / ...)
             if eff == "work_search":
                 # quick random horizontal darts while rummaging
+                lft, rgt, _t, _f = self._bounds()
                 if self.target_x is None or abs(self.target_x - self.x) < 4:
                     span = self.w * 3
                     self.target_x = min(max(self.x + random.uniform(-span, span),
-                                            self.screen_rect.left()),
-                                        self.screen_rect.right() - self.w)
+                                            lft), rgt)
                 dx = self.target_x - self.x
                 self.facing = 1 if dx > 0 else -1
                 self.x += max(-6, min(6, dx))     # fast step
@@ -203,18 +211,18 @@ class Pet(QWidget):
         self.update()
 
     def _roam(self):
+        left, right, top, floor = self._bounds()
         if self.walk_pause > 0:
             self.walk_pause -= 1
+            self.y = floor
             self._render_state = self.claude_state
             return
         if self.target_x is None:
-            if random.random() < 0.012:      # occasionally decide to wander
-                margin = self.w
-                self.target_x = random.uniform(self.screen_rect.left(),
-                                                self.screen_rect.right() - margin)
+            if random.random() < 0.012:
+                self.target_x = random.uniform(left, max(left, right))
+            self.y = floor
             self._render_state = self.claude_state
             return
-        # walk toward target
         speed = 2.2
         dx = self.target_x - self.x
         if abs(dx) <= speed:
@@ -225,18 +233,48 @@ class Pet(QWidget):
         else:
             self.facing = 1 if dx > 0 else -1
             self.x += speed * self.facing
-            self.y = self.floor_y
             self._render_state = "walk"
+        # follow the surface: step up onto ledges, fall off edges naturally
+        if self.y < floor - 2:
+            self.vx = 0.0
+            self.vy = 0.0
+            self.mode = "thrown"          # let physics drop us to the surface below
+            self.target_x = None
+        else:
+            self.y = floor
 
     def _physics(self):
-        left = self.screen_rect.left()
-        right = self.screen_rect.right() - self.w
-        top = self.screen_rect.top()
+        left, right, top, floor = self._bounds()
         self.x, self.y, self.vx, self.vy, settled = physics.advance(
-            self.x, self.y, self.vx, self.vy, left, right, top, self.floor_y)
+            self.x, self.y, self.vx, self.vy, left, right, top, floor)
         if settled:
             self.mode = "roam"
         self._render_state = self.claude_state
+
+    def _poll_windows(self):
+        self._wins = windows.list_windows()
+        if self._contain is not None:
+            match = next((w for w in self._wins if w.wid == self._contain.wid), None)
+            self._contain = match             # follow it; None if it's gone -> detached
+
+    def _bounds(self):
+        """(left, right, top, floor) for the current context. On the desktop the
+        floor is dynamic — the top edge of whatever window is under us (perch).
+        When contained, bounds are the window's interior."""
+        if self._contain is not None:
+            c = self._contain
+            left = c.x
+            right = max(left, c.x + c.w - self.w)
+            top = c.y
+            floor = max(top, c.y + c.h - self.h)
+            return left, right, top, floor
+        scr = self.screen_rect
+        left = scr.left()
+        right = scr.right() - self.w
+        top = scr.top()
+        cx = self.x + self.w / 2.0
+        surface = windows.top_surface_under(cx, self._wins, scr.bottom())
+        return left, right, top, surface - self.h
 
     # ---------- painting ----------
     def paintEvent(self, _e):
@@ -280,13 +318,23 @@ class Pet(QWidget):
             self._activate_claude()
             self.mode = "roam"
         else:
-            # compute throw velocity from recent samples
-            if len(self._vel_samples) >= 2:
-                (t0, p0), (t1, p1) = self._vel_samples[0], self._vel_samples[-1]
-                dt = max(1e-3, t1 - t0)
-                self.vx = (p1.x() - p0.x()) / dt / FPS
-                self.vy = (p1.y() - p0.y()) / dt / FPS
-            self.mode = "thrown"
+            cxp = int(self.x + self.w / 2)
+            cyp = int(self.y + self.h / 2)
+            win = windows.window_at(cxp, cyp, self._wins)
+            if win is not None:
+                # dropped onto a window -> live inside it
+                self._contain = win
+                self.mode = "roam"
+                self.target_x = None
+            else:
+                # dropped on the desktop -> leave any window and throw
+                self._contain = None
+                if len(self._vel_samples) >= 2:
+                    (t0, p0), (t1, p1) = self._vel_samples[0], self._vel_samples[-1]
+                    dt = max(1e-3, t1 - t0)
+                    self.vx = (p1.x() - p0.x()) / dt / FPS
+                    self.vy = (p1.y() - p0.y()) / dt / FPS
+                self.mode = "thrown"
         self._press_global = None
 
     def _menu(self, gpos):
@@ -297,6 +345,10 @@ class Pet(QWidget):
         a_quit = QAction("종료", m)
         m.addAction(a_come)
         m.addAction(a_dnd)
+        a_release = None
+        if self._contain is not None:
+            a_release = QAction("창에서 꺼내기", m)
+            m.addAction(a_release)
         m.addSeparator()
         m.addAction(a_quit)
         chosen = m.exec(gpos)
@@ -304,6 +356,8 @@ class Pet(QWidget):
             self._come_here()
         elif chosen == a_dnd:
             self._toggle_dnd()
+        elif a_release is not None and chosen == a_release:
+            self._contain = None
         elif chosen == a_quit:
             self._quit()
 
