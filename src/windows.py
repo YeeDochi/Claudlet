@@ -1,50 +1,47 @@
-"""Read other windows' geometry (KDE/X11 via wmctrl) so the pet can perch on
-and be contained by them.
+"""Read other windows' geometry (KDE, via a KWin script pushing over D-Bus) so
+the pet can perch on and be contained by them.
 
-Best-effort and GATED: if wmctrl is unavailable (non-KDE, not installed), the
-listing is empty and the pet just uses the screen floor as before. Coordinates
-are X screen pixels, matching Qt's move() under XWayland — no remapping needed.
+Best-effort and GATED: if the KWin/D-Bus feed never arrives (non-KDE, no
+session bus), the listing stays empty and the pet just uses the screen floor
+as before. Coordinates are X screen pixels, matching Qt's move() under
+XWayland — no remapping needed.
 """
-import shutil
-import subprocess
 from collections import namedtuple
 
 Win = namedtuple("Win", "wid x y w h title")
 
+# KWin classes that are shell chrome / helpers, never perch targets
+EXCLUDE_CLASSES = {"plasmashell", "xwaylandvideobridge", "claude-pet", ""}
 
-def parse_wmctrl_lg(text):
-    """Parse `wmctrl -lG` output into Win rects. Malformed rows are skipped."""
+
+def parse_kwin_dump(text, min_size=40):
+    """Parse the geometry feed pushed by our KWin script.
+
+    Format: `id;class;x,y,w,h|id;class;x,y,w,h|...`  (coords may be floats).
+    Filters shell chrome and sub-min_size junk. Pure."""
     wins = []
-    for line in text.splitlines():
-        parts = line.split(None, 7)          # wid desk x y w h host title...
-        if len(parts) < 7:
+    for tok in text.split("|"):
+        tok = tok.strip()
+        if not tok:
             continue
-        wid, _desk, x, y, w, h = parts[:6]
-        title = parts[7] if len(parts) >= 8 else ""
+        parts = tok.split(";", 2)
+        if len(parts) != 3:
+            continue
+        wid, cls, geo = parts
+        cls = cls.strip().lower()
+        if cls in EXCLUDE_CLASSES:
+            continue
+        nums = geo.split(",")
+        if len(nums) != 4:
+            continue
         try:
-            wins.append(Win(wid, int(x), int(y), int(w), int(h), title))
+            x, y, w, h = (int(float(n)) for n in nums)
         except ValueError:
             continue
+        if w < min_size or h < min_size:
+            continue
+        wins.append(Win(wid, x, y, w, h, cls))
     return wins
-
-
-def list_windows(exclude_prefix="claude-pet-", min_size=40):
-    """Current windows (best-effort). Returns [] if wmctrl is unavailable — this
-    is the gating point that disables perching off KDE/X11."""
-    if not shutil.which("wmctrl"):
-        return []
-    try:
-        out = subprocess.check_output(["wmctrl", "-lGS"], text=True, timeout=2)
-    except Exception:
-        return []
-    result = []
-    for win in parse_wmctrl_lg(out):
-        if exclude_prefix and win.title.startswith(exclude_prefix):
-            continue
-        if win.w < min_size or win.h < min_size:      # skip panels/docks/junk
-            continue
-        result.append(win)
-    return result
 
 
 def window_at(px, py, wins):

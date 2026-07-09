@@ -17,6 +17,7 @@ import sys
 import json
 import math
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -25,7 +26,8 @@ import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QObject, pyqtSlot
+from PyQt6.QtDBus import QDBusConnection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import creature as C
@@ -50,6 +52,17 @@ STATE_LABELS = {
 }
 # representative animation frame to freeze for each state's tray icon
 _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
+
+
+class _GeomReceiver(QObject):
+    """D-Bus object the KWin geometry script pushes window dumps to."""
+    def __init__(self, pet):
+        super().__init__()
+        self._pet = pet
+
+    @pyqtSlot(str)
+    def push(self, dump):
+        self._pet._on_geom(dump)
 
 
 class Pet(QWidget):
@@ -110,10 +123,8 @@ class Pet(QWidget):
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / FPS))
 
-        self._win_timer = QTimer(self)
-        self._win_timer.timeout.connect(self._poll_windows)
-        self._win_timer.start(500)
-        self._poll_windows()
+        self._geom_script_id = None
+        self._setup_geom_feed()
 
         # drop the taskbar/pager entry once the window is mapped (KWin script)
         QTimer.singleShot(400, self._skip_taskbar)
@@ -252,11 +263,67 @@ class Pet(QWidget):
             self.mode = "roam"
         self._render_state = self.claude_state
 
-    def _poll_windows(self):
-        self._wins = windows.list_windows()
+    def _setup_geom_feed(self):
+        """Register a D-Bus service and start a persistent KWin script that pushes
+        window geometry to it. All KDE-specific; any failure -> feature just off
+        (self._wins stays empty, behaviour == pre-perch)."""
+        try:
+            safe = re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
+            self._dbus_name = "org.claudepet.geom_" + safe
+            self._receiver = _GeomReceiver(self)
+            bus = QDBusConnection.sessionBus()
+            if not bus.registerService(self._dbus_name):
+                self._dbus_name = None
+                return
+            bus.registerObject("/", self._receiver,
+                               QDBusConnection.RegisterOption.ExportAllSlots)
+            self._start_geom_script()
+        except Exception:
+            self._dbus_name = None
+
+    def _start_geom_script(self):
+        svc = self._dbus_name
+        js = (
+            'var SVC="' + svc + '";'
+            'function _dump(){'
+            '  var ws=(typeof workspace.windowList==="function")'
+            '    ?workspace.windowList():workspace.clientList();'
+            '  var o=[];'
+            '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
+            '    if(g)o.push(c.internalId+";"+(c.resourceClass||"")+";"'
+            '      +g.x+","+g.y+","+g.width+","+g.height);}'
+            '  callDBus(SVC,"/","","push",o.join("|"));'
+            '}'
+            'function _hook(c){if(c&&c.frameGeometryChanged)'
+            '  c.frameGeometryChanged.connect(_dump);}'
+            'var _w=(typeof workspace.windowList==="function")'
+            '  ?workspace.windowList():workspace.clientList();'
+            'for(var i=0;i<_w.length;i++)_hook(_w[i]);'
+            'if(workspace.windowAdded)workspace.windowAdded.connect('
+            '  function(c){_hook(c);_dump();});'
+            'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
+            '_dump();'
+        )
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+                f.write(js)
+                path = f.name
+            sid = subprocess.check_output(
+                ["qdbus6", "org.kde.KWin", "/Scripting",
+                 "org.kde.kwin.Scripting.loadScript", path],
+                text=True, timeout=3).strip()
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.start"], timeout=3)
+            self._geom_script_id = sid          # persistent — do NOT stop now
+            os.unlink(path)
+        except Exception:
+            pass
+
+    def _on_geom(self, dump):
+        self._wins = windows.parse_kwin_dump(dump)
         if self._contain is not None:
-            match = next((w for w in self._wins if w.wid == self._contain.wid), None)
-            self._contain = match             # follow it; None if it's gone -> detached
+            self._contain = next(
+                (w for w in self._wins if w.wid == self._contain.wid), None)
 
     def _bounds(self):
         """(left, right, top, floor) for the current context. On the desktop the
@@ -506,6 +573,14 @@ class Pet(QWidget):
         )
 
     def _cleanup(self):
+        if getattr(self, "_geom_script_id", None):
+            try:
+                subprocess.run(["qdbus6", "org.kde.KWin",
+                                "/Scripting/Script" + self._geom_script_id,
+                                "org.kde.kwin.Script.stop"], timeout=3,
+                               stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
         try:
             os.unlink(self.sock_path)
         except OSError:
