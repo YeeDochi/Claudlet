@@ -231,8 +231,9 @@ class Pet(QWidget):
     def _physics(self):
         left = self.screen_rect.left()
         right = self.screen_rect.right() - self.w
+        top = self.screen_rect.top()
         self.x, self.y, self.vx, self.vy, settled = physics.advance(
-            self.x, self.y, self.vx, self.vy, left, right, self.floor_y)
+            self.x, self.y, self.vx, self.vy, left, right, top, self.floor_y)
         if settled:
             self.mode = "roam"
         self._render_state = self.claude_state
