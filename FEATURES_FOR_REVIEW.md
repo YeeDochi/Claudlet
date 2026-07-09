@@ -19,13 +19,19 @@
 - **이월된 마이너**(머지 전 선택): SIGKILL로 죽은 세션은 SessionEnd 안 와서 펫 orphan 잔존(리퍼 없음); 동시 SessionStart TOCTOU 이중실행(이론상); 훅 심볼릭링크 경로. → 후속 `/claude-pet` 정지 스킬로 커버 가능.
 - **스펙 편차**(무해): 계획의 `bin/claude-pet-session` 대신 기존 `bin/claude-pet --session/--host` 재사용.
 
+### ✅ `feat/bubble-text` — 상태별 타이핑 말풍선
+- **브랜치**: `feat/bubble-text` (master 기준 1커밋 44e364c). 테스트 27/27, 스프라이트시트 렌더 확인.
+- **한 것**: `creature.py`에 `SPEECH` 추가 — thinking="고민중…", attention="이거 맞아?", celebrate="다 됐다!", error="으악!". 머리 위 말풍선에 한 글자씩 타이핑되고 잠깐 유지 후 반복. 해당 4상태의 아이콘 프롭(?, !, ✦)을 말풍선으로 대체.
+- **직접 봐야 할 것 (리뷰 시)**: 문구·위치·타이핑 속도가 취향에 맞는지 (아트 튜닝 여지). attention이 `!` 대신 "이거 맞아?" 텍스트로 바뀐 게 나은지 아니면 `!`도 같이 둘지.
+- **주의**: `feat/session-bound-pets`와 독립 브랜치(둘 다 master에서 분기, 파일 겹침 없음) — 순서 상관없이 각각 머지 가능.
+
 ## 계획 — Claude 추천 우선순위
 
 | 우선 | 브랜치 | 내용 | 왜 추천 |
 |---|---|---|---|
 | 1 | `feat/session-bound-pets` ✅ | **완성 — 위 "리뷰 대기" 참고.** | — |
-| 2 | `feat/bubble-text` 🚧 | 말풍선에 상태별 실제 텍스트("고민중...", "이거 맞아?", "다 됐다!") 한 글자씩 타이핑 | 체감 즐거움 큼, creature.py 내 자기완결 |
-| 3 | `feat/held-render` | 드래그 중(held) 렌더 상태 정리 — 들려있을 때 팔다리 버둥/놀란 표정 | 지금 어정쩡한 렌더 개선, 작고 안전 |
+| 2 | `feat/bubble-text` ✅ | **완성 — 위 "리뷰 대기" 참고.** | — |
+| 3 | `feat/held-render` 📋 | 드래그 중(held) 렌더 상태 정리 — 들려있을 때 팔다리 버둥/놀란 표정 | 지금 어정쩡한 렌더 개선, 작고 안전 |
 | 4 | `feat/multimonitor` | 배회·바닥 계산을 전체 모니터 기준으로 (3모니터 대응) | 멀티모니터 실사용, 명확히 테스트 가능 |
 | 5 | `feat/auto-run-state` | 오토/plan 등 "혼자 쭉 작업" 전용 상태/애니 | 상태 표현 확장 |
 | 6 | `feat/walk-polish` | 걷기 사이클·좌우 반전 자연스럽게 (아트) | 아트라 네 눈 필요 → 후순위 |
