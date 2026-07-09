@@ -20,7 +20,7 @@ from PyQt6.QtCore import QRectF
 
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
           "work_agent", "work_skill", "thinking", "attention",
-          "error", "celebrate", "sleeping")
+          "error", "celebrate", "sleeping", "held", "falling")
 
 # short spoken line per communicative state (typed out in a bubble)
 SPEECH = {
@@ -125,10 +125,23 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         bob = _sin(frame, 50, 0.4)
         eyes = "sleep"
         prop = "zzz"
+    elif state == "held":
+        # dangling from the cursor's grab: hangs, sways, limbs droop, wide eyes
+        bob = _sin(frame, 20, 0.6)
+        tilt = _sin(frame, 26, 4.0)          # gentle swing
+        sx, sy = 0.97, 1.06                  # slightly stretched (hanging)
+        legphase = 0.5                       # legs together, dangling
+        eyes = "wide"
+    elif state == "falling":
+        # tumbling through the air: fast wobble, stretched, legs flailing
+        tilt = _sin(frame, 8, 9.0)
+        sx, sy = 0.93, 1.10
+        legphase = (frame / 8.0) % 1.0
+        eyes = "wide"
 
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
-    arm = {"work_computer": "none", "attention": "up",
-           "celebrate": "up"}.get(state, "side")
+    arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
+           "held": "up", "falling": "up"}.get(state, "side")
     arm_swing = _sin(frame, 12, 0.5) if state == "walk" else 0.0
 
     # ---- geometry (art-pixel space), origin at ox,oy ----

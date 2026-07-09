@@ -205,7 +205,9 @@ class Pet(QWidget):
 
         roaming = eff in ("idle", "sleeping") and self.mode == "roam" and not self.dnd
 
-        if self.mode == "thrown":
+        if self.mode == "held":
+            self._render_state = "held"     # dangling from the cursor
+        elif self.mode == "thrown":
             self._physics()
         elif roaming:
             self._roam()
@@ -266,7 +268,9 @@ class Pet(QWidget):
             self.x, self.y, self.vx, self.vy, left, right, top, floor)
         if settled:
             self.mode = "roam"
-        self._render_state = self.claude_state
+            self._render_state = self.claude_state
+        else:
+            self._render_state = "falling"   # tumbling through the air
 
     def _setup_geom_feed(self):
         """Register a D-Bus service and start a persistent KWin script that pushes
