@@ -22,8 +22,8 @@ import subprocess
 import tempfile
 import time
 
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu
-from PyQt6.QtGui import QPainter, QAction, QCursor
+from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
+from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +38,16 @@ FPS = 20
 SOCK_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "claude-pet.sock")
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
 
+# short label per state, shown as the tray tooltip
+STATE_LABELS = {
+    "idle": "대기", "sleeping": "자는 중", "walk": "산책",
+    "thinking": "고민 중", "work_computer": "작업 중", "work_search": "탐색 중",
+    "work_web": "연락 중", "work_agent": "서브에이전트", "work_skill": "스킬 사용",
+    "attention": "입력 대기!", "celebrate": "완료!", "error": "에러",
+}
+# representative animation frame to freeze for each state's tray icon
+_ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
+
 
 class Pet(QWidget):
     def __init__(self):
@@ -49,6 +59,8 @@ class Pet(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        # distinctive caption so the KWin skip-taskbar script can find our window
+        self.setWindowTitle("claude-pet")
 
         self.w = (C.GRID_W + 2 * PAD_X) * U
         self.h = (C.GRID_H + 2 * PAD_Y) * U
@@ -80,10 +92,14 @@ class Pet(QWidget):
         self._vel_samples = []
 
         self._init_socket()
+        self._init_tray()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / FPS))
+
+        # drop the taskbar/pager entry once the window is mapped (KWin script)
+        QTimer.singleShot(400, self._skip_taskbar)
 
     # ---------- Claude Code hook socket ----------
     def _init_socket(self):
@@ -131,6 +147,7 @@ class Pet(QWidget):
         now = time.monotonic()
         self.claude_state = self.engine.display_state(now)
         eff = self.claude_state
+        self._update_tray_icon()
 
         roaming = eff in ("idle", "sleeping") and self.mode == "roam" and not self.dnd
 
@@ -267,20 +284,107 @@ class Pet(QWidget):
         m.addAction(a_quit)
         chosen = m.exec(gpos)
         if chosen == a_come:
-            c = QCursor.pos()
-            self.target_x = min(max(c.x() - self.w // 2, self.screen_rect.left()),
-                                self.screen_rect.right() - self.w)
-            self.walk_pause = 0
-            self.mode = "roam"
+            self._come_here()
         elif chosen == a_dnd:
-            self.dnd = not self.dnd
+            self._toggle_dnd()
         elif chosen == a_quit:
-            self._cleanup()
-            QApplication.quit()
+            self._quit()
+
+    # ---------- shared menu actions (used by both the pet and the tray) ----------
+    def _come_here(self):
+        c = QCursor.pos()
+        self.target_x = min(max(c.x() - self.w // 2, self.screen_rect.left()),
+                            self.screen_rect.right() - self.w)
+        self.walk_pause = 0
+        self.mode = "roam"
+
+    def _toggle_dnd(self):
+        self.dnd = not self.dnd
+        if getattr(self, "_act_dnd", None) is not None:
+            self._act_dnd.setChecked(self.dnd)
+
+    def _quit(self):
+        self._cleanup()
+        QApplication.quit()
+
+    # ---------- system tray ----------
+    def _init_tray(self):
+        self._tray_state = None
+        self._act_dnd = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray = None
+            return
+        self.tray = QSystemTrayIcon(self)
+        m = QMenu()
+        act_come = QAction("이리와", m)
+        self._act_dnd = QAction("조용히 (알림 끔)", m, checkable=True)
+        act_quit = QAction("종료", m)
+        m.addAction(act_come)
+        m.addAction(self._act_dnd)
+        m.addSeparator()
+        m.addAction(act_quit)
+        act_come.triggered.connect(self._come_here)
+        self._act_dnd.triggered.connect(self._toggle_dnd)
+        act_quit.triggered.connect(self._quit)
+        self.tray.setContextMenu(m)
+        self.tray.activated.connect(self._on_tray_activated)
+        self._update_tray_icon(force=True)
+        self.tray.show()
+
+    def _on_tray_activated(self, reason):
+        # left-click (Trigger) mirrors clicking the pet: raise the terminal
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._activate_claude()
+
+    def _update_tray_icon(self, force=False):
+        tray = getattr(self, "tray", None)
+        if tray is None:
+            return
+        st = self.claude_state
+        if not force and st == self._tray_state:
+            return
+        self._tray_state = st
+        tray.setIcon(self._state_icon(st))
+        tray.setToolTip("claude-pet — " + STATE_LABELS.get(st, st))
+
+    def _state_icon(self, state):
+        """Render one representative frame of `state` into a tray QIcon."""
+        u = 2
+        cw, ch = C.GRID_W * u, C.GRID_H * u
+        side = max(cw, ch)
+        pm = QPixmap(side, side)
+        pm.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        ox = (side - cw) // 2
+        oy = (side - ch) // 2
+        C.draw_creature(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
+        p.end()
+        return QIcon(pm)
+
+    # ---------- KWin scripting helper (KDE Wayland) ----------
+    def _run_kwin_script(self, js):
+        """Load, run and unload a one-shot KWin script. Best-effort; never raises."""
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+                f.write(js)
+                path = f.name
+            sid = subprocess.check_output(
+                ["qdbus6", "org.kde.KWin", "/Scripting",
+                 "org.kde.kwin.Scripting.loadScript", path],
+                text=True, timeout=3).strip()
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.start"], timeout=3)
+            subprocess.run(["qdbus6", "org.kde.KWin", f"/Scripting/Script{sid}",
+                            "org.kde.kwin.Script.stop"], timeout=3,
+                           stderr=subprocess.DEVNULL)
+            os.unlink(path)
+        except Exception:
+            pass
 
     # ---------- bring the Claude Code terminal forward (KDE Wayland) ----------
     def _activate_claude(self):
-        js = (
+        self._run_kwin_script(
             'var cs = (typeof workspace.windowList === "function") '
             '? workspace.windowList() : workspace.clientList();'
             'for (var i = 0; i < cs.length; i++) {'
@@ -293,23 +397,21 @@ class Pet(QWidget):
             '  }'
             '}'
         )
-        try:
-            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
-                f.write(js)
-                path = f.name
-            sid = subprocess.check_output(
-                ["qdbus6", "org.kde.KWin", "/Scripting",
-                 "org.kde.kwin.Scripting.loadScript", path],
-                text=True, timeout=3).strip()
-            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
-                            "org.kde.kwin.Scripting.start"], timeout=3)
-            # best-effort unload
-            subprocess.run(["qdbus6", "org.kde.KWin", f"/Scripting/Script{sid}",
-                            "org.kde.kwin.Script.stop"], timeout=3,
-                           stderr=subprocess.DEVNULL)
-            os.unlink(path)
-        except Exception:
-            pass
+
+    # ---------- drop our own taskbar/pager entry (KDE Wayland) ----------
+    def _skip_taskbar(self):
+        self._run_kwin_script(
+            'var cs = (typeof workspace.windowList === "function") '
+            '? workspace.windowList() : workspace.clientList();'
+            'for (var i = 0; i < cs.length; i++) {'
+            '  var c = cs[i];'
+            '  var cap = (c.caption || "").toString().toLowerCase();'
+            '  var rc = (c.resourceClass || "").toString().toLowerCase();'
+            '  if (cap.indexOf("claude-pet") >= 0 || rc.indexOf("claude-pet") >= 0) {'
+            '    c.skipTaskbar = true; c.skipPager = true; c.skipSwitcher = true;'
+            '  }'
+            '}'
+        )
 
     def _cleanup(self):
         try:
@@ -320,7 +422,10 @@ class Pet(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(True)
+    app.setApplicationName("claude-pet")
+    app.setDesktopFileName("claude-pet")
+    # the tray icon keeps the app alive; don't quit when the pet window hides
+    app.setQuitOnLastWindowClosed(False)
     pet = Pet()
     pet.show()
     sys.exit(app.exec())
