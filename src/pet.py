@@ -17,6 +17,7 @@ import sys
 import json
 import math
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -25,7 +26,8 @@ import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QObject, pyqtSlot
+from PyQt6.QtDBus import QDBusConnection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import creature as C
@@ -33,6 +35,7 @@ from state_engine import StateEngine
 import focus
 import hostinfo
 import physics
+import windows
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
@@ -49,6 +52,22 @@ STATE_LABELS = {
 }
 # representative animation frame to freeze for each state's tray icon
 _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
+
+# device-px from the pet window's top down to the creature's feet (legs bottom).
+# creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
+# used to land the FEET on a window's top edge when perching (not the window box).
+FOOT_Y = 89
+
+
+class _GeomReceiver(QObject):
+    """D-Bus object the KWin geometry script pushes window dumps to."""
+    def __init__(self, pet):
+        super().__init__()
+        self._pet = pet
+
+    @pyqtSlot(str)
+    def push(self, dump):
+        self._pet._on_geom(dump)
 
 
 class Pet(QWidget):
@@ -87,6 +106,8 @@ class Pet(QWidget):
         self.claude_state = "sleeping"       # last state the engine reported
         self.dnd = False                     # do-not-disturb
         self._quit_timer = None              # pending SessionEnd -> quit timer
+        self._wins = []                      # last window-geometry poll
+        self._contain = None                 # Win we're living inside, or None
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -106,6 +127,9 @@ class Pet(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / FPS))
+
+        self._geom_script_id = None
+        self._setup_geom_feed()
 
         # drop the taskbar/pager entry once the window is mapped (KWin script)
         QTimer.singleShot(400, self._skip_taskbar)
@@ -189,11 +213,11 @@ class Pet(QWidget):
             # stationary Claude state (working / attention / thinking / ...)
             if eff == "work_search":
                 # quick random horizontal darts while rummaging
+                lft, rgt, _t, _f = self._bounds()
                 if self.target_x is None or abs(self.target_x - self.x) < 4:
                     span = self.w * 3
                     self.target_x = min(max(self.x + random.uniform(-span, span),
-                                            self.screen_rect.left()),
-                                        self.screen_rect.right() - self.w)
+                                            lft), rgt)
                 dx = self.target_x - self.x
                 self.facing = 1 if dx > 0 else -1
                 self.x += max(-6, min(6, dx))     # fast step
@@ -203,18 +227,26 @@ class Pet(QWidget):
         self.update()
 
     def _roam(self):
+        left, right, top, floor = self._bounds()
+        # surface under us dropped away (window closed/moved, or we walked off a
+        # ledge) -> fall to it instead of snapping/teleporting.
+        if self.y < floor - 2:
+            self.vx = 0.0
+            self.vy = 0.0
+            self.mode = "thrown"
+            self.target_x = None
+            return
         if self.walk_pause > 0:
             self.walk_pause -= 1
+            self.y = floor
             self._render_state = self.claude_state
             return
         if self.target_x is None:
-            if random.random() < 0.012:      # occasionally decide to wander
-                margin = self.w
-                self.target_x = random.uniform(self.screen_rect.left(),
-                                                self.screen_rect.right() - margin)
+            if random.random() < 0.012:
+                self.target_x = random.uniform(left, max(left, right))
+            self.y = floor
             self._render_state = self.claude_state
             return
-        # walk toward target
         speed = 2.2
         dx = self.target_x - self.x
         if abs(dx) <= speed:
@@ -225,18 +257,117 @@ class Pet(QWidget):
         else:
             self.facing = 1 if dx > 0 else -1
             self.x += speed * self.facing
-            self.y = self.floor_y
             self._render_state = "walk"
+        self.y = floor
 
     def _physics(self):
-        left = self.screen_rect.left()
-        right = self.screen_rect.right() - self.w
-        top = self.screen_rect.top()
+        left, right, top, floor = self._bounds()
         self.x, self.y, self.vx, self.vy, settled = physics.advance(
-            self.x, self.y, self.vx, self.vy, left, right, top, self.floor_y)
+            self.x, self.y, self.vx, self.vy, left, right, top, floor)
         if settled:
             self.mode = "roam"
         self._render_state = self.claude_state
+
+    def _setup_geom_feed(self):
+        """Register a D-Bus service and start a persistent KWin script that pushes
+        window geometry to it. All KDE-specific; any failure -> feature just off
+        (self._wins stays empty, behaviour == pre-perch)."""
+        try:
+            safe = re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
+            self._dbus_name = "org.claudepet.geom_" + safe
+            self._receiver = _GeomReceiver(self)
+            bus = QDBusConnection.sessionBus()
+            if not bus.registerService(self._dbus_name):
+                self._dbus_name = None
+                return
+            bus.registerObject("/", self._receiver,
+                               QDBusConnection.RegisterOption.ExportAllSlots)
+            self._start_geom_script()
+        except Exception:
+            self._dbus_name = None
+
+    def _start_geom_script(self):
+        svc = self._dbus_name
+        js = (
+            'var SVC="' + svc + '";'
+            'function _dump(){'
+            '  var ws=(typeof workspace.windowList==="function")'
+            '    ?workspace.windowList():workspace.clientList();'
+            '  var o=[];'
+            '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
+            '    if(g&&!c.minimized&&!c.hidden)'          # only currently-visible windows
+            '      o.push(c.internalId+";"+(c.resourceClass||"")+";"'
+            '      +g.x+","+g.y+","+g.width+","+g.height);}'
+            '  callDBus(SVC,"/","","push",o.join("|"));'
+            '}'
+            'function _hook(c){if(!c)return;'
+            '  if((""+(c.resourceClass||"")).toLowerCase().indexOf("claude-pet")>=0)'
+            '    return;'                                  # never react to our own window
+            '  if(c.frameGeometryChanged)c.frameGeometryChanged.connect(_dump);'
+            '  if(c.minimizedChanged)c.minimizedChanged.connect(_dump);}'  # refresh on (un)minimize
+            'var _w=(typeof workspace.windowList==="function")'
+            '  ?workspace.windowList():workspace.clientList();'
+            'for(var i=0;i<_w.length;i++)_hook(_w[i]);'
+            'if(workspace.windowAdded)workspace.windowAdded.connect('
+            '  function(c){_hook(c);_dump();});'
+            'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
+            '_dump();'
+        )
+        # stable plugin name so a re-launched pet for the SAME session replaces
+        # its old script instead of stacking a new one (orphans otherwise pile up
+        # and each keeps re-dumping on every geometry change).
+        self._geom_plugin = "claudepet_geom_" + re.sub(
+            r"[^A-Za-z0-9_]", "_", str(self.session_id))
+        try:
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.unloadScript", self._geom_plugin],
+                           timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+                f.write(js)
+                path = f.name
+            sid = subprocess.check_output(
+                ["qdbus6", "org.kde.KWin", "/Scripting",
+                 "org.kde.kwin.Scripting.loadScript", path, self._geom_plugin],
+                text=True, timeout=3).strip()
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.start"], timeout=3)
+            self._geom_script_id = sid          # persistent — do NOT stop now
+            os.unlink(path)
+        except Exception:
+            pass
+
+    def _on_geom(self, dump):
+        if dump == getattr(self, "_last_dump", None):
+            return                       # coalesce identical pushes (cheap anti-spam)
+        self._last_dump = dump
+        self._wins = windows.parse_kwin_dump(dump)
+        if self._contain is not None:
+            self._contain = next(
+                (w for w in self._wins if w.wid == self._contain.wid), None)
+
+    def _bounds(self):
+        """(left, right, top, floor) for the current context. On the desktop the
+        floor is dynamic — the top edge of whatever window is under us (perch).
+        When contained, bounds are the window's interior."""
+        if self._contain is not None:
+            c = self._contain
+            left = c.x
+            right = max(left, c.x + c.w - self.w)
+            top = c.y
+            floor = max(top, c.y + c.h - self.h)
+            return left, right, top, floor
+        scr = self.screen_rect
+        left = scr.left()
+        right = scr.right() - self.w
+        top = scr.top()
+        cx = self.x + self.w / 2.0
+        feet = self.y + FOOT_Y
+        surface = windows.support_surface_under(cx, self._wins, scr.bottom(), feet)
+        if surface >= scr.bottom():
+            floor = surface - self.h        # screen floor: keep window fully on-screen
+        else:
+            floor = surface - FOOT_Y        # window perch: feet on the top edge
+        return left, right, top, floor
 
     # ---------- painting ----------
     def paintEvent(self, _e):
@@ -280,13 +411,23 @@ class Pet(QWidget):
             self._activate_claude()
             self.mode = "roam"
         else:
-            # compute throw velocity from recent samples
-            if len(self._vel_samples) >= 2:
-                (t0, p0), (t1, p1) = self._vel_samples[0], self._vel_samples[-1]
-                dt = max(1e-3, t1 - t0)
-                self.vx = (p1.x() - p0.x()) / dt / FPS
-                self.vy = (p1.y() - p0.y()) / dt / FPS
-            self.mode = "thrown"
+            cxp = int(self.x + self.w / 2)
+            cyp = int(self.y + self.h / 2)
+            win = windows.window_at(cxp, cyp, self._wins)
+            if win is not None:
+                # dropped onto a window -> live inside it
+                self._contain = win
+                self.mode = "roam"
+                self.target_x = None
+            else:
+                # dropped on the desktop -> leave any window and throw
+                self._contain = None
+                if len(self._vel_samples) >= 2:
+                    (t0, p0), (t1, p1) = self._vel_samples[0], self._vel_samples[-1]
+                    dt = max(1e-3, t1 - t0)
+                    self.vx = (p1.x() - p0.x()) / dt / FPS
+                    self.vy = (p1.y() - p0.y()) / dt / FPS
+                self.mode = "thrown"
         self._press_global = None
 
     def _menu(self, gpos):
@@ -297,6 +438,10 @@ class Pet(QWidget):
         a_quit = QAction("종료", m)
         m.addAction(a_come)
         m.addAction(a_dnd)
+        a_release = None
+        if self._contain is not None:
+            a_release = QAction("창에서 꺼내기", m)
+            m.addAction(a_release)
         m.addSeparator()
         m.addAction(a_quit)
         chosen = m.exec(gpos)
@@ -304,6 +449,8 @@ class Pet(QWidget):
             self._come_here()
         elif chosen == a_dnd:
             self._toggle_dnd()
+        elif a_release is not None and chosen == a_release:
+            self._contain = None
         elif chosen == a_quit:
             self._quit()
 
@@ -429,9 +576,11 @@ class Pet(QWidget):
         # (e.g. an editor whose title merely contains "claude-pet").
         if shutil.which("wmctrl"):
             try:
+                # sticky = show on every virtual desktop, so switching desktops
+                # doesn't make the pet vanish.
                 subprocess.run(
                     ["wmctrl", "-F", "-r", self._wtitle,
-                     "-b", "add,skip_taskbar,skip_pager"],
+                     "-b", "add,skip_taskbar,skip_pager,sticky"],
                     timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
             except Exception:
@@ -446,11 +595,20 @@ class Pet(QWidget):
             '  var rc = (c.resourceClass || "").toString().toLowerCase();'
             '  if (cap.indexOf("claude-pet") >= 0 || rc.indexOf("claude-pet") >= 0) {'
             '    c.skipTaskbar = true; c.skipPager = true; c.skipSwitcher = true;'
+            '    c.onAllDesktops = true;'
             '  }'
             '}'
         )
 
     def _cleanup(self):
+        if getattr(self, "_geom_plugin", None):
+            try:
+                subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                                "org.kde.kwin.Scripting.unloadScript", self._geom_plugin],
+                               timeout=3, stderr=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL)
+            except Exception:
+                pass
         try:
             os.unlink(self.sock_path)
         except OSError:
@@ -459,6 +617,7 @@ class Pet(QWidget):
 
 def main():
     import argparse
+    import signal
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")
@@ -469,6 +628,15 @@ def main():
     app.setDesktopFileName("claude-pet")
     app.setQuitOnLastWindowClosed(False)
     pet = Pet(session_id=args.session, host=args.host)
+    # always tear down the KWin geom script — including on `kill`/SIGTERM, which
+    # otherwise skips _cleanup and leaks a script that keeps pushing geometry.
+    app.aboutToQuit.connect(pet._cleanup)
+    signal.signal(signal.SIGTERM, lambda *_: app.quit())
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    # wake the interpreter periodically so Python signal handlers run under Qt
+    _sig_timer = QTimer()
+    _sig_timer.timeout.connect(lambda: None)
+    _sig_timer.start(300)
     pet.show()
     sys.exit(app.exec())
 
