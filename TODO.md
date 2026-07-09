@@ -14,28 +14,34 @@
 - [ ] 멀티모니터: 배회/바닥(floor) 계산이 primary 스크린 기준만. 3모니터 환경 대응 필요.
 - [ ] 드래그 중(held) 렌더 상태가 어정쩡할 수 있음.
 
-## 🎯 상태 매핑 전면 재설계 (다음 우선순위)
-- [ ] **훅/플래그 인벤토리 → 상태 매핑 설계**: Claude Code가 실제로 쏘는 이벤트가
-      뭐뭐 있고(권한요청, 오토진행, plan 승인, AskUserQuestion, 에러, subagent 등),
-      각각을 어떤 크리처 상태로 보낼지 표로 확정. 지금은 대충 꽂아둠.
-- [ ] **thinking=전구(idea) 어색함** — `UserPromptSubmit`을 전구로 매핑했는데 "생각"
-      느낌과 안 맞음. 다른 표현으로(예: 잠깐 갸웃/로딩) 재고.
-- [ ] **celebrate 후 안정 안 됨** — Stop으로 좋아한 뒤 idle/waiting으로 가라앉아야
-      하는데, 후속 작업이 계속되면 working 재진입 반복. "세션이 진짜 끝났는지 vs
-      아직 진행중인지" 판정과 전환 딜레이/디바운스 설계 필요.
+## 🎯 상태 매핑 전면 재설계 — ✅ 완료 (state_engine.py)
+> 설계: `docs/superpowers/specs/2026-07-09-hook-state-policy-design.md`
+> 계획: `docs/superpowers/plans/2026-07-09-hook-state-policy.md`
+- [x] **훅/이벤트 인벤토리 → 상태 매핑 설계**: 순수 `state_engine.py`로 확정.
+      tool_name별(편집/탐색/웹·전화/서브에이전트/스킬) working 세분화, 우선순위,
+      디바운스(0.8s), idle→sleeping 타임아웃(60s) 정책 구현 + 유닛테스트.
+- [x] **thinking=전구 어색함** — 전구 버리고 "골똘히 고민" 포즈(`ponder`)로 교체.
+- [x] **celebrate 후 안정 안 됨** — Stop이 매 턴 발생하는 게 원인이었음. 이제
+      Stop→포커스면 idle, 백그라운드면 celebrate 1.6s 후 idle로 감쇠. 전구/재진입 해결.
+
+### ⚠️ 남은 이슈 (celebrate 관련)
+- [ ] **포커스 판정이 이 머신에서 미작동** — `kdotool` 미설치라 `focus.terminal_focused()`가
+      항상 True(보수적) → **celebrate가 절대 안 뜸**. "안 볼 때 완료 알림"을 켜려면
+      `kdotool` 설치하거나 KWin 스크립트로 활성창 resourceClass를 읽어오는 fallback 구현 필요.
 
 ## ✨ 추가할 반응/기능
 - [ ] **오토 진행 중 반응** — auto/plan 진행 등 "혼자 쭉 작업"할 때의 전용 상태/애니.
-- [ ] **사용자 의견 묻는 순간 반응** — 권한 요청 / AskUserQuestion / plan 승인 등
-      "너 답 기다려" 상황을 `Notification`(attention)보다 세분화해서 표현.
-      (예: 권한요청 vs 단순 완료대기 구분)
+- [x] **사용자 의견 묻는 순간 반응** — `Notification{permission_prompt}`→attention,
+      `idle_prompt`→sleeping으로 구분 완료. (plan 승인/AskUserQuestion 세분화는 여지 남음)
 - [ ] **말풍선에 실제 텍스트** — 지금은 `...`만. 상태별 짧은 대사 한 글자씩 타이핑
       (예: "고민중...", "이거 맞아?", "다 됐다!").
 - [ ] 완료(celebrate)→대기 전환 타이밍/연출 다듬기.
-- [ ] 에러 상태 실제 트리거 연결(PostToolUse 실패 감지 등). 현재 미연결.
+- [x] 에러 상태 실제 트리거 연결 — `StopFailure` 훅 → `error` 상태로 연결 완료.
 
 ## 🎨 아트/폴리시
 - [ ] 걷기 사이클·방향전환(좌우 반전) 자연스럽게.
+- [ ] **새 상태 아트 튜닝** — work_search/work_web 등 새 prop 아이콘이 작은 픽셀
+      스케일에서 다소 밋밋. `python3 src/creature.py`로 스프라이트시트 보며 손보기.
 - [ ] 진짜 도트 스프라이트 or GIF override(`assets/<state>.gif`) 렌더 지원(현재 미구현).
 - [ ] 창 위 올라타기(window perching) — 다른 창 지오메트리 필요, Wayland 난이도 높음(v2).
 
@@ -45,5 +51,7 @@
 - [ ] 여러 데스크톱 환경(비-KDE, X11 순정) 폴백 동작 확인.
 
 ---
-_현재 검증된 것_: 데스크톱 상주·배회·8상태 렌더·훅 소켓 전환·좌클릭 KWin 배관.
-_미검증_: 실제 새 세션 자동반응(이 세션은 훅 등록 전 기동), 드래그 던지기, 우클릭 동작.
+_현재 검증된 것_: state_engine 정책 로직(유닛테스트 22개), 12상태 렌더(오프스크린),
+훅 페이로드 전달, 데스크톱 상주·배회·좌클릭 KWin 배관.
+_미검증(사람 확인 필요)_: 실 세션 GUI 반응 end-to-end, 포커스-게이트 celebrate(kdotool 필요),
+드래그 던지기, 우클릭 동작.
