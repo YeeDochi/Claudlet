@@ -31,12 +31,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import creature as C
 from state_engine import StateEngine
 import focus
+import hostinfo
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
 FPS = 20
-SOCK_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "claude-pet.sock")
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
 
 # short label per state, shown as the tray tooltip
@@ -51,7 +51,7 @@ _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 
 
 class Pet(QWidget):
-    def __init__(self):
+    def __init__(self, session_id="default", host="unknown"):
         super().__init__()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -60,8 +60,14 @@ class Pet(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        # distinctive caption so the KWin skip-taskbar script can find our window
-        self.setWindowTitle("claude-pet")
+        # per-session identity: unique caption lets the skip-taskbar match hit
+        # only THIS pet, and the per-session socket isolates its event stream.
+        self.session_id = session_id
+        self.host = host
+        self.host_classes = hostinfo.host_classes(host)
+        self._wtitle = "claude-pet-" + str(session_id)
+        self.setWindowTitle(self._wtitle)
+        self.sock_path = hostinfo.session_sock(session_id)
 
         self.w = (C.GRID_W + 2 * PAD_X) * U
         self.h = (C.GRID_H + 2 * PAD_Y) * U
@@ -70,13 +76,13 @@ class Pet(QWidget):
         scr = QApplication.primaryScreen().availableGeometry()
         self.screen_rect = scr
         self.floor_y = scr.bottom() - self.h
-        self.x = float(scr.left() + scr.width() // 2)
+        self.x = float(random.uniform(scr.left(), max(scr.left(), scr.right() - self.w)))
         self.y = float(self.floor_y)
         self.move(int(self.x), int(self.y))
 
         self.frame = 0
         self.facing = 1
-        self.engine = StateEngine(is_focused=focus.terminal_focused)
+        self.engine = StateEngine(is_focused=self._is_focused)
         self.claude_state = "sleeping"       # last state the engine reported
         self.dnd = False                     # do-not-disturb
 
@@ -105,11 +111,11 @@ class Pet(QWidget):
     # ---------- Claude Code hook socket ----------
     def _init_socket(self):
         try:
-            os.unlink(SOCK_PATH)
+            os.unlink(self.sock_path)
         except FileNotFoundError:
             pass
         self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.srv.bind(SOCK_PATH)
+        self.srv.bind(self.sock_path)
         self.srv.listen(16)
         self.srv.setblocking(False)
         self.notifier = QSocketNotifier(self.srv.fileno(), QSocketNotifier.Type.Read, self)
@@ -141,6 +147,13 @@ class Pet(QWidget):
 
     def _handle_event(self, ev):
         self.engine.handle(ev, time.monotonic())
+        name = ev.get("event") or ev.get("hook_event_name") or ""
+        if name == "SessionEnd":
+            # this pet belongs to one session; when it ends, wind down
+            QTimer.singleShot(1200, self._quit)
+
+    def _is_focused(self):
+        return focus.terminal_focused(self.host_classes)
 
     # ---------- main loop ----------
     def _tick(self):
@@ -385,16 +398,22 @@ class Pet(QWidget):
 
     # ---------- bring the Claude Code terminal forward (KDE Wayland) ----------
     def _activate_claude(self):
+        classes = self.host_classes or ["konsole"]
+        want = "[" + ",".join('"%s"' % c for c in classes) + "]"
         self._run_kwin_script(
+            'var want = ' + want + ';'
             'var cs = (typeof workspace.windowList === "function") '
             '? workspace.windowList() : workspace.clientList();'
             'for (var i = 0; i < cs.length; i++) {'
             '  var c = cs[i];'
             '  var rc = (c.resourceClass || "").toString().toLowerCase();'
-            '  if (rc.indexOf("konsole") >= 0) {'
+            '  var hit = false;'
+            '  for (var j = 0; j < want.length; j++) {'
+            '    if (rc.indexOf(want[j]) >= 0) { hit = true; break; }'
+            '  }'
+            '  if (hit) {'
             '    try { workspace.activeWindow = c; } catch (e) { workspace.activeClient = c; }'
-            '    c.minimized = false;'
-            '    break;'
+            '    c.minimized = false; break;'
             '  }'
             '}'
         )
@@ -408,7 +427,7 @@ class Pet(QWidget):
         if shutil.which("wmctrl"):
             try:
                 subprocess.run(
-                    ["wmctrl", "-F", "-r", "claude-pet",
+                    ["wmctrl", "-F", "-r", self._wtitle,
                      "-b", "add,skip_taskbar,skip_pager"],
                     timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
@@ -430,18 +449,23 @@ class Pet(QWidget):
 
     def _cleanup(self):
         try:
-            os.unlink(SOCK_PATH)
+            os.unlink(self.sock_path)
         except OSError:
             pass
 
 
 def main():
-    app = QApplication(sys.argv)
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--session", default="default")
+    ap.add_argument("--host", default="unknown")
+    args, _ = ap.parse_known_args()
+
+    app = QApplication(sys.argv[:1])          # keep our flags away from Qt
     app.setApplicationName("claude-pet")
     app.setDesktopFileName("claude-pet")
-    # the tray icon keeps the app alive; don't quit when the pet window hides
     app.setQuitOnLastWindowClosed(False)
-    pet = Pet()
+    pet = Pet(session_id=args.session, host=args.host)
     pet.show()
     sys.exit(app.exec())
 

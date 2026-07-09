@@ -15,3 +15,13 @@ def test_pet_constructs_and_uses_engine():
     p._tick()
     assert p.claude_state == "work_computer"
     p._cleanup()
+
+
+def test_pet_is_session_and_host_aware():
+    p = P.Pet(session_id="sess-x", host="vscode")
+    try:
+        assert p.host_classes == ["code"]
+        assert p.sock_path.endswith("claude-pet-sess-x.sock")
+        assert p._wtitle == "claude-pet-sess-x"
+    finally:
+        p._cleanup()
