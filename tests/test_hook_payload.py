@@ -1,12 +1,10 @@
 import sys, os, json, types
 
 HOOK = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-hook")
-
-# Load the script without .py extension using exec
-with open(HOOK) as f:
-    code = f.read()
 mod = types.ModuleType("claude_pet_hook")
-exec(code, mod.__dict__)
+mod.__file__ = HOOK
+with open(HOOK) as f:
+    exec(compile(f.read(), HOOK, "exec"), mod.__dict__)
 
 
 def test_pretooluse_forwards_tool_name():
@@ -26,7 +24,12 @@ def test_notification_forwards_type():
 
 
 def test_missing_fields_omitted():
-    msg = json.loads(mod.build_message(["claude-pet-hook", "Stop"],
-                                       {"session_id": "s1"}))
+    msg = json.loads(mod.build_message(["claude-pet-hook", "Stop"], {"session_id": "s1"}))
     assert msg["event"] == "Stop"
     assert "tool_name" not in msg
+
+
+def test_sock_for_uses_session(monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    assert mod.sock_for({"session_id": "xyz"}) == "/run/user/1000/claude-pet-xyz.sock"
+    assert mod.sock_for({}) == "/run/user/1000/claude-pet-default.sock"
