@@ -3,7 +3,7 @@
 
 Registered in ~/.claude/settings.json for each hook event. Claude Code invokes
 it with the event name as argv[1] and the hook payload as JSON on stdin. It
-sends {"event", "session"} to the pet's unix socket and exits 0 immediately.
+sends a small JSON line to the pet's unix socket and exits 0 immediately.
 
 Must never block or fail Claude: any error is swallowed and exit is always 0.
 """
@@ -15,6 +15,17 @@ import socket
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "claude-pet.sock")
 
 
+def build_message(argv, data):
+    """Build the JSON line to send to the pet. Pure; unit-tested."""
+    event = (argv[1] if len(argv) > 1 else "") or data.get("hook_event_name", "")
+    msg = {"event": event, "session": data.get("session_id") or "default"}
+    for key in ("tool_name", "notification_type", "error_type"):
+        val = data.get(key)
+        if val:
+            msg[key] = val
+    return json.dumps(msg) + "\n"
+
+
 def main():
     raw = ""
     try:
@@ -22,24 +33,20 @@ def main():
             raw = sys.stdin.read()
     except Exception:
         pass
-    data = {}
     try:
         data = json.loads(raw) if raw.strip() else {}
     except Exception:
         data = {}
 
-    event = (sys.argv[1] if len(sys.argv) > 1 else "") or data.get("hook_event_name", "")
-    session = data.get("session_id") or "default"
-    msg = (json.dumps({"event": event, "session": session}) + "\n").encode()
-
     try:
+        payload = build_message(sys.argv, data).encode()
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(0.3)
         s.connect(SOCK)
-        s.sendall(msg)
+        s.sendall(payload)
         s.close()
     except Exception:
-        pass  # pet not running — ignore silently
+        pass  # pet not running or any error — ignore silently
 
 
 if __name__ == "__main__":
