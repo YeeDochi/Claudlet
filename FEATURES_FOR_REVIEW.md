@@ -25,12 +25,12 @@
 - **직접 봐야 할 것 (리뷰 시)**: 문구·위치·타이핑 속도가 취향에 맞는지 (아트 튜닝 여지). attention이 `!` 대신 "이거 맞아?" 텍스트로 바뀐 게 나은지 아니면 `!`도 같이 둘지.
 - **주의**: `feat/session-bound-pets`와 독립 브랜치(둘 다 master에서 분기, 파일 겹침 없음) — 순서 상관없이 각각 머지 가능.
 
-### ✅ `feat/claude-pet-skill` — `/claude-pet` 스킬 (그냥 펫 하나 띄우기)
+### 🟢 `feat/claude-pet-skill` — `/claude-pet` 스킬 — **MERGED (2026-07-10)**
 - **브랜치**: `feat/claude-pet-skill`. 코드 변경 없음(스킬 파일 + README).
 - **한 것**: `skills/claude-pet/SKILL.md` 신설 — `/claude-pet`(또는 "펫 띄워") 입력 시 펫 하나를 detached 실행. README에 활성화법(심볼릭 링크) 추가.
 - **직접 봐야 할 것**: `ln -s ~/claude-pet/skills/claude-pet ~/.claude/skills/claude-pet` 후 `/claude-pet` 쳐서 펫 뜨는지.
 
-### ✅ `feat/physics` — 제대로 된 드래그-던지기 물리
+### 🟢 `feat/physics` — 드래그-던지기 물리 — **MERGED (2026-07-10)**
 - **브랜치**: `feat/physics`. 테스트 43/43.
 - **한 것**: 인라인 `_physics`를 순수 `src/physics.py`로 추출 + 개선(중력·**공기저항**·벽/바닥 반발·**속도 상한 V_MAX**·정착 판정). 유닛테스트로 낙하·정착, 반발 에너지 감소, 화면 밖 안 나감, 속도 클램프 검증.
 - **직접 봐야 할 것 (리뷰 시)**: 실제로 드래그해서 던졌을 때 **느낌**(세기·바운스·마찰) — 상수(GRAVITY/AIR_DRAG/…RESTITUTION) 취향대로 튜닝 여지.
@@ -41,8 +41,8 @@
 |---|---|---|---|
 | 1 | `feat/session-bound-pets` 🟢 | **MERGED — 훅 설치 완료, 새 세션에서 자동 실행.** | — |
 | 2 | `feat/bubble-text` 🟢 | **MERGED.** | — |
-| 3 | `feat/claude-pet-skill` ✅ | **완성 — 리뷰 대기.** `/claude-pet`로 펫 띄우기 | 사용자 요청 top-3 |
-| 4 | `feat/physics` ✅ | **완성 — 리뷰 대기.** 드래그-던지기 물리 개선 | 사용자 요청 top-3 |
+| 3 | `feat/claude-pet-skill` 🟢 | **MERGED.** | — |
+| 4 | `feat/physics` 🟢 | **MERGED.** | — |
 | 5 | `feat/window-perch` 📋 | **창 위 올라타기** (KDE 전용, 게이팅) — 3동작: 창 상단바 올라타기 / 창 안 갇히기 / 드래그해서 넣기. 큰 기능이라 스펙 먼저 | 사용자 요청 top-3. 제일 큼 |
 | 6 | `feat/held-render` 📋 | 드래그 중(held) 렌더 상태 정리 | 작고 안전 |
 | 7 | `feat/multimonitor` 📋 | 배회·바닥 계산 전체 모니터 기준 (3모니터) | 멀티모니터 실사용 |
