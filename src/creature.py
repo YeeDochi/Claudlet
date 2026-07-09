@@ -18,7 +18,9 @@ import math
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QRectF
 
-STATES = ("idle", "walk", "working", "thinking", "attention", "error", "celebrate", "waiting")
+STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
+          "work_agent", "work_skill", "thinking", "attention",
+          "error", "celebrate", "sleeping")
 
 ORANGE   = QColor("#D97757")
 ORANGE_L = QColor("#ECA184")   # top bevel / highlight
@@ -61,14 +63,33 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         bob = abs(_sin(frame, 12, 0.9))
         legphase = (frame / 12.0) % 1.0
         tilt = _sin(frame, 12, 2.0)
-    elif state == "working":
+    elif state == "work_computer":
         bob = _sin(frame, 30, 0.3)                # gentle head bob while typing
         eyes = "focus"
         prop = "laptop"
-    elif state == "thinking":
-        bob = _sin(frame, 40, 0.4)
+    elif state == "work_search":
+        bob = abs(_sin(frame, 6, 0.7))            # busy little bounce
+        legphase = (frame / 6.0) % 1.0            # fast legs
+        tilt = _sin(frame, 6, 3.5)                # quick side-to-side lean
+        eyes = "focus"
+        prop = "magnify"
+    elif state == "work_web":
+        bob = _sin(frame, 40, 0.3)
         eyes = "up"
-        prop = "bulb"
+        prop = "phone"
+    elif state == "work_agent":
+        bob = _sin(frame, 34, 0.4)
+        eyes = "open"
+        prop = "clones"
+    elif state == "work_skill":
+        bob = _sin(frame, 28, 0.5)
+        eyes = "happy"
+        prop = "hat"
+    elif state == "thinking":
+        bob = _sin(frame, 46, 0.35)
+        tilt = _sin(frame, 92, 3.0)               # slow head cant, "hmm"
+        eyes = "up"
+        prop = "ponder"
     elif state == "attention":
         t = (frame % 22) / 22.0
         j = max(0.0, math.sin(t * math.pi)) * 3.2
@@ -91,13 +112,14 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         sx = 1.0 - 0.08 * (j / 5.5)
         legphase = 0.5  # tucked
         eyes = "happy"
-    elif state == "waiting":
+    elif state == "sleeping":
         bob = _sin(frame, 50, 0.4)
         eyes = "sleep"
         prop = "zzz"
 
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
-    arm = {"working": "none", "attention": "up", "celebrate": "up"}.get(state, "side")
+    arm = {"work_computer": "none", "attention": "up",
+           "celebrate": "up"}.get(state, "side")
     arm_swing = _sin(frame, 12, 0.5) if state == "walk" else 0.0
 
     # ---- geometry (art-pixel space), origin at ox,oy ----
@@ -128,7 +150,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         if state == "walk":
             ph = (legphase + (0.5 if i % 2 else 0.0)) % 1.0
             lift = max(0.0, math.sin(ph * math.pi)) * 1.3
-        if state == "working" and i >= 2:      # front two legs tap
+        if state == "work_computer" and i >= 2:  # front two legs tap
             lift = front_tap
         if state == "celebrate":
             lift = 1.6
@@ -243,6 +265,39 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         f2 = QFont("Sans"); f2.setPointSizeF(1.8 * u); f2.setBold(True); p.setFont(f2)
         p.drawText(int(ox + 19.4 * u), int(oy + (2.2 + bob) * u), "Z")
         p.setPen(Qt.PenStyle.NoPen)
+    elif prop == "ponder":
+        # slow "?" that fades in over the head
+        if (frame % 90) > 20:
+            p.setPen(QPen(ZTXT)); f = QFont("Sans"); f.setPointSizeF(1.8 * u)
+            f.setBold(True); p.setFont(f)
+            p.drawText(int(ox + 18 * u), int(oy + (3.2 + bob) * u), "?")
+            p.setPen(Qt.PenStyle.NoPen)
+    elif prop == "magnify":
+        # a little magnifying glass held out front
+        rect(17.6, 6.2, 2.6, 2.6, QColor("#BFC7D0"))     # lens ring
+        rect(18.1, 6.7, 1.6, 1.6, QColor("#9FD3E8"))     # glass
+        rect(19.4, 8.4, 1.4, 1.2, ORANGE_D)              # handle
+    elif prop == "phone":
+        # a chunky handset held to the head; slow "ring" dots
+        rect(2.0, 6.0, 1.6, 3.0, QColor("#2A2A30"))      # handset body
+        rect(1.7, 5.7, 2.2, 0.9, QColor("#2A2A30"))      # ear piece
+        if (frame % 40) < 20:
+            rect(0.4, 4.4, 0.8, 0.8, BULB_L)             # ~ ring spark
+    elif prop == "clones":
+        # two mini creatures filing out to the right, bobbing in sequence
+        for k in range(2):
+            mb = _sin(frame, 18, 0.6, phase=k * 0.5)
+            bx = 18.5 + k * 2.2
+            rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
+            rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
+            rect(bx + 0.3, 10.1 + mb, 0.4, 0.5, EYE)     # eye
+    elif prop == "hat":
+        # party/wizard cone hat + a sparkle
+        rect(9.0, 2.0, 3.0, 0.7, QColor("#6C5CE7"))      # brim
+        rect(9.7, 0.6, 1.6, 1.6, QColor("#8E7CFF"))      # cone
+        rect(10.1, 0.1, 0.8, 0.8, BULB_L)                # pom
+        if (frame % 30) < 15:
+            rect(13.0, 1.4, 0.9, 0.9, BULB_L)            # sparkle
 
 
 # ---------- standalone mockup renderer ----------
@@ -253,10 +308,14 @@ if __name__ == "__main__":
     from PyQt6.QtCore import Qt, QRectF
     app = QGuiApplication(sys.argv)
 
-    labels = {"idle": "대기", "walk": "걷기", "working": "작업 중(fixing)",
-              "thinking": "생각(idea)", "attention": "봐줘!(입력대기)", "error": "에러",
-              "celebrate": "완료/신남", "waiting": "대기 오래"}
-    order = ["idle", "walk", "working", "thinking", "attention", "celebrate", "error", "waiting"]
+    labels = {"idle": "대기", "walk": "걷기", "work_computer": "코딩 중(노트북)",
+              "work_search": "검색 중(돋보기)", "work_web": "웹/전화",
+              "work_agent": "에이전트(분신)", "work_skill": "스킬(모자)",
+              "thinking": "생각 중(음...)", "attention": "봐줘!(입력대기)",
+              "celebrate": "완료/신남", "error": "에러", "sleeping": "쿨쿨(수면)"}
+    order = ["idle", "walk", "work_computer", "work_search", "work_web",
+             "work_agent", "work_skill", "thinking", "attention",
+             "celebrate", "error", "sleeping"]
     # show two animation frames per state to convey motion
     u = 7
     cellw, cellh = 210, 190
@@ -280,11 +339,11 @@ if __name__ == "__main__":
         # draw creature roughly centered
         gx = x0 + (cellw - GRID_W * u) / 2
         gy = y0 + (cellh - GRID_H * u) / 2 - 6
-        frame = 100 if st == "working" else (6 if st == "walk" else 3)
+        frame = 100 if st == "work_computer" else (6 if st == "walk" else 3)
         draw_creature(p, gx, gy, u, st, frame)
         p.setPen(QPen(QColor("#D7D7DC"))); p.setFont(QFont("Sans", 12))
         p.drawText(QRectF(x0, y0 + cellh - 40, cellw, 24), Qt.AlignmentFlag.AlignCenter, labels[st])
         p.setPen(Qt.PenStyle.NoPen)
     p.end()
-    out = "/tmp/claude-1000/-home-ljh/1e61dd01-ce40-4224-af6c-7be72cc88530/scratchpad/creature_sheet.png"
+    out = "/tmp/claude-1000/-home-ljh-claude-pet/5889553d-2ce9-417e-9219-ed810ce8ee42/scratchpad/creature_sheet.png"
     img.save(out); print("saved", out)
