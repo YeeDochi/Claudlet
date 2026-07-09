@@ -1,39 +1,58 @@
-"""Best-effort probe: is the Claude terminal (Konsole) the active window?
+"""Best-effort probe: is the Claude Code host window the active window?
 
-KDE Wayland does not expose the active window's class over plain DBus, and X
-tools cannot see native Wayland clients. We try `kdotool` (a KWin-scripting
-CLI) first; if it is absent or fails, we report "unknown" and the caller treats
-that conservatively (assume focused -> no celebrate). Enabling reliable
-detection is the spike: if kdotool is not acceptable, replace
-`_active_window_class` with a persistent KWin script that emits the active
-window's resourceClass over DBus.
+Used to gate `celebrate` (fire only when the user is looking elsewhere). On
+KDE Wayland the active window's class isn't exposed over plain DBus, so we try
+`kdotool` first, then `xprop _NET_ACTIVE_WINDOW` (works for X/XWayland clients
+like VS Code or Konsole-under-X). When detection is unavailable we report
+"focused" conservatively, which suppresses celebrate rather than misfiring it.
 """
 import shutil
 import subprocess
 
-TERMINAL_CLASSES = ("konsole",)   # extend if other terminals are used
+
+def _run(cmd):
+    return subprocess.check_output(cmd, text=True, timeout=2).strip()
 
 
-def _active_window_class():
-    """Return the active window's class lowercased, or None if undetectable."""
-    kdotool = shutil.which("kdotool")
-    if not kdotool:
+def _active_via_kdotool():
+    if not shutil.which("kdotool"):
         return None
     try:
-        wid = subprocess.check_output([kdotool, "getactivewindow"],
-                                      text=True, timeout=2).strip()
+        wid = _run(["kdotool", "getactivewindow"])
         if not wid:
             return None
-        cls = subprocess.check_output(
-            [kdotool, "getwindowclassname", wid],
-            text=True, timeout=2).strip().lower()
-        return cls or None
+        return (_run(["kdotool", "getwindowclassname", wid]).lower() or None)
     except Exception:
         return None
 
 
-def terminal_focused():
+def _active_via_xprop():
+    if not shutil.which("xprop"):
+        return None
+    try:
+        out = _run(["xprop", "-root", "_NET_ACTIVE_WINDOW"])
+        wid = out.split()[-1]
+        if not wid.startswith("0x"):
+            return None
+        cls = _run(["xprop", "-id", wid, "WM_CLASS"])
+        quoted = cls.split('"')[1::2]          # ['instance', 'Class']
+        return (quoted[-1].lower() if quoted else None)
+    except Exception:
+        return None
+
+
+def _active_window_class():
+    """Active window's class lowercased, or None if undetectable."""
+    return _active_via_kdotool() or _active_via_xprop()
+
+
+def terminal_focused(classes):
+    """True if the active window matches any of `classes` (host window class
+    substrings). Empty `classes` (unknown host) or undetectable active window
+    -> True (conservative: suppress celebrate)."""
+    if not classes:
+        return True
     cls = _active_window_class()
     if cls is None:
-        return True   # conservative: unknown -> assume focused, suppress celebrate
-    return any(t in cls for t in TERMINAL_CLASSES)
+        return True
+    return any(c in cls for c in classes)
