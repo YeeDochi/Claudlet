@@ -20,8 +20,11 @@ try:
     _HERE = os.path.dirname(os.path.abspath(__file__))
 except NameError:
     _HERE = os.getcwd()
-sys.path.insert(0, os.path.join(_HERE, "..", "src"))
-import hostinfo
+try:
+    sys.path.insert(0, os.path.join(_HERE, "..", "src"))
+    import hostinfo
+except Exception:
+    hostinfo = None
 
 
 def build_message(argv, data):
@@ -67,6 +70,8 @@ def _send(sock_path, payload):
 
 
 def main():
+    if hostinfo is None:
+        return
     raw = ""
     try:
         if not sys.stdin.isatty():
@@ -97,5 +102,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        pass
     sys.exit(0)   # hooks must always succeed

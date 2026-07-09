@@ -25,3 +25,14 @@ def test_pet_is_session_and_host_aware():
         assert p._wtitle == "claude-pet-sess-x"
     finally:
         p._cleanup()
+
+
+def test_sessionend_quit_is_cancelled_by_later_event():
+    p = P.Pet(session_id="q1")
+    try:
+        p._handle_event({"event": "SessionEnd", "session": "q1"})
+        assert p._quit_timer is not None          # quit armed
+        p._handle_event({"event": "UserPromptSubmit", "session": "q1"})
+        assert p._quit_timer is None              # a later event cancels it
+    finally:
+        p._cleanup()

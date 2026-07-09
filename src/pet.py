@@ -85,6 +85,7 @@ class Pet(QWidget):
         self.engine = StateEngine(is_focused=self._is_focused)
         self.claude_state = "sleeping"       # last state the engine reported
         self.dnd = False                     # do-not-disturb
+        self._quit_timer = None              # pending SessionEnd -> quit timer
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -149,8 +150,22 @@ class Pet(QWidget):
         self.engine.handle(ev, time.monotonic())
         name = ev.get("event") or ev.get("hook_event_name") or ""
         if name == "SessionEnd":
-            # this pet belongs to one session; when it ends, wind down
-            QTimer.singleShot(1200, self._quit)
+            self._arm_quit()          # session ended -> wind down (cancellable)
+        else:
+            self._cancel_quit()       # any other event means the session lives on
+
+    def _arm_quit(self):
+        self._cancel_quit()
+        t = QTimer(self)
+        t.setSingleShot(True)
+        t.timeout.connect(self._quit)
+        t.start(1500)
+        self._quit_timer = t
+
+    def _cancel_quit(self):
+        if self._quit_timer is not None:
+            self._quit_timer.stop()
+            self._quit_timer = None
 
     def _is_focused(self):
         return focus.terminal_focused(self.host_classes)
