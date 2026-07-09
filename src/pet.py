@@ -305,13 +305,21 @@ class Pet(QWidget):
             'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
             '_dump();'
         )
+        # stable plugin name so a re-launched pet for the SAME session replaces
+        # its old script instead of stacking a new one (orphans otherwise pile up
+        # and each keeps re-dumping on every geometry change).
+        self._geom_plugin = "claudepet_geom_" + re.sub(
+            r"[^A-Za-z0-9_]", "_", str(self.session_id))
         try:
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.unloadScript", self._geom_plugin],
+                           timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
             with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
                 f.write(js)
                 path = f.name
             sid = subprocess.check_output(
                 ["qdbus6", "org.kde.KWin", "/Scripting",
-                 "org.kde.kwin.Scripting.loadScript", path],
+                 "org.kde.kwin.Scripting.loadScript", path, self._geom_plugin],
                 text=True, timeout=3).strip()
             subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
                             "org.kde.kwin.Scripting.start"], timeout=3)
@@ -574,12 +582,12 @@ class Pet(QWidget):
         )
 
     def _cleanup(self):
-        if getattr(self, "_geom_script_id", None):
+        if getattr(self, "_geom_plugin", None):
             try:
-                subprocess.run(["qdbus6", "org.kde.KWin",
-                                "/Scripting/Script" + self._geom_script_id,
-                                "org.kde.kwin.Script.stop"], timeout=3,
-                               stderr=subprocess.DEVNULL)
+                subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                                "org.kde.kwin.Scripting.unloadScript", self._geom_plugin],
+                               timeout=3, stderr=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL)
             except Exception:
                 pass
         try:
