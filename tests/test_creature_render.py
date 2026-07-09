@@ -10,7 +10,7 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 EXPECTED = {"thinking", "work_computer", "work_search", "work_web",
             "work_agent", "work_skill", "attention", "idle",
-            "celebrate", "sleeping", "error", "walk"}
+            "celebrate", "sleeping", "error", "walk", "held", "falling"}
 
 
 def test_states_present():
