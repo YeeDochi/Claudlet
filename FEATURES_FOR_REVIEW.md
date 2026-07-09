@@ -44,7 +44,7 @@
 | 3 | `feat/claude-pet-skill` 🟢 | **MERGED.** | — |
 | 4 | `feat/physics` 🟢 | **MERGED.** | — |
 | 5 | `feat/window-perch` 🟢 | **MERGED (2026-07-10).** 창 안에 담기(방)+상단 착지, minimized 제외, sticky, KWin+DBus. | — |
-| 6 | `feat/held-fall-anim` 🚧 | **떨어지는 애니 + 커서로 잡혀 이동 중(held) 애니** | 사용자 요청 |
+| 6 | `feat/held-fall-anim` 🟢 | **MERGED.** held=웃으며 대롱대롱 / falling=쭉 늘어남 | — |
 | 7 | `feat/multimonitor` 📋 | 배회·바닥 계산 전체 모니터 기준 (3모니터) | 멀티모니터 실사용 |
 | 8 | `feat/auto-run-state` 📋 | 오토/plan 전용 상태/애니 | 상태 표현 확장 |
 | 9 | `feat/walk-polish` 📋 | 걷기 사이클 자연스럽게 (좌우반전 텍스트 버그는 이미 master서 픽스됨) | 아트, 후순위 |
