@@ -1,34 +1,54 @@
 ---
 name: claude-pet
-description: Launch the claude-pet desktop buddy — a pixel creature that roams your screen and reacts to Claude Code. Use when the user types "/claude-pet" or says "펫 띄워", "펫 켜", "start the pet", "run claude-pet", or otherwise wants the desktop pet running.
+description: Launch/attach the claude-pet desktop buddy. "/claude-pet" attaches a pet to the CURRENT Claude Code session so it reacts to this session's activity; "/claude-pet standalone" launches an unattached roaming pet. Use when the user types "/claude-pet", "펫 띄워", "펫 붙여", "start the pet".
 ---
 
 # claude-pet — launch the desktop buddy
 
-When invoked, launch **one** claude-pet instance, detached so it keeps running
-after this shell/session ends. The pet is a frameless, roaming pixel creature
-that reacts to Claude Code hook events.
+A frameless roaming pixel creature. By default this **attaches** a pet to the
+**current session** (so it reacts to this session's Claude Code activity). Pass
+`standalone` for an unattached one.
 
-## Steps
+## Default: attach to THIS session
 
-1. **Locate the launcher.** It is normally at `~/claude-pet/bin/claude-pet`.
-   If that file does not exist, ask the user where they cloned claude-pet and
-   use that path.
-
-2. **Launch it detached** (so it outlives the current shell):
+1. **Find this session's id.** The transcript being written right now is the
+   newest `*.jsonl` under `~/.claude/projects/`:
    ```bash
-   setsid ~/claude-pet/bin/claude-pet >/dev/null 2>&1 < /dev/null & disown
+   SID=$(ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 | xargs -n1 basename | sed 's/\.jsonl$//')
    ```
 
-3. **Confirm it started:**
+2. **Detect the host app** (terminal/IDE) so click-to-focus targets the right window:
    ```bash
-   pgrep -f "src/pet.py" >/dev/null && echo "claude-pet running 🐾" || echo "failed — check ~/claude-pet and that PyQt6 is installed"
+   HOST=$(python3 -c "import sys; sys.path.insert(0, '$HOME/claude-pet/src'); import hostinfo; print(hostinfo.detect_host())")
    ```
+
+3. **Skip if one is already attached, else launch it bound to the session:**
+   ```bash
+   SOCK="${XDG_RUNTIME_DIR:-/tmp}/claude-pet-$SID.sock"
+   if python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(0.3); s.connect('$SOCK')" 2>/dev/null; then
+       echo "already attached to this session 🐾"
+   else
+       setsid ~/claude-pet/bin/claude-pet --session "$SID" --host "$HOST" >/dev/null 2>&1 < /dev/null & disown
+       echo "attached to session $SID (host=$HOST) 🐾"
+   fi
+   ```
+
+**Reactions require hooks.** The pet only reacts to this session if the
+claude-pet hooks are installed (`~/claude-pet/bin/claude-pet-install-hooks`) AND
+this session loaded them. If hooks were installed *after* this session started,
+restart the session (or the pet attaches but stays idle). New sessions
+auto-attach their own pet via the SessionStart hook, so `/claude-pet` is mainly
+for sessions that predate the install, or to bring a closed pet back.
+
+## `standalone` — an unattached roaming pet
+
+If the user said "standalone" (or just wants a decorative pet that reacts to no
+particular session):
+```bash
+setsid ~/claude-pet/bin/claude-pet >/dev/null 2>&1 < /dev/null & disown
+echo "standalone pet running 🐾"
+```
 
 ## Notes
-
-- This skill only **launches** a pet. It does not install hooks or edit
-  settings. The per-session auto-launch + reactions are set up separately via
-  `~/claude-pet/bin/claude-pet-install-hooks`.
-- If a pet is already running this just adds another one; that's fine (each is
-  independent). To stop one, right-click it → 종료.
+- Multiple pets are fine — each is independent. Stop one via right-click → 종료.
+- This skill never installs hooks or edits settings; it only launches a pet.
