@@ -93,10 +93,18 @@ class Pet(QWidget):
         self.h = (C.GRID_H + 2 * PAD_Y) * U
         self.setFixedSize(self.w, self.h)
 
-        scr = QApplication.primaryScreen().availableGeometry()
-        self.screen_rect = scr
-        self.floor_y = scr.bottom() - self.h
-        self.x = float(random.uniform(scr.left(), max(scr.left(), scr.right() - self.w)))
+        primary = QApplication.primaryScreen().availableGeometry()
+        # Roam across ALL monitors: screen_rect is the union of every screen's
+        # available area (drives horizontal roam/physics bounds); per-monitor
+        # floors are resolved per-x in _screen_bottom_at so the pet doesn't
+        # bounce at the primary monitor's edge.
+        self._screens = [s.availableGeometry() for s in QApplication.screens()]
+        union = self._screens[0]
+        for g in self._screens[1:]:
+            union = union.united(g)
+        self.screen_rect = union
+        self.floor_y = primary.bottom() - self.h
+        self.x = float(random.uniform(primary.left(), max(primary.left(), primary.right() - self.w)))
         self.y = float(self.floor_y)
         self.move(int(self.x), int(self.y))
 
@@ -375,12 +383,22 @@ class Pet(QWidget):
         top = scr.top()
         cx = self.x + self.w / 2.0
         feet = self.y + FOOT_Y
-        surface = windows.support_surface_under(cx, self._wins, scr.bottom(), feet)
-        if surface >= scr.bottom():
+        screen_bottom = self._screen_bottom_at(cx)
+        surface = windows.support_surface_under(cx, self._wins, screen_bottom, feet)
+        if surface >= screen_bottom:
             floor = surface - self.h        # screen floor: keep window fully on-screen
         else:
             floor = surface - FOOT_Y        # window perch: feet on the top edge
         return left, right, top, floor
+
+    def _screen_bottom_at(self, cx):
+        """Bottom (floor) of the monitor whose column covers cx, so a pet on a
+        taller/shorter/offset monitor rests on that monitor's floor rather than a
+        single global bottom. Falls back to the union bottom for dead columns."""
+        for g in self._screens:
+            if g.left() <= cx <= g.right():
+                return g.bottom()
+        return self.screen_rect.bottom()
 
     # ---------- painting ----------
     def paintEvent(self, _e):
