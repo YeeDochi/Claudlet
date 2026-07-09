@@ -252,12 +252,8 @@ class Pet(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         state = getattr(self, "_render_state", self.claude_state)
-        p.save()
-        if self.facing < 0:
-            p.translate(self.w, 0)
-            p.scale(-1, 1)
+        # facing handled inside draw_creature (body mirrors, text stays upright)
         C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame, facing=self.facing)
-        p.restore()
         p.end()
 
     # ---------- interaction ----------

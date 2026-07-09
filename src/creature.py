@@ -145,6 +145,12 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         p.fillRect(QRectF(ox + X * u, oy + Y * u, W * u + 0.5, H * u + 0.5), color)
 
     p.save()
+    # face direction of travel: mirror the BODY only. Props/text (drawn after the
+    # matching p.restore below) stay upright, so speech bubbles and z's never
+    # read backwards when the creature walks left.
+    if facing < 0:
+        p.translate(2 * (ox + cx * u), 0)
+        p.scale(-1, 1)
     # tilt about creature center
     if tilt:
         p.translate(ox + cx * u, oy + 10 * u)

@@ -22,9 +22,10 @@ def test_every_state_renders_without_error():
     img = QImage(C.GRID_W * 6, C.GRID_H * 6, QImage.Format.Format_ARGB32)
     for st in EXPECTED:
         for frame in (0, 7, 50, 100):
-            p = QPainter(img)
-            C.draw_creature(p, 0, 0, 6, st, frame)
-            p.end()
+            for facing in (1, -1):     # left-facing mirrors the body only
+                p = QPainter(img)
+                C.draw_creature(p, 0, 0, 6, st, frame, facing=facing)
+                p.end()
 
 
 def test_speech_states_have_lines():
