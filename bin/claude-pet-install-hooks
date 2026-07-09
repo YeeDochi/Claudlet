@@ -15,7 +15,7 @@ import time
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude-pet-hook")
 TOOL_EVENTS = ["PreToolUse", "PostToolUse"]
-PLAIN_EVENTS = ["UserPromptSubmit", "Notification", "Stop",
+PLAIN_EVENTS = ["UserPromptSubmit", "Notification", "Stop", "StopFailure",
                 "SubagentStop", "SessionStart", "SessionEnd"]
 ALL_EVENTS = TOOL_EVENTS + PLAIN_EVENTS
 
