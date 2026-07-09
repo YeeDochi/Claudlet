@@ -133,10 +133,11 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         legphase = 0.5                       # legs together, dangling
         eyes = "wide"
     elif state == "falling":
-        # tumbling through the air: fast wobble, stretched, legs flailing
-        tilt = _sin(frame, 8, 9.0)
-        sx, sy = 0.93, 1.10
-        legphase = (frame / 8.0) % 1.0
+        # the physics motion IS the animation — keep the body steady so it reads
+        # clean, not jittery: stretched tall ("wheee"), legs tucked, wide eyes.
+        bob = _sin(frame, 18, 0.4)
+        sx, sy = 0.88, 1.14          # stretched vertical, like a motion streak
+        legphase = 0.5               # legs together/tucked (no flailing)
         eyes = "wide"
 
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
