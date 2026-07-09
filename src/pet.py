@@ -17,6 +17,7 @@ import sys
 import json
 import math
 import random
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -400,6 +401,20 @@ class Pet(QWidget):
 
     # ---------- drop our own taskbar/pager entry (KDE Wayland) ----------
     def _skip_taskbar(self):
+        # EWMH via wmctrl is the reliable path on X11/XWayland. (KWin scripting
+        # sets skipPager/skipSwitcher but NOT skipTaskbar — verified 2026-07-09.)
+        # Match the window by its exact title so we don't hit other windows
+        # (e.g. an editor whose title merely contains "claude-pet").
+        if shutil.which("wmctrl"):
+            try:
+                subprocess.run(
+                    ["wmctrl", "-F", "-r", "claude-pet",
+                     "-b", "add,skip_taskbar,skip_pager"],
+                    timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except Exception:
+                pass
+        # fallback (no wmctrl): KWin scripting — sets pager/switcher at least.
         self._run_kwin_script(
             'var cs = (typeof workspace.windowList === "function") '
             '? workspace.windowList() : workspace.clientList();'

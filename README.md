@@ -37,6 +37,7 @@ Claude Code ──hook──▶ claude-pet-hook ──unix socket──▶ pet (
 ## Requirements
 
 - KDE Plasma on Wayland (XWayland available), `qdbus6` (for click-to-focus)
+- `wmctrl` (optional) — hides the pet from the taskbar; falls back gracefully if absent
 - Python 3 + PyQt6 — `pip install PyQt6`
 
 ## Install
