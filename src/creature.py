@@ -126,12 +126,12 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         eyes = "sleep"
         prop = "zzz"
     elif state == "held":
-        # dangling from the cursor's grab: hangs, sways, limbs droop, wide eyes
+        # dangling happily from the cursor's grab: hangs, sways, legs dangling
         bob = _sin(frame, 20, 0.6)
         tilt = _sin(frame, 26, 4.0)          # gentle swing
         sx, sy = 0.97, 1.06                  # slightly stretched (hanging)
         legphase = 0.5                       # legs together, dangling
-        eyes = "wide"
+        eyes = "happy"                       # enjoying the ride :)
     elif state == "falling":
         # the physics motion IS the animation — keep the body steady so it reads
         # clean, not jittery: stretched tall ("wheee"), legs tucked, wide eyes.
