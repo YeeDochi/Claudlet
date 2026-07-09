@@ -295,13 +295,16 @@ class Pet(QWidget):
             '    ?workspace.windowList():workspace.clientList();'
             '  var o=[];'
             '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
-            '    if(g)o.push(c.internalId+";"+(c.resourceClass||"")+";"'
+            '    if(g&&!c.minimized&&!c.hidden)'          # only currently-visible windows
+            '      o.push(c.internalId+";"+(c.resourceClass||"")+";"'
             '      +g.x+","+g.y+","+g.width+","+g.height);}'
             '  callDBus(SVC,"/","","push",o.join("|"));'
             '}'
-            'function _hook(c){if(c&&c.frameGeometryChanged&&'
-            '  (""+(c.resourceClass||"")).toLowerCase().indexOf("claude-pet")<0)'
-            '  c.frameGeometryChanged.connect(_dump);}'
+            'function _hook(c){if(!c)return;'
+            '  if((""+(c.resourceClass||"")).toLowerCase().indexOf("claude-pet")>=0)'
+            '    return;'                                  # never react to our own window
+            '  if(c.frameGeometryChanged)c.frameGeometryChanged.connect(_dump);'
+            '  if(c.minimizedChanged)c.minimizedChanged.connect(_dump);}'  # refresh on (un)minimize
             'var _w=(typeof workspace.windowList==="function")'
             '  ?workspace.windowList():workspace.clientList();'
             'for(var i=0;i<_w.length;i++)_hook(_w[i]);'
@@ -573,9 +576,11 @@ class Pet(QWidget):
         # (e.g. an editor whose title merely contains "claude-pet").
         if shutil.which("wmctrl"):
             try:
+                # sticky = show on every virtual desktop, so switching desktops
+                # doesn't make the pet vanish.
                 subprocess.run(
                     ["wmctrl", "-F", "-r", self._wtitle,
-                     "-b", "add,skip_taskbar,skip_pager"],
+                     "-b", "add,skip_taskbar,skip_pager,sticky"],
                     timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
             except Exception:
@@ -590,6 +595,7 @@ class Pet(QWidget):
             '  var rc = (c.resourceClass || "").toString().toLowerCase();'
             '  if (cap.indexOf("claude-pet") >= 0 || rc.indexOf("claude-pet") >= 0) {'
             '    c.skipTaskbar = true; c.skipPager = true; c.skipSwitcher = true;'
+            '    c.onAllDesktops = true;'
             '  }'
             '}'
         )
