@@ -1,6 +1,6 @@
 # Usage & interaction
 
-[← README](../README.md)
+[← README](../README.md) · **English** | [한국어](usage.ko.md)
 
 ## How it works
 

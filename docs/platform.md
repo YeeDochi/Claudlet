@@ -1,6 +1,6 @@
 # Platform support
 
-[← README](../README.md)
+[← README](../README.md) · **English** | [한국어](platform.ko.md)
 
 The reactive core (states, animation, roaming, drag-and-throw, tray) is portable;
 the window integration (perch/occlusion, click-to-focus, taskbar-hide) is
