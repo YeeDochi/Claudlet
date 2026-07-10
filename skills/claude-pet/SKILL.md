@@ -28,7 +28,6 @@ e.g. `~/claude-pet/bin/claude-pet-motion jump`, `~/claude-pet/bin/claude-pet-mot
 (holds until `~/claude-pet/bin/claude-pet-motion stop`), `~/claude-pet/bin/claude-pet-motion list`.
 The helper broadcasts to every running pet and prints how many reacted; if it
 says `-> 0 pet(s)`, no pet is running — offer to attach one with `/claude-pet`.
-```
 
 ## Default: attach to THIS session
 
