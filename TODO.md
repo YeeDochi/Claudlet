@@ -57,15 +57,18 @@
       상위 우선순위), `PreToolUse`의 `ExitPlanMode`/`AskUserQuestion` tool_name 매핑. (2026-07-10)
 - [~] 진짜 도트 스프라이트 / GIF override — 만들었다가 **제거**(별로여서). 전부 코드 렌더로 복귀. (2026-07-10)
 
-## 🪟 창/세션/포커스 (2026-07-10 접수 — 자율 진행 예정)
-- [ ] **포커스 대상 콘솔 혼선** — 탭 떼내기 하거나 콘솔 2개에서 클로드를 각각 돌릴 때,
-      좌클릭이 포커스 줘야 할 콘솔(커맨드 창)을 잘못 고르는 경우가 있음. 세션↔창을 정확히
-      매칭해 이 펫의 세션 창만 활성화되게. (focus.py / `_activate_claude` / KWin 스크립트)
-- [ ] **호스트 창 가림/최소화 시 펫 숨김** — 어떤 창에 속해있을 때(perch/contain) 그 위로
-      다른 창이 올라오거나 창이 최소화되면 펫도 같이 안 보이게. (stackingOrder 오클루전 +
-      minimized 감지 → hide)
-- [ ] **IDE 세션별 별도 펫** — IntelliJ 등 IDE에서 세션별로 따로 띄우기. (사용자도 "무리"로
-      봄 — 우선 실현성 조사, 안 되면 이유 문서화)
+## 🪟 창/세션/포커스 (2026-07-10 — `feat/host-window-focus`)
+공통 기반: geom 피드에 **pid** 추가 → claude_pid의 `/proc` 조상들과 매칭해 **이 세션의 호스트
+창(internalId)**을 특정. (`windows.find_host`/`covered_by_higher` 순수함수, 유닛테스트)
+- [x] **포커스 대상 콘솔 혼선** — `_activate_claude`가 첫 클래스 매칭 대신 **호스트 창(internalId)
+      우선** 활성화, 못 찾으면 클래스 폴백. 콘솔 2개도 각 세션이 자기 창을 콕.
+- [x] **호스트 창 가림/최소화 시 펫 숨김** — `_update_host_visibility`: 호스트가 피드에서 사라지면
+      (최소화/타 데스크톱) 또는 상위 창에 완전히 가리면 `hide()`, 돌아오면 `show()`. 호스트를
+      한 번도 못 잡으면(비-KDE/pid 미상) 절대 안 숨김(안전). windowActivated에도 재덤프(raise 감지).
+- [~] **IDE 세션별 별도 펫** — 조사 결론: IntelliJ 등은 **프로젝트당 최상위 창 1개**뿐이라, 한 IDE
+      창 안 여러 터미널 탭(=여러 세션)을 WM 레벨에서 창으로 분리할 수 없음(탭 단위 창이 없음).
+      → 세션별 펫은 이미 각자 뜨고, 전부 같은 IDE 창을 호스트로 올바르게 인식/포커스/숨김함.
+      **탭 단위 시각 분리는 WM 한계로 불가** (사용자 예상과 동일). 별도 코드 없음.
 - [ ] Mac / Windows 이식 — 코어(state_engine/creature/hook)는 이식가능. 창 활성화·포커스·
       perching만 OS별(Win32/AppleScript). GNOME 제외. perching은 KDE 전용 유지.
 

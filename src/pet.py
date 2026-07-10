@@ -88,7 +88,7 @@ class _GeomReceiver(QObject):
 
 
 class Pet(QWidget):
-    def __init__(self, session_id="default", host="unknown"):
+    def __init__(self, session_id="default", host="unknown", claude_pid=0):
         super().__init__()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -137,6 +137,13 @@ class Pet(QWidget):
         self._quit_timer = None              # pending SessionEnd -> quit timer
         self._wins = []                      # last window-geometry poll
         self._contain = None                 # Win we're living inside, or None
+        # host-window tracking: hide the pet when its own console/IDE window is
+        # minimized or fully covered, and aim click-to-focus at THAT window. The
+        # host window is the one whose pid is an ancestor of our Claude process.
+        self._ancestor_pids = self._proc_ancestors(claude_pid)
+        self._host_wid = None                # internalId of our host window
+        self._host_seen = False              # have we ever matched it? (gates hiding)
+        self._hidden_for_host = False        # currently hidden because host is gone
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -506,7 +513,7 @@ class Pet(QWidget):
             '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
             '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c))'   # visible, on this desktop
             '      o.push(c.internalId+";"+(c.resourceClass||"")+";"'
-            '      +g.x+","+g.y+","+g.width+","+g.height);}'
+            '      +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0));}'
             '  callDBus(SVC,"/","","push",o.join("|"));'
             '}'
             'function _hook(c){if(!c)return;'
@@ -520,6 +527,9 @@ class Pet(QWidget):
             'if(workspace.windowAdded)workspace.windowAdded.connect('
             '  function(c){_hook(c);_dump();});'
             'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
+            # re-dump when focus/stacking changes so occlusion (a window raised
+            # over our host) is noticed, not just geometry/minimize changes.
+            'if(workspace.windowActivated)workspace.windowActivated.connect(_dump);'
             '_dump();'
         )
         # stable plugin name so a re-launched pet for the SAME session replaces
@@ -589,11 +599,56 @@ class Pet(QWidget):
             self._cursor_plugin = None
         self._cursor = None                     # drop stale pos -> QCursor fallback
 
+    @staticmethod
+    def _proc_ancestors(pid, max_hops=40):
+        """Set of pids from `pid` up to the top via /proc (Linux). The terminal/
+        IDE window's owning pid is one of these, so matching it to a window pid
+        finds our host window. Empty on non-Linux or pid<=0 (tracking then off)."""
+        acc = set()
+        try:
+            cur = int(pid)
+        except (TypeError, ValueError):
+            return acc
+        while cur > 1 and cur not in acc and len(acc) < max_hops:
+            acc.add(cur)
+            try:
+                with open("/proc/%d/stat" % cur) as f:
+                    data = f.read()
+                ppid = int(data[data.rindex(")") + 2:].split()[1])
+            except (OSError, ValueError, IndexError):
+                break
+            cur = ppid
+        return acc
+
+    def _update_host_visibility(self):
+        """Hide the pet while its host window is minimized (dropped from the feed)
+        or fully covered by another window; show it again when the host returns.
+        No-op until we've matched the host at least once (so non-KDE / unknown
+        pid never hides the pet)."""
+        if not self._ancestor_pids or self.mode == "held":
+            return
+        host = windows.find_host(self._wins, self._ancestor_pids)
+        if host is not None:
+            self._host_wid = host.wid
+            self._host_seen = True
+            hide = windows.covered_by_higher(host, self._wins)
+        elif self._host_seen:
+            hide = True                  # host left the feed: minimized/off-desktop
+        else:
+            return                       # never identified a host -> don't interfere
+        if hide and not self._hidden_for_host:
+            self._hidden_for_host = True
+            self.hide()
+        elif not hide and self._hidden_for_host:
+            self._hidden_for_host = False
+            self.show()
+
     def _on_geom(self, dump):
         if dump == getattr(self, "_last_dump", None):
             return                       # coalesce identical pushes (cheap anti-spam)
         self._last_dump = dump
         self._wins = windows.parse_kwin_dump(dump)
+        self._update_host_visibility()
         if self._contain is not None:
             prev = self._contain
             cur = next((w for w in self._wins if w.wid == prev.wid), None)
@@ -907,23 +962,34 @@ class Pet(QWidget):
 
     # ---------- bring the Claude Code terminal forward (KDE Wayland) ----------
     def _activate_claude(self):
+        # Prefer THIS session's own host window (matched by pid -> internalId), so
+        # with two consoles the click focuses the right one. Fall back to the
+        # first window of the host class when we haven't identified it.
         classes = self.host_classes or ["konsole"]
         want = "[" + ",".join('"%s"' % c for c in classes) + "]"
+        hostid = self._host_wid or ""
         self._run_kwin_script(
+            'var HOSTID = "' + hostid + '";'
             'var want = ' + want + ';'
             'var cs = (typeof workspace.windowList === "function") '
             '? workspace.windowList() : workspace.clientList();'
-            'for (var i = 0; i < cs.length; i++) {'
-            '  var c = cs[i];'
-            '  var rc = (c.resourceClass || "").toString().toLowerCase();'
-            '  var hit = false;'
-            '  for (var j = 0; j < want.length; j++) {'
-            '    if (rc.indexOf(want[j]) >= 0) { hit = true; break; }'
+            'var target = null;'
+            'if (HOSTID) {'
+            '  for (var i = 0; i < cs.length; i++) {'
+            '    if (("" + cs[i].internalId) === HOSTID) { target = cs[i]; break; }'
             '  }'
-            '  if (hit) {'
-            '    try { workspace.activeWindow = c; } catch (e) { workspace.activeClient = c; }'
-            '    c.minimized = false; break;'
+            '}'
+            'if (!target) {'
+            '  for (var i = 0; i < cs.length && !target; i++) {'
+            '    var rc = (cs[i].resourceClass || "").toString().toLowerCase();'
+            '    for (var j = 0; j < want.length; j++) {'
+            '      if (rc.indexOf(want[j]) >= 0) { target = cs[i]; break; }'
+            '    }'
             '  }'
+            '}'
+            'if (target) {'
+            '  try { workspace.activeWindow = target; } catch (e) { workspace.activeClient = target; }'
+            '  target.minimized = false;'
             '}'
         )
 
@@ -1009,7 +1075,7 @@ def main():
     app.setApplicationName("claude-pet")
     app.setDesktopFileName("claude-pet")
     app.setQuitOnLastWindowClosed(False)
-    pet = Pet(session_id=args.session, host=args.host)
+    pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid)
     pet._lock_fd = lock_fd                    # keep the fd (and the lock) alive
     # always tear down the KWin geom script — including on `kill`/SIGTERM, which
     # otherwise skips _cleanup and leaks a script that keeps pushing geometry.

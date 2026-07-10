@@ -44,6 +44,41 @@ def test_sessionend_quit_is_cancelled_by_later_event():
         p._cleanup()
 
 
+def test_host_visibility_hide_when_covered_show_when_clear():
+    import windows as W
+    p = P.Pet(session_id="hv")
+    try:
+        p._ancestor_pids = {4242}                 # pretend our host process is 4242
+        host = W.Win("host", 100, 100, 400, 300, "konsole", 4242)
+        top = W.Win("top", 0, 0, 4000, 2000, "code", 99)   # maximized, stacked above
+        # host fully covered -> pet hides, and remembers its host wid
+        p._wins = [host, top]
+        p._update_host_visibility()
+        assert p._host_wid == "host"
+        assert p._hidden_for_host is True
+        # covering window gone -> pet shows again
+        p._wins = [host]
+        p._update_host_visibility()
+        assert p._hidden_for_host is False
+        # host minimized (drops out of the feed) -> hide again
+        p._wins = []
+        p._update_host_visibility()
+        assert p._hidden_for_host is True
+    finally:
+        p._cleanup()
+
+
+def test_host_visibility_off_when_pid_unknown():
+    p = P.Pet(session_id="hv2")
+    try:
+        p._ancestor_pids = set()                  # no claude pid -> tracking off
+        p._wins = []
+        p._update_host_visibility()
+        assert p._hidden_for_host is False        # never hides when it can't identify host
+    finally:
+        p._cleanup()
+
+
 def test_bounds_desktop_vs_contained():
     import windows as W
     p = P.Pet(session_id="pb")

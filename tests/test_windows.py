@@ -49,3 +49,45 @@ def test_support_surface_stays_on_current_perch():
     # standing on konsole (feet ~ its top 200) -> keeps resting on it (within tol)
     wins = windows.parse_kwin_dump(SAMPLE)
     assert windows.support_surface_under(150, wins, 1080, feet_y=200) == 200
+
+
+# ---- host-window identification & occlusion (focus/visibility) ----
+
+def test_parse_reads_optional_pid():
+    wins = windows.parse_kwin_dump("{id};org.kde.konsole;10,10,400,300;4242")
+    assert wins[0].pid == 4242
+
+
+def test_parse_pid_absent_is_none():
+    wins = windows.parse_kwin_dump("{id};org.kde.konsole;10,10,400,300")
+    assert wins[0].pid is None
+
+
+def test_find_host_matches_ancestor_pid():
+    wins = [windows.Win("a", 0, 0, 400, 300, "code", 100),
+            windows.Win("b", 0, 0, 400, 300, "konsole", 200)]
+    # claude's ancestor chain includes 200 (the konsole process) -> that window
+    assert windows.find_host(wins, {200, 999}).wid == "b"
+
+
+def test_find_host_none_when_no_pid_match():
+    wins = [windows.Win("a", 0, 0, 400, 300, "konsole", 200)]
+    assert windows.find_host(wins, {111, 222}) is None
+
+
+def test_covered_by_higher_full_cover():
+    host = windows.Win("h", 100, 100, 400, 300, "konsole", 1)
+    top = windows.Win("t", 0, 0, 1920, 1080, "code", 2)     # maximized above
+    assert windows.covered_by_higher(host, [host, top]) is True   # stacking: host below top
+
+
+def test_not_covered_when_window_is_below():
+    host = windows.Win("h", 100, 100, 400, 300, "konsole", 1)
+    below = windows.Win("b", 0, 0, 1920, 1080, "code", 2)
+    assert windows.covered_by_higher(host, [below, host]) is False  # host is on top
+
+
+def test_not_covered_by_partial_overlap():
+    host = windows.Win("h", 100, 100, 400, 300, "konsole", 1)
+    partial = windows.Win("p", 300, 100, 400, 300, "code", 2)      # overlaps, not full
+    assert windows.covered_by_higher(host, [host, partial]) is False
