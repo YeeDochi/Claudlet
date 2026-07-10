@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# claude-pet one-stop installer: dependency check + Claude Code hooks +
+# the /claude-pet skill. Idempotent.
+#
+#   claude-pet-install            install (hooks + skill)
+#   claude-pet-install --remove   uninstall (hooks + skill; files stay)
+set -u
+root="$(dirname "$(dirname "$(readlink -f "$0")")")"
+skills_dir="${HOME}/.claude/skills"
+skill_link="${skills_dir}/claude-pet"
+
+if [ "${1:-}" = "--remove" ]; then
+    "$root/bin/claude-pet-install-hooks" --remove
+    if [ -L "$skill_link" ]; then
+        rm "$skill_link" && echo "unlinked /claude-pet skill"
+    fi
+    echo "claude-pet uninstalled. (source stays at $root)"
+    exit 0
+fi
+
+# 1) dependency check (warn, don't fail — the pet reports it too)
+if ! python3 -c "import PyQt6" 2>/dev/null; then
+    echo "warning: PyQt6 not found. Install it with:  pip install PyQt6" >&2
+fi
+
+# 2) Claude Code hooks (auto-spawns a pet per session)
+"$root/bin/claude-pet-install-hooks"
+
+# 3) the /claude-pet skill (symlink into the skills dir)
+mkdir -p "$skills_dir"
+if [ -e "$skill_link" ] && [ ! -L "$skill_link" ]; then
+    echo "note: $skill_link already exists and isn't a symlink — leaving it." >&2
+else
+    ln -sfn "$root/skills/claude-pet" "$skill_link"
+    echo "linked /claude-pet skill -> $skill_link"
+fi
+
+echo
+echo "Done. Restart Claude Code sessions to pick up the hooks."
+echo "New sessions auto-spawn a pet; or run it now:  $root/bin/claude-pet"

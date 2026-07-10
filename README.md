@@ -85,24 +85,27 @@ welcome. If you run it, please check and open an issue:
 ```bash
 git clone <this-repo> ~/claude-pet
 pip install PyQt6
-~/claude-pet/bin/claude-pet-install-hooks      # register hooks in ~/.claude/settings.json
-~/claude-pet/bin/claude-pet                     # run it
+~/claude-pet/bin/claude-pet-install     # hooks + the /claude-pet skill (idempotent)
 ```
 
-Restart any running Claude Code session so it picks up the new hooks.
+New Claude Code sessions then auto-spawn a pet. Restart any already-running session
+to pick up the hooks — or launch one now with `~/claude-pet/bin/claude-pet`.
 
-## `/claude-pet` skill (optional)
+`claude-pet-install` does three things: checks PyQt6, registers the hooks in
+`~/.claude/settings.json` (backed up first), and links the skill into
+`~/.claude/skills/`. Hooks only, if you prefer: `bin/claude-pet-install-hooks`.
 
-A Claude Code skill to launch a pet on demand from within a session. Enable it
-by linking it into your skills dir:
+## `/claude-pet` skill
+
+The installer links this skill for you. In any session, `/claude-pet` (or "펫 띄워")
+launches a pet on demand — handy for a session that predates the install, or to bring
+a closed pet back. Per-session auto-launch still comes from the hooks.
+
+Manual link, if you installed hooks only:
 
 ```bash
-mkdir -p ~/.claude/skills
 ln -s ~/claude-pet/skills/claude-pet ~/.claude/skills/claude-pet
 ```
-
-Then type `/claude-pet` (or "펫 띄워") in any session to launch one. This only
-*launches* a pet; the per-session auto-launch still comes from the hooks above.
 
 ## Interaction
 
@@ -155,8 +158,8 @@ Remove that file to disable.
 ## Uninstall
 
 ```bash
-~/claude-pet/bin/claude-pet-install-hooks --remove
-rm ~/.config/autostart/claude-pet.desktop
+~/claude-pet/bin/claude-pet-install --remove    # removes hooks + skill link
+rm ~/.config/autostart/claude-pet.desktop       # if you enabled autostart
 rm -rf ~/claude-pet
 ```
 
