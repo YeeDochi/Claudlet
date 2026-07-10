@@ -9,3 +9,7 @@ transcript/
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
+
+# 개발 도구 로컬 상태
+.superpowers/
