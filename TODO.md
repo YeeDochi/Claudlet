@@ -37,8 +37,9 @@
 
 ## 📋 다음 계획 (미착수)
 - [x] **멀티모니터** — 배회/바닥 계산 전체 모니터 기준 (3모니터). (2026-07-10 완료, `b08c46e`)
-- [ ] **모션 강제 실행 커맨드** `/claude-pet <motion>` — jump/wave/sing/juggle/float +
-      기존 상태 노출. 스펙: `docs/superpowers/specs/2026-07-10-pet-motion-command-design.md`. (구현 예정)
+- [x] **모션 강제 실행 커맨드** `/claude-pet <motion>` — jump/wave/sing/juggle/float +
+      기존 상태 노출. (2026-07-10 머지 `2b015c6`) + 우클릭/트레이 모션 메뉴, float 토글,
+      커서 따라오기(KWin 커서 피드), 창 안 튕기기까지. 73 테스트 통과.
 - [ ] **이벤트→모션 매핑 커스텀** — `EVENT_STATE` 매핑을 사용자가 바꿀 수 있게
       (설정/커맨드로 훅 이벤트에 원하는 모션 지정). 모션 커맨드 이후 착수.
 - [ ] **오토 진행 중 전용 상태/애니** — auto/plan "혼자 쭉 작업".
