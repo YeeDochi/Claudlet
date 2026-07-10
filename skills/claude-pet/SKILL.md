@@ -31,24 +31,52 @@ says `-> 0 pet(s)`, no pet is running — offer to attach one with `/claude-pet`
 
 ## Default: attach to THIS session
 
-1. **Find this session's id.** The transcript being written right now is the
-   newest `*.jsonl` under `~/.claude/projects/`:
+0. **Pick a Python.** `python3` is canonical on Linux/macOS; on Windows it's
+   often a Microsoft Store alias stub that's *present on PATH* but exits
+   nonzero without doing anything, so `command -v` alone can't tell it apart
+   from a real interpreter — probe that it actually runs:
    ```bash
-   SID=$(ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 | xargs -n1 basename | sed 's/\.jsonl$//')
+   PY=python3; "$PY" -c "" >/dev/null 2>&1 || PY=python
+   ```
+
+1. **Find this session's id.** Claude Code sets `$CLAUDE_CODE_SESSION_ID` for
+   the running session; fall back to the newest transcript under
+   `~/.claude/projects/` if it's unset:
+   ```bash
+   SID="${CLAUDE_CODE_SESSION_ID:-$(ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 | xargs -n1 basename | sed 's/\.jsonl$//')}"
    ```
 
 2. **Detect the host app** (terminal/IDE) so click-to-focus targets the right window:
    ```bash
-   HOST=$(python3 -c "import sys; sys.path.insert(0, '$HOME/claude-pet/src'); import hostinfo; print(hostinfo.detect_host())")
+   HOST=$("$PY" -c "import sys; sys.path.insert(0, '$HOME/claude-pet/src'); import hostinfo; print(hostinfo.detect_host())")
    ```
 
-3. **Skip if one is already attached, else launch it bound to the session:**
+3. **Skip if one is already attached, else launch it bound to the session.**
+   Pets listen on loopback TCP, not a unix socket (stock Windows Python has no
+   `AF_UNIX`, so the whole project uses one TCP code path — see
+   `src/hostinfo.py`); check liveness the same way the hook does, via the
+   `.port` file it publishes:
    ```bash
-   SOCK="${XDG_RUNTIME_DIR:-/tmp}/claude-pet-$SID.sock"
-   if python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(0.3); s.connect('$SOCK')" 2>/dev/null; then
+   ALIVE=$("$PY" -c "
+import sys, socket
+sys.path.insert(0, '$HOME/claude-pet/src')
+import hostinfo
+port = hostinfo.read_session_port('$SID')
+ok = False
+if port is not None:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.3)
+    try:
+        s.connect((hostinfo.LOOPBACK, port)); ok = True
+    except OSError:
+        pass
+print('yes' if ok else 'no')
+")
+   if [ "$ALIVE" = "yes" ]; then
        echo "already attached to this session 🐾"
    else
-       setsid ~/claude-pet/bin/claude-pet --session "$SID" --host "$HOST" >/dev/null 2>&1 < /dev/null & disown
+       nohup "$PY" ~/claude-pet/bin/claude-pet --session "$SID" --host "$HOST" >/dev/null 2>&1 < /dev/null &
+       disown
        echo "attached to session $SID (host=$HOST) 🐾"
    fi
    ```
@@ -65,7 +93,9 @@ for sessions that predate the install, or to bring a closed pet back.
 If the user said "standalone" (or just wants a decorative pet that reacts to no
 particular session):
 ```bash
-setsid ~/claude-pet/bin/claude-pet >/dev/null 2>&1 < /dev/null & disown
+PY=python3; "$PY" -c "" >/dev/null 2>&1 || PY=python
+nohup "$PY" ~/claude-pet/bin/claude-pet >/dev/null 2>&1 < /dev/null &
+disown
 echo "standalone pet running 🐾"
 ```
 
