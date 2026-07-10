@@ -52,6 +52,7 @@ def test_visibility_hides_with_ridden_window():
         host = W.Win("host", 100, 100, 400, 300, "browser", 1)
         top = W.Win("top", 0, 0, 4000, 2000, "code", 2)    # maximized, stacked above
         p._contain = host                         # pet lives in this window
+        p.x, p.y = 150.0, 150.0                    # positioned inside the window
         # ridden window fully covered -> hide
         p._wins = [host, top]
         p._update_visibility()
@@ -64,6 +65,28 @@ def test_visibility_hides_with_ridden_window():
         p._wins = []
         p._update_visibility()
         assert p._hidden_for_win is True
+    finally:
+        p._cleanup()
+
+
+def test_visibility_partial_cover_masks():
+    import windows as W
+    p = P.Pet(session_id="hvp")
+    try:
+        p._dbus_name = "x"
+        host = W.Win("host", 0, 0, 400, 300, "browser", 1)
+        p._contain = host
+        p.x, p.y = 0.0, 0.0
+        # a higher window covers only PART of the pet's rect (from x=60 rightward)
+        cover = W.Win("cov", 60, 0, 400, 300, "code", 2)
+        p._wins = [host, cover]
+        p._update_visibility()
+        assert p._hidden_for_win is False     # still partly visible
+        assert p._masked is True              # clipped to the exposed sliver
+        # cover removed -> full again, mask dropped
+        p._wins = [host]
+        p._update_visibility()
+        assert p._masked is False
     finally:
         p._cleanup()
 

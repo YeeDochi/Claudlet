@@ -62,10 +62,10 @@
 창(internalId)**을 특정. (`windows.find_host`/`covered_by_higher` 순수함수, 유닛테스트)
 - [x] **포커스 대상 콘솔 혼선** — `_activate_claude`가 첫 클래스 매칭 대신 **호스트 창(internalId)
       우선** 활성화, 못 찾으면 클래스 폴백. 콘솔 2개도 각 세션이 자기 창을 콕.
-- [x] **올라탄/담긴 창 내려가면 펫 숨김** — `_update_visibility`: 펫이 **올라타 있거나(perch)
-      담긴(contain) 그 창**이 최소화/닫힘(피드에서 사라짐)되거나 상위 창에 완전히 가리면 `hide()`,
-      돌아오면 `show()`. **배경화면을 배회 중(창 밖)이면 최대화가 떠도 안 숨김.** 비-KDE 피드
-      없으면 no-op(안전). windowActivated에도 재덤프(raise 감지). (`window_under_feet` 순수함수)
+- [x] **올라탄/담긴 창 가림 따라 펫 클리핑** — `_update_visibility`: 펫이 **올라타/담긴 창**의
+      노출 영역(창 rect − 상위 창들, `QRegion`)에만 보이도록 마스킹. **완전 가림/창 사라짐 → 숨김,
+      부분 가림 → 안 가려진 부분만, 데스크톱 배회(창 밖) → 항상 보임.** 비-KDE 피드 없으면
+      no-op(안전). windowActivated 재덤프(raise 감지). (`window_under_feet` 순수함수 + QRegion 마스크)
 - [~] **IDE 세션별 별도 펫** — 조사 결론: IntelliJ 등은 **프로젝트당 최상위 창 1개**뿐이라, 한 IDE
       창 안 여러 터미널 탭(=여러 세션)을 WM 레벨에서 창으로 분리할 수 없음(탭 단위 창이 없음).
       → 세션별 펫은 이미 각자 뜨고, 전부 같은 IDE 창을 호스트로 올바르게 인식/포커스/숨김함.

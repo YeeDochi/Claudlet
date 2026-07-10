@@ -25,8 +25,8 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
-from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QObject, pyqtSlot
+from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QObject, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -143,6 +143,8 @@ class Pet(QWidget):
         self._ancestor_pids = self._proc_ancestors(claude_pid)
         self._host_wid = None                # internalId of our host window (focus)
         self._hidden_for_win = False         # hidden because our perch/host went away
+        self._masked = False                 # pet clipped to a window's exposed part
+        self._last_mask = None               # last applied QRegion (skip redundant sets)
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -630,23 +632,59 @@ class Pet(QWidget):
                 self._host_wid = h.wid
 
     def _update_visibility(self):
-        """Hide the pet only when the window it's RIDING — perched on top of, or
-        contained in — goes away (minimized/closed) or is fully covered by a
-        higher window. On the bare desktop it always stays visible (a maximized
-        window in front doesn't hide a pet that's wandering the wallpaper).
-        No-op without the KDE feed, so non-KDE never hides it."""
+        """Clip the pet to the still-exposed part of the window it's RIDING
+        (perched on / contained in): fully covered or window gone -> hidden;
+        partially covered -> shown only over the uncovered sliver; on the bare
+        desktop -> fully visible (a maximized window in front never hides a pet
+        wandering the wallpaper). No-op without the KDE feed."""
         if not getattr(self, "_dbus_name", None) or self.mode == "held":
-            self._set_hidden(False)
+            self._show_full()
             return
         if self._contain is not None:
             cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
-            hide = cur is None or windows.covered_by_higher(cur, self._wins)
+            if cur is None:              # contained window minimized/closed
+                self._set_hidden(True)
+                return
         else:
             cx = self.x + self.w / 2.0
             feet = self.y + FOOT_Y
             cur = windows.window_under_feet(cx, feet, self._wins)
-            hide = cur is not None and windows.covered_by_higher(cur, self._wins)
-        self._set_hidden(hide)
+            if cur is None:              # on the desktop -> always visible
+                self._show_full()
+                return
+        # visible part of the ridden window = its rect minus every higher window
+        vis = QRegion(QRect(cur.x, cur.y, cur.w, cur.h))
+        try:
+            i = self._wins.index(cur)
+        except ValueError:
+            i = len(self._wins)
+        for w in self._wins[i + 1:]:
+            vis = vis.subtracted(QRegion(QRect(w.x, w.y, w.w, w.h)))
+        # intersect with the pet's own rect, in the pet's local coordinates
+        shown = vis.intersected(QRegion(QRect(int(self.x), int(self.y),
+                                              self.w, self.h)))
+        shown.translate(-int(self.x), -int(self.y))
+        self._apply_mask(shown)
+
+    def _apply_mask(self, region):
+        if region.isEmpty():             # nothing of the pet is exposed
+            self._set_hidden(True)
+            return
+        self._set_hidden(False)
+        if region == QRegion(QRect(0, 0, self.w, self.h)):
+            self._show_full()            # fully exposed -> drop any clip
+            return
+        if not self._masked or region != self._last_mask:
+            self.setMask(region)
+            self._masked = True
+            self._last_mask = region
+
+    def _show_full(self):
+        if self._masked:
+            self.clearMask()
+            self._masked = False
+            self._last_mask = None
+        self._set_hidden(False)
 
     def _set_hidden(self, hide):
         if hide and not self._hidden_for_win:
