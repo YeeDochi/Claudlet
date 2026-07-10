@@ -55,8 +55,11 @@ def _pet_running(sock_path):
 
 def _launch_pet(session_id, host):
     launcher = os.path.join(_HERE, "claude-pet")
+    # os.getppid() here is the Claude Code process that invoked this hook; the
+    # pet polls it and winds down if it dies without a SessionEnd (e.g. SIGKILL).
     subprocess.Popen(
-        [launcher, "--session", session_id, "--host", host],
+        [launcher, "--session", session_id, "--host", host,
+         "--claude-pid", str(os.getppid())],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, start_new_session=True)
 
