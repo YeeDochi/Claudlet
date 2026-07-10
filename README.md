@@ -1,12 +1,15 @@
 # claude-pet 🐾
 
-A tiny pixel creature that lives on your desktop and reacts to **Claude Code** in
-real time. It wanders around, and when Claude starts working it hops behind a
-laptop and types; when Claude needs your input it jumps up and waves a `!` at
-you. Click it to bring the Claude Code terminal back to the front.
+**English** | [한국어](README.ko.md)
 
-Built for **KDE Plasma (Wayland)**. The creature is drawn entirely in code — no
-image assets — so the whole thing is self-contained and original.
+A tiny pixel creature that lives on your desktop and reacts to **Claude Code** in
+real time. It wanders around; when Claude works it hops behind a laptop and types,
+and when Claude needs you it stands up with a speech bubble. Click it to bring the
+Claude Code terminal back to the front.
+
+Best on **KDE Plasma**, but the creature itself runs anywhere PyQt6 does. It's
+drawn entirely in code — no image assets — so the whole thing is self-contained
+and original (CC0 artwork).
 
 ![states](docs/superpowers/specs/creature_sheet.png)
 
