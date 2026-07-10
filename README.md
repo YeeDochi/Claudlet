@@ -61,9 +61,10 @@ and simply switches off elsewhere — the pet still runs.
 |----------|------|--------------------|
 | **KDE Plasma** (Wayland/X11) | ✅ | ✅ full — perch, occlusion clip/hide, click-to-focus, taskbar-hide |
 | Other Linux (GNOME, …) | ✅ (XWayland) | ✖ KDE-only bits no-op (roam/drag/states/tray work) |
-| **macOS** | 🅱️ should launch (native Qt) | ✖ not implemented — needs a Cocoa focus/positioning layer |
-| **Windows** | 🚧 not yet | hook↔pet plumbing (bash launcher, AF_UNIX socket) is Unix-oriented |
+| **macOS** | 🅱️ should launch (native Qt) | ⚠️ best-effort click-to-focus via `osascript`; perch/occlusion not implemented |
+| **Windows** | 🚧 GUI may run | ✖ hook↔pet uses `AF_UNIX` sockets; skill symlink needs privileges — unverified |
 
+All CLI tools (`bin/*`) are Python — no bash — so they run wherever `python3` does.
 Only KDE is actively tested. GNOME is out of scope for window integration. Non-KDE
 just falls back to the desktop floor with everything KDE-specific disabled.
 

@@ -102,11 +102,15 @@ def _launch_pet(session_id, host):
     launcher = os.path.join(_HERE, "claude-pet")
     # Give the reaper the real Claude Code pid, not our transient shell parent.
     claude_pid = resolve_claude_pid(os.getppid(), _proc_info)
+    # Run the launcher with THIS interpreter (it's a .py) so it works cross-OS;
+    # detach so the pet outlives the hook. start_new_session is POSIX-only.
+    kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+          "stderr": subprocess.DEVNULL}
+    if os.name == "posix":
+        kw["start_new_session"] = True
     subprocess.Popen(
-        [launcher, "--session", session_id, "--host", host,
-         "--claude-pid", str(claude_pid)],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL, start_new_session=True)
+        [sys.executable, launcher, "--session", session_id, "--host", host,
+         "--claude-pid", str(claude_pid)], **kw)
 
 
 def _send(sock_path, payload):

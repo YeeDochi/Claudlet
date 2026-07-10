@@ -1,3 +1,13 @@
-#!/usr/bin/env bash
-# claude-pet launcher
-exec python3 "$(dirname "$(dirname "$(readlink -f "$0")")")/src/pet.py" "$@"
+#!/usr/bin/env python3
+"""claude-pet launcher — runs src/pet.py with the current interpreter.
+
+Python (not bash) so it works on Linux, macOS, and Windows alike.
+Usage: claude-pet [--session <id>] [--host <host>] [--claude-pid <pid>]
+"""
+import os
+import subprocess
+import sys
+
+_here = os.path.dirname(os.path.abspath(__file__))
+pet = os.path.join(os.path.dirname(_here), "src", "pet.py")
+raise SystemExit(subprocess.call([sys.executable, pet] + sys.argv[1:]))

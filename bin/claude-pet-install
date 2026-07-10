@@ -1,40 +1,64 @@
-#!/usr/bin/env bash
-# claude-pet one-stop installer: dependency check + Claude Code hooks +
-# the /claude-pet skill. Idempotent.
-#
-#   claude-pet-install            install (hooks + skill)
-#   claude-pet-install --remove   uninstall (hooks + skill; files stay)
-set -u
-root="$(dirname "$(dirname "$(readlink -f "$0")")")"
-skills_dir="${HOME}/.claude/skills"
-skill_link="${skills_dir}/claude-pet"
+#!/usr/bin/env python3
+"""claude-pet one-stop installer (cross-platform).
 
-if [ "${1:-}" = "--remove" ]; then
-    "$root/bin/claude-pet-install-hooks" --remove
-    if [ -L "$skill_link" ]; then
-        rm "$skill_link" && echo "unlinked /claude-pet skill"
-    fi
-    echo "claude-pet uninstalled. (source stays at $root)"
-    exit 0
-fi
+Checks PyQt6, registers the Claude Code hooks, and links the /claude-pet skill
+into ~/.claude/skills/. Idempotent.
 
-# 1) dependency check (warn, don't fail — the pet reports it too)
-if ! python3 -c "import PyQt6" 2>/dev/null; then
-    echo "warning: PyQt6 not found. Install it with:  pip install PyQt6" >&2
-fi
+    claude-pet-install            install (hooks + skill)
+    claude-pet-install --remove   uninstall (hooks + skill link; source stays)
+"""
+import os
+import subprocess
+import sys
 
-# 2) Claude Code hooks (auto-spawns a pet per session)
-"$root/bin/claude-pet-install-hooks"
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+HOOKS = os.path.join(HERE, "claude-pet-install-hooks")
+SKILLS_DIR = os.path.expanduser(os.path.join("~", ".claude", "skills"))
+SKILL_LINK = os.path.join(SKILLS_DIR, "claude-pet")
+SKILL_SRC = os.path.join(ROOT, "skills", "claude-pet")
 
-# 3) the /claude-pet skill (symlink into the skills dir)
-mkdir -p "$skills_dir"
-if [ -e "$skill_link" ] && [ ! -L "$skill_link" ]; then
-    echo "note: $skill_link already exists and isn't a symlink — leaving it." >&2
-else
-    ln -sfn "$root/skills/claude-pet" "$skill_link"
-    echo "linked /claude-pet skill -> $skill_link"
-fi
 
-echo
-echo "Done. Restart Claude Code sessions to pick up the hooks."
-echo "New sessions auto-spawn a pet; or run it now:  $root/bin/claude-pet"
+def _link_skill():
+    os.makedirs(SKILLS_DIR, exist_ok=True)
+    if os.path.exists(SKILL_LINK) and not os.path.islink(SKILL_LINK):
+        print("note:", SKILL_LINK, "exists and isn't a symlink — leaving it.",
+              file=sys.stderr)
+        return
+    try:
+        if os.path.islink(SKILL_LINK):
+            os.unlink(SKILL_LINK)
+        os.symlink(SKILL_SRC, SKILL_LINK, target_is_directory=True)
+        print("linked /claude-pet skill ->", SKILL_LINK)
+    except OSError as e:                      # e.g. Windows without symlink priv
+        print("could not link skill (%s). Link it manually:\n  %s -> %s"
+              % (e, SKILL_LINK, SKILL_SRC), file=sys.stderr)
+
+
+def _unlink_skill():
+    if os.path.islink(SKILL_LINK):
+        os.unlink(SKILL_LINK)
+        print("unlinked /claude-pet skill")
+
+
+def main():
+    remove = "--remove" in sys.argv[1:]
+    if remove:
+        subprocess.call([sys.executable, HOOKS, "--remove"])
+        _unlink_skill()
+        print("claude-pet uninstalled. (source stays at %s)" % ROOT)
+        return
+    try:
+        __import__("PyQt6")
+    except ImportError:
+        print("warning: PyQt6 not found. Install it with:  pip install PyQt6",
+              file=sys.stderr)
+    subprocess.call([sys.executable, HOOKS])
+    _link_skill()
+    print("\nDone. Restart Claude Code sessions to pick up the hooks.")
+    print("New sessions auto-spawn a pet; or run it now:")
+    print("  %s %s" % (sys.executable, os.path.join(ROOT, "src", "pet.py")))
+
+
+if __name__ == "__main__":
+    main()
