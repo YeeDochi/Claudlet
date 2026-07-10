@@ -9,11 +9,13 @@ Runs on KDE Wayland via XWayland (forced xcb platform) so the window can
 position itself freely across the screen.
 """
 import os
-# Force XWayland: native Wayland forbids clients positioning their own windows,
-# which a roaming pet needs. xcb (XWayland) allows self-positioning.
-os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
-
 import sys
+# On Linux, force XWayland (xcb): native Wayland forbids clients positioning
+# their own windows, which a roaming pet needs. On macOS/Windows keep Qt's
+# native platform (cocoa/windows) — forcing xcb there would fail to start.
+if sys.platform.startswith("linux"):
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
 import json
 import math
 import random
@@ -27,7 +29,10 @@ import time
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QObject, pyqtSlot
-from PyQt6.QtDBus import QDBusConnection
+try:
+    from PyQt6.QtDBus import QDBusConnection   # KDE window integration (Linux)
+except ImportError:                            # not built on some macOS/Windows Qt
+    QDBusConnection = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import creature as C
@@ -473,6 +478,9 @@ class Pet(QWidget):
         """Register a D-Bus service and start a persistent KWin script that pushes
         window geometry to it. All KDE-specific; any failure -> feature just off
         (self._wins stays empty, behaviour == pre-perch)."""
+        if QDBusConnection is None:          # no QtDBus (some macOS/Windows Qt)
+            self._dbus_name = None
+            return
         try:
             safe = re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
             self._dbus_name = "org.claudepet.geom_" + safe

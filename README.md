@@ -12,14 +12,21 @@ image assets — so the whole thing is self-contained and original.
 
 ## States
 
-| State | Looks like | Triggered by (hook) |
-|-------|-----------|---------------------|
-| idle / waiting | wandering, then dozes (`zZ`) | no active session |
-| working | behind a laptop, hands typing, thinking `...` | `PreToolUse` / `PostToolUse` |
-| thinking | 💡 lightbulb | `UserPromptSubmit` |
-| **attention** | jumps up, arms raised, **`!` bubble** | `Notification` |
-| celebrate | happy hop | `Stop` (then settles to waiting) |
-| error | tips over, `X_X` | (reserved) |
+| State | Looks like | Triggered by |
+|-------|-----------|--------------|
+| idle / waiting | wanders around, then dozes (`z`) | no active tool activity |
+| working | tool-specific: laptop (edit), magnifier (search/read), phone (web/MCP), clones (subagent), wizard hat (skill) | `PreToolUse` |
+| thinking | head cocked, "고민중…" bubble | `UserPromptSubmit` |
+| **attention** | jumps up, "이거 맞아?" | permission prompt |
+| **asking** | waits calmly, "응?" | `AskUserQuestion` / `ExitPlanMode` |
+| **autopilot** | puts a VR visor on and cruises; per-tool visor variants while auto/bypass mode is on | `permission_mode` auto/bypass |
+| celebrate | happy hop, "다 됐다!" | finished while you're away |
+| error | tips over, `X_X` | a failed turn |
+| sleeping | `Z` | idle for a while |
+
+It also **perches on and rides windows**: drop it on a window and it walks along the
+top or lives inside; drag it onto the desktop and it wanders freely. When the window
+it's riding is covered or minimized, the pet clips/hides with it.
 
 ## How it works
 
@@ -32,13 +39,30 @@ Claude Code ──hook──▶ claude-pet-hook ──unix socket──▶ pet (
   native Wayland forbids a client from positioning its own window.
 - **`src/creature.py`** — the creature renderer (pure `QPainter`, state-driven).
 - **`bin/claude-pet-hook`** — forwards each Claude Code hook event to the pet
-  over a unix socket (`$XDG_RUNTIME_DIR/claude-pet.sock`). Never blocks Claude.
+  over a per-session unix socket (`$XDG_RUNTIME_DIR/claude-pet-<session>.sock`),
+  and launches a pet on `SessionStart`. Never blocks Claude.
 
 ## Requirements
 
-- KDE Plasma on Wayland (XWayland available), `qdbus6` (for click-to-focus)
-- `wmctrl` (optional) — hides the pet from the taskbar; falls back gracefully if absent
 - Python 3 + PyQt6 — `pip install PyQt6`
+- **KDE Plasma** for the full experience: `qdbus6` (window integration / click-to-focus),
+  `wmctrl` (optional, hides the pet from the taskbar). XWayland if on Wayland.
+
+## Platform support
+
+The reactive core (states, animation, roaming, drag-and-throw, tray) is portable;
+the window integration (perch/occlusion, click-to-focus, taskbar-hide) is KDE-specific
+and simply switches off elsewhere — the pet still runs.
+
+| Platform | Runs | Window integration |
+|----------|------|--------------------|
+| **KDE Plasma** (Wayland/X11) | ✅ | ✅ full — perch, occlusion clip/hide, click-to-focus, taskbar-hide |
+| Other Linux (GNOME, …) | ✅ (XWayland) | ✖ KDE-only bits no-op (roam/drag/states/tray work) |
+| **macOS** | 🅱️ should launch (native Qt) | ✖ not implemented — needs a Cocoa focus/positioning layer |
+| **Windows** | 🚧 not yet | hook↔pet plumbing (bash launcher, AF_UNIX socket) is Unix-oriented |
+
+Only KDE is actively tested. GNOME is out of scope for window integration. Non-KDE
+just falls back to the desktop floor with everything KDE-specific disabled.
 
 ## Install
 

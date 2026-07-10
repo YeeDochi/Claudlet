@@ -74,12 +74,18 @@
       창 안 여러 터미널 탭(=여러 세션)을 WM 레벨에서 창으로 분리할 수 없음(탭 단위 창이 없음).
       → 세션별 펫은 이미 각자 뜨고, 전부 같은 IDE 창을 호스트로 올바르게 인식/포커스/숨김함.
       **탭 단위 시각 분리는 WM 한계로 불가** (사용자 예상과 동일). 별도 코드 없음.
-- [ ] Mac / Windows 이식 — 코어(state_engine/creature/hook)는 이식가능. 창 활성화·포커스·
-      perching만 OS별(Win32/AppleScript). GNOME 제외. perching은 KDE 전용 유지.
+- [~] Mac / Windows 이식 — 기반 작업 완료: **xcb 강제를 Linux 한정**으로(다른 OS는 네이티브
+      플랫폼) → macOS 실행 블로커 제거, **QtDBus 방어 임포트**. 코어(state_engine/creature/hook/
+      물리/트레이/roam/drag)는 이식가능. 남은 것:
+      - macOS: 창 활성화·포커스는 Cocoa(AppleScript/osascript) 레이어 필요, perch/가림 미구현.
+        (실기 테스트 필요 — 헤드리스 검증 불가)
+      - Windows: bash 런처·`AF_UNIX` 소켓·훅 호출이 Unix 전제 → 플러밍 재작업 필요(더 큼).
+      GNOME 제외, perching은 KDE 전용 유지.
 
 ## 🧰 배포/운영
 - [ ] GitHub 공개 전 점검(README 경로, 라이선스 홀더). 설치 스크립트 의존성 체크(PyQt6, wmctrl).
-- [ ] 비-KDE/X11 순정 폴백 동작 확인.
+- [x] 비-KDE/X11 순정 폴백 동작 확인 — `which`=None·QtDBus=None 강제 실행 검증(2026-07-10):
+      focus 보수적 True, 피드 off, perch 없음, 마스킹 no-op, activate/taskbar no-op, 크래시 없음.
 
 ---
 _검증된 것_: 유닛테스트 129개 통과. 호스트창 포커스/가림-마스킹 라이브 검증(2026-07-10:
