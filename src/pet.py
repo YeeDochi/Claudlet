@@ -53,6 +53,15 @@ STATE_LABELS = {
 # representative animation frame to freeze for each state's tray icon
 _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 
+# transient motions offered in the right-click / tray menus: (label, name, seconds)
+MOTION_MENU = [
+    ("점프", "jump", 2.5),
+    ("손 흔들기", "wave", 2.5),
+    ("노래", "sing", 3.0),
+    ("저글링", "juggle", 3.0),
+    ("축하", "celebrate", 2.5),
+]
+
 # device-px from the pet window's top down to the creature's feet (legs bottom).
 # creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
 # used to land the FEET on a window's top edge when perching (not the window box).
@@ -68,6 +77,10 @@ class _GeomReceiver(QObject):
     @pyqtSlot(str)
     def push(self, dump):
         self._pet._on_geom(dump)
+
+    @pyqtSlot(str)
+    def cursor(self, xy):
+        self._pet._on_cursor(xy)
 
 
 class Pet(QWidget):
@@ -122,6 +135,20 @@ class Pet(QWidget):
         self.target_x = None
         self.walk_pause = 0.0
         self.vx = self.vy = 0.0
+
+        # transient motion override (jump/wave/... — timed; overrides the render)
+        self._motion = None
+        self._motion_expiry = None       # monotonic deadline; None = hold
+        # float is a MODE, not a render override: suspends gravity so the pet
+        # hovers, while its normal animation keeps playing. Cleared by `stop`.
+        self._floating = False
+        # follow mode: walk toward the mouse cursor until toggled off
+        self._follow = False
+        # latest GLOBAL cursor pos pushed by the KWin script. Qt's QCursor.pos()
+        # only updates while the cursor is over our own (XWayland) surface, so on
+        # Wayland the compositor is the only reliable source off-surface.
+        self._cursor = None
+        self._cursor_plugin = None       # KWin cursor-feed script, loaded on follow
 
         # drag tracking
         self._press_global = None
@@ -180,6 +207,35 @@ class Pet(QWidget):
                     pass
 
     def _handle_event(self, ev):
+        # A motion command is a user override, NOT a Claude event: it must not
+        # touch the engine or the SessionEnd quit timer.
+        if ev.get("cmd") == "motion":
+            motion = ev.get("motion")
+            if not motion:
+                # `stop` clears everything and restores gravity if we were floating
+                was_floating = self._floating
+                self._floating = False
+                self._motion = None
+                self._motion_expiry = None
+                if was_floating and self.mode != "held":
+                    self.mode = "thrown"        # gravity brings the floater home
+                self._sync_float_check()
+            elif motion == "float":
+                # float is a MODE toggle, not a transient render override — it
+                # does NOT touch self._motion, so the pet keeps its normal
+                # animation while hovering. Anti-gravity: rise a little, kill
+                # velocity; roam/physics are skipped while floating.
+                self._floating = True
+                if self.mode != "held":
+                    self.vx = self.vy = 0.0
+                    self.mode = "roam"
+                    self.y = max(float(self.screen_rect.top()), self.y - 240.0)
+                self._sync_float_check()
+            else:
+                dur = ev.get("dur", 0) or 0
+                self._motion = motion
+                self._motion_expiry = (time.monotonic() + dur) if dur > 0 else None
+            return
         self.engine.handle(ev, time.monotonic())
         name = ev.get("event") or ev.get("hook_event_name") or ""
         if name == "SessionEnd":
@@ -211,12 +267,68 @@ class Pet(QWidget):
         eff = self.claude_state
         self._update_tray_icon()
 
+        # transient motion override (jump/wave/sing/juggle + exposed states):
+        # plays for its duration then reverts. Never overrides drag/throw.
+        motion_active = False
+        if self._motion and self.mode not in ("held", "thrown"):
+            if self._motion_expiry is not None and now >= self._motion_expiry:
+                self._motion = None
+                self._motion_expiry = None
+            else:
+                self._render_state = self._motion
+                motion_active = True
+
+        # float is a MODE: it suspends gravity/roam so the pet hovers where it is
+        # (and wherever you drag it), but the pet keeps its normal animation.
+        floating = self._floating and self.mode not in ("held", "thrown")
+        following = self._follow and self.mode not in ("held", "thrown")
         roaming = eff in ("idle", "sleeping") and self.mode == "roam" and not self.dnd
 
         if self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()
+        elif motion_active:
+            pass                            # transient motion already set the render
+        elif following and floating:
+            # floating + follow: no gravity, so glide to the cursor in x AND y.
+            curx, cury = self._cursor_pos()
+            tx = min(max(curx - self.w / 2.0, self.screen_rect.left()),
+                     self.screen_rect.right() - self.w)
+            ty = min(max(cury - self.h / 2.0, self.screen_rect.top()),
+                     self.screen_rect.bottom() - self.h)
+            dx, dy = tx - self.x, ty - self.y
+            dist = (dx * dx + dy * dy) ** 0.5
+            step = 5.0                     # constant glide (no speed-up when far)
+            if abs(dx) > 1.0:
+                self.facing = 1 if dx > 0 else -1
+            if dist <= step:
+                self.x, self.y = tx, ty
+            else:
+                self.x += dx / dist * step
+                self.y += dy / dist * step
+            self._render_state = "float"
+        elif following:
+            # grounded follow: walk left/right toward the cursor's column along
+            # the floor. Bounds come from _bounds(), so a pet perched inside a
+            # window follows WITHIN that window rather than leaving it.
+            left, right, _t, floor = self._bounds()
+            curx, _cury = self._cursor_pos()
+            self.target_x = min(max(curx - self.w / 2.0, left), right)
+            dx = self.target_x - self.x
+            speed = 10.0                    # constant pace (no speed-up when far)
+            if abs(dx) <= speed:
+                self.x = self.target_x
+                self._render_state = eff    # arrived: resume normal animation
+            else:
+                self.facing = 1 if dx > 0 else -1
+                self.x += speed * self.facing
+                self._render_state = "walk"
+            self.y = floor
+        elif floating:
+            # hover in place (no gravity): show the floaty pose when idle,
+            # otherwise keep the live Claude-activity animation.
+            self._render_state = "float" if eff in ("idle", "sleeping") else eff
         elif roaming:
             self._roam()
         else:
@@ -278,6 +390,22 @@ class Pet(QWidget):
             self.x += speed * self.facing
             self._render_state = "walk"
         self.y = floor
+
+    def _on_cursor(self, xy):
+        try:
+            xs, ys = xy.split(",")
+            self._cursor = (int(float(xs)), int(float(ys)))
+        except (ValueError, AttributeError):
+            pass
+
+    def _cursor_pos(self):
+        """Global cursor (x, y). Prefer the compositor-pushed value (works even
+        when the cursor is over another window); fall back to Qt's own, which is
+        only accurate while the cursor is over our surface."""
+        if self._cursor is not None:
+            return self._cursor
+        p = QCursor.pos()
+        return (p.x(), p.y())
 
     def _physics(self):
         left, right, top, floor = self._bounds()
@@ -356,6 +484,50 @@ class Pet(QWidget):
             os.unlink(path)
         except Exception:
             pass
+
+    def _start_cursor_feed(self):
+        """Load a KWin script that pushes the global cursor position on move.
+        Loaded ONLY while follow is on (idle cost is zero otherwise)."""
+        svc = getattr(self, "_dbus_name", None)
+        if not svc:
+            return                              # no DBus channel -> QCursor fallback
+        js = (
+            'var SVC="' + svc + '";var _cx=-999,_cy=-999;'
+            'if(workspace.cursorPosChanged)workspace.cursorPosChanged.connect('
+            '  function(){var p=workspace.cursorPos;'
+            '    if(Math.abs(p.x-_cx)+Math.abs(p.y-_cy)>=3){_cx=p.x;_cy=p.y;'
+            '      callDBus(SVC,"/","","cursor",p.x+","+p.y);}});'
+        )
+        self._cursor_plugin = "claudepet_cursor_" + re.sub(
+            r"[^A-Za-z0-9_]", "_", str(self.session_id))
+        try:
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.unloadScript", self._cursor_plugin],
+                           timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+                f.write(js)
+                path = f.name
+            subprocess.check_output(
+                ["qdbus6", "org.kde.KWin", "/Scripting",
+                 "org.kde.kwin.Scripting.loadScript", path, self._cursor_plugin],
+                text=True, timeout=3)
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.start"], timeout=3)
+            os.unlink(path)
+        except Exception:
+            pass
+
+    def _stop_cursor_feed(self):
+        plugin = getattr(self, "_cursor_plugin", None)
+        if plugin:
+            try:
+                subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                                "org.kde.kwin.Scripting.unloadScript", plugin],
+                               timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            except Exception:
+                pass
+            self._cursor_plugin = None
+        self._cursor = None                     # drop stale pos -> QCursor fallback
 
     def _on_geom(self, dump):
         if dump == getattr(self, "_last_dump", None):
@@ -441,43 +613,78 @@ class Pet(QWidget):
         if not self._moved:
             self._activate_claude()
             self.mode = "roam"
+        elif self._floating:
+            # floating: stay put wherever you drop it — no fall, no perch, no
+            # snap-back. `stop` is what restores gravity.
+            self._contain = None
+            self.vx = self.vy = 0.0
+            self.mode = "roam"
         else:
+            vx = vy = 0.0
+            if len(self._vel_samples) >= 2:
+                (t0, p0), (t1, p1) = self._vel_samples[0], self._vel_samples[-1]
+                dt = max(1e-3, t1 - t0)
+                vx = (p1.x() - p0.x()) / dt / FPS
+                vy = (p1.y() - p0.y()) / dt / FPS
             cxp = int(self.x + self.w / 2)
             cyp = int(self.y + self.h / 2)
             win = windows.window_at(cxp, cyp, self._wins)
+            fling = (vx * vx + vy * vy) ** 0.5 >= 8.0
             if win is not None:
-                # dropped onto a window -> live inside it
+                # inside a window: a fling bounces around its interior walls,
+                # a gentle drop just perches. Drag the pet's centre OUT of the
+                # window to leave it.
                 self._contain = win
-                self.mode = "roam"
-                self.target_x = None
+                if fling:
+                    self.vx, self.vy = vx, vy
+                    self.mode = "thrown"      # bounces within the window bounds
+                else:
+                    self.mode = "roam"
+                    self.target_x = None
             else:
-                # dropped on the desktop -> leave any window and throw
+                # on the desktop -> leave any window and fly
                 self._contain = None
-                if len(self._vel_samples) >= 2:
-                    (t0, p0), (t1, p1) = self._vel_samples[0], self._vel_samples[-1]
-                    dt = max(1e-3, t1 - t0)
-                    self.vx = (p1.x() - p0.x()) / dt / FPS
-                    self.vy = (p1.y() - p0.y()) / dt / FPS
+                self.vx, self.vy = vx, vy
                 self.mode = "thrown"
         self._press_global = None
 
     def _menu(self, gpos):
         m = QMenu()
-        a_come = QAction("이리와", m)
+        a_follow = QAction("커서 따라오기", m, checkable=True)
+        a_follow.setChecked(self._follow)
+        m.addAction(a_follow)
+
+        sub = m.addMenu("모션")
+        motion_acts = {}
+        for label, name, dur in MOTION_MENU:
+            act = QAction(label, sub)
+            sub.addAction(act)
+            motion_acts[act] = (name, dur)
+
+        a_float = QAction("둥둥 띄우기 (중력 끄기)", m, checkable=True)
+        a_float.setChecked(self._floating)
+        m.addAction(a_float)
+
         a_dnd = QAction("조용히 (알림 끔)", m, checkable=True)
         a_dnd.setChecked(self.dnd)
-        a_quit = QAction("종료", m)
-        m.addAction(a_come)
         m.addAction(a_dnd)
         a_release = None
         if self._contain is not None:
             a_release = QAction("창에서 꺼내기", m)
             m.addAction(a_release)
         m.addSeparator()
+        a_quit = QAction("종료", m)
         m.addAction(a_quit)
         chosen = m.exec(gpos)
-        if chosen == a_come:
-            self._come_here()
+        if chosen is None:
+            return
+        if chosen == a_follow:
+            self._toggle_follow()
+        elif chosen in motion_acts:
+            name, dur = motion_acts[chosen]
+            self._play_motion(name, dur)
+        elif chosen == a_float:
+            self._toggle_float()
         elif chosen == a_dnd:
             self._toggle_dnd()
         elif a_release is not None and chosen == a_release:
@@ -486,17 +693,37 @@ class Pet(QWidget):
             self._quit()
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
-    def _come_here(self):
-        c = QCursor.pos()
-        self.target_x = min(max(c.x() - self.w // 2, self.screen_rect.left()),
-                            self.screen_rect.right() - self.w)
-        self.walk_pause = 0
-        self.mode = "roam"
+    def _toggle_follow(self):
+        self._follow = not self._follow
+        if self._follow:
+            self.walk_pause = 0           # follows within its window if perched
+            if self.mode == "thrown":
+                self.mode = "roam"
+            self._start_cursor_feed()     # start reading the cursor only now
+        else:
+            self._stop_cursor_feed()      # stop the feed -> zero idle cost
+        if getattr(self, "_act_follow", None) is not None:
+            self._act_follow.setChecked(self._follow)
 
     def _toggle_dnd(self):
         self.dnd = not self.dnd
         if getattr(self, "_act_dnd", None) is not None:
             self._act_dnd.setChecked(self.dnd)
+
+    def _play_motion(self, name, dur=2.5):
+        # reuse the same path as a socket motion command (menu is in-process)
+        self._handle_event({"cmd": "motion", "motion": name, "dur": dur})
+
+    def _toggle_float(self):
+        # off -> clear (restores gravity); on -> float mode
+        self._handle_event({"cmd": "motion",
+                            "motion": None if self._floating else "float",
+                            "dur": 0})
+
+    def _sync_float_check(self):
+        # keep the persistent tray checkbox in step with the float mode
+        if getattr(self, "_act_float", None) is not None:
+            self._act_float.setChecked(self._floating)
 
     def _quit(self):
         self._cleanup()
@@ -506,19 +733,33 @@ class Pet(QWidget):
     def _init_tray(self):
         self._tray_state = None
         self._act_dnd = None
+        self._act_float = None
+        self._act_follow = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = None
             return
         self.tray = QSystemTrayIcon(self)
         m = QMenu()
-        act_come = QAction("이리와", m)
+        self._act_follow = QAction("커서 따라오기", m, checkable=True)
+        m.addAction(self._act_follow)
+        self._act_follow.triggered.connect(self._toggle_follow)
+
+        sub = m.addMenu("모션")
+        for label, name, dur in MOTION_MENU:
+            act = QAction(label, sub)
+            sub.addAction(act)
+            act.triggered.connect(
+                lambda _checked=False, n=name, d=dur: self._play_motion(n, d))
+
+        self._act_float = QAction("둥둥 띄우기 (중력 끄기)", m, checkable=True)
+        m.addAction(self._act_float)
+        self._act_float.triggered.connect(self._toggle_float)
+
         self._act_dnd = QAction("조용히 (알림 끔)", m, checkable=True)
-        act_quit = QAction("종료", m)
-        m.addAction(act_come)
         m.addAction(self._act_dnd)
+        act_quit = QAction("종료", m)
         m.addSeparator()
         m.addAction(act_quit)
-        act_come.triggered.connect(self._come_here)
         self._act_dnd.triggered.connect(self._toggle_dnd)
         act_quit.triggered.connect(self._quit)
         self.tray.setContextMenu(m)
@@ -632,6 +873,7 @@ class Pet(QWidget):
         )
 
     def _cleanup(self):
+        self._stop_cursor_feed()
         if getattr(self, "_geom_plugin", None):
             try:
                 subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",

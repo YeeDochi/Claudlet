@@ -32,3 +32,20 @@ def test_speech_states_have_lines():
     assert set(C.SPEECH) <= set(C.STATES)
     for st in C.SPEECH:
         assert C.SPEECH[st]
+
+
+NEW_MOTIONS = {"jump", "wave", "sing", "juggle", "float"}
+
+
+def test_new_motions_present():
+    assert NEW_MOTIONS.issubset(set(C.STATES)), NEW_MOTIONS - set(C.STATES)
+
+
+def test_new_motions_render_without_error():
+    img = QImage(C.GRID_W * 6, C.GRID_H * 6, QImage.Format.Format_ARGB32)
+    for st in NEW_MOTIONS:
+        for frame in (0, 7, 50, 100):
+            for facing in (1, -1):
+                p = QPainter(img)
+                C.draw_creature(p, 0, 0, 6, st, frame, facing=facing)
+                p.end()

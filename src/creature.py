@@ -20,7 +20,8 @@ from PyQt6.QtCore import QRectF
 
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
           "work_agent", "work_skill", "thinking", "attention",
-          "error", "celebrate", "sleeping", "held", "falling")
+          "error", "celebrate", "sleeping", "held", "falling",
+          "jump", "wave", "sing", "juggle", "float")
 
 # short spoken line per communicative state (typed out in a bubble)
 SPEECH = {
@@ -139,10 +140,36 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         sx, sy = 0.88, 1.14          # stretched vertical, like a motion streak
         legphase = 0.5               # legs together/tucked (no flailing)
         eyes = "wide"
+    elif state == "jump":
+        j = abs(_sin(frame, 16, 5.5))            # tall hop
+        bob = -j
+        sy = 1.0 + 0.14 * (j / 5.5)              # stretch at apex
+        sx = 1.0 - 0.10 * (j / 5.5)
+        legphase = 0.5
+        eyes = "happy"
+    elif state == "wave":
+        bob = _sin(frame, 30, 0.4)
+        tilt = _sin(frame, 20, 4.0)              # rock while waving
+        eyes = "happy"
+    elif state == "sing":
+        bob = _sin(frame, 22, 0.6)
+        tilt = _sin(frame, 22, 5.0)              # big sway to the beat
+        eyes = "happy"
+        prop = "note"
+    elif state == "juggle":
+        bob = _sin(frame, 18, 0.4)
+        eyes = "wide"
+        prop = "balls"
+    elif state == "float":
+        bob = _sin(frame, 60, 1.6)               # slow, wide hover
+        tilt = _sin(frame, 120, 3.0)             # lazy drift
+        sx, sy = 1.03, 1.03                      # faintly puffed
+        legphase = 0.5
+        eyes = "open"
 
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
     arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
-           "held": "up", "falling": "up"}.get(state, "side")
+           "held": "up", "falling": "up", "juggle": "up", "wave": "wave"}.get(state, "side")
     arm_swing = _sin(frame, 12, 0.5) if state == "walk" else 0.0
 
     # ---- geometry (art-pixel space), origin at ox,oy ----
@@ -192,6 +219,11 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         # raised out to the sides, up near the shoulders
         px(1.6, 4.6, 2.1, 1.9, ORANGE_D)
         px(17.3, 4.6, 2.1, 1.9, ORANGE_D)
+    elif arm == "wave":
+        # left arm down at side, right arm raised and swinging (the wave)
+        wv = _sin(frame, 16, 1.4)
+        px(1.0, 7.9, 2.2, 1.9, ORANGE_D)                 # left arm at side
+        px(17.3, 3.4 + wv, 2.1, 1.9, ORANGE_D)           # right arm up, waving
     elif arm == "tap":
         # dropped down-forward, gently tapping (typing), opposite phase
         px(2.2, 10.0 + front_tap, 2.1, 1.7, ORANGE_D)
@@ -327,6 +359,21 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         rect(10.1, 0.1, 0.8, 0.8, BULB_L)                # pom
         if (frame % 30) < 15:
             rect(13.0, 1.4, 0.9, 0.9, BULB_L)            # sparkle
+    elif prop == "note":
+        # music notes bobbing up beside the head, cycling
+        for k in range(2):
+            nb = _sin(frame, 24, 0.8, phase=k * 0.5)
+            nx = 17.6 + k * 1.9
+            rect(nx, 2.4 + nb, 1.1, 1.1, EYE)            # note head
+            rect(nx + 0.9, 1.2 + nb, 0.4, 2.3, EYE)      # stem
+    elif prop == "balls":
+        # three balls arcing overhead on staggered phases
+        cols = [BULB, ORANGE_L, BULB_L]
+        for k in range(3):
+            t = ((frame + k * 12) % 36) / 36.0           # 0..1 around the arc
+            bx = 6.0 + 9.0 * t                           # left -> right
+            by = 2.6 + 3.2 * (1.0 - math.sin(t * math.pi))  # arc: high in the middle
+            rect(bx, by, 1.2, 1.2, cols[k])
     elif prop == "speech":
         phrase = SPEECH.get(state, "")
         if phrase:
@@ -365,10 +412,13 @@ if __name__ == "__main__":
               "work_search": "검색 중(돋보기)", "work_web": "웹/전화",
               "work_agent": "에이전트(분신)", "work_skill": "스킬(모자)",
               "thinking": "생각 중(음...)", "attention": "봐줘!(입력대기)",
-              "celebrate": "완료/신남", "error": "에러", "sleeping": "쿨쿨(수면)"}
+              "celebrate": "완료/신남", "error": "에러", "sleeping": "쿨쿨(수면)",
+              "jump": "점프", "wave": "손 흔들기", "sing": "노래", "juggle": "저글링",
+              "float": "둥실둥실"}
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
              "work_agent", "work_skill", "thinking", "attention",
-             "celebrate", "error", "sleeping"]
+             "celebrate", "error", "sleeping",
+             "jump", "wave", "sing", "juggle", "float"]
     # show two animation frames per state to convey motion
     u = 7
     cellw, cellh = 210, 190
@@ -398,5 +448,5 @@ if __name__ == "__main__":
         p.drawText(QRectF(x0, y0 + cellh - 40, cellw, 24), Qt.AlignmentFlag.AlignCenter, labels[st])
         p.setPen(Qt.PenStyle.NoPen)
     p.end()
-    out = "/tmp/claude-1000/-home-ljh-claude-pet/5889553d-2ce9-417e-9219-ed810ce8ee42/scratchpad/creature_sheet.png"
+    out = "/tmp/claude-1000/-home-ljh-claude-pet/b142d975-b346-4277-b238-03dacd7f5afa/scratchpad/creature_sheet.png"
     img.save(out); print("saved", out)

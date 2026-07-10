@@ -1,10 +1,16 @@
-import sys, os
+import sys, os, time
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt, QPoint
 import pet as P
 
 _app = QApplication.instance() or QApplication(sys.argv)
+
+
+class _LeftRelease:
+    def button(self):
+        return Qt.MouseButton.LeftButton
 
 
 def test_pet_constructs_and_uses_engine():
@@ -65,5 +71,199 @@ def test_roam_falls_when_surface_dropped_away():
         p.walk_pause = 5           # would have early-returned before the fix
         p._roam()
         assert p.mode == "thrown"  # falls instead of teleporting
+    finally:
+        p._cleanup()
+
+
+def test_motion_command_overrides_render_state():
+    p = P.Pet(session_id="m1")
+    try:
+        p._handle_event({"cmd": "motion", "motion": "jump", "dur": 2.0})
+        assert p._motion == "jump"
+        p.mode = "roam"
+        p._tick()
+        assert p._render_state == "jump"
+    finally:
+        p._cleanup()
+
+
+def test_motion_command_does_not_cancel_quit_timer():
+    p = P.Pet(session_id="m2")
+    try:
+        p._handle_event({"event": "SessionEnd", "session": "m2"})
+        assert p._quit_timer is not None
+        p._handle_event({"cmd": "motion", "motion": "wave", "dur": 1.0})
+        assert p._quit_timer is not None      # a motion cmd is NOT a Claude event
+        assert p._motion == "wave"
+    finally:
+        p._cleanup()
+
+
+def test_float_toggle_and_stop_restores_gravity():
+    p = P.Pet(session_id="m3")
+    try:
+        p._handle_event({"cmd": "motion", "motion": "float", "dur": 0})
+        assert p._floating is True
+        assert p._motion is None          # float is a mode, not a render override
+        p._handle_event({"cmd": "motion", "motion": None, "dur": 0})
+        assert p._floating is False
+        assert p.mode == "thrown"         # stop restores gravity
+    finally:
+        p._cleanup()
+
+
+def test_float_rises_and_hovers_without_falling():
+    p = P.Pet(session_id="m4")
+    try:
+        p.mode = "roam"
+        p.y = float(p.floor_y)
+        p._handle_event({"cmd": "motion", "motion": "float", "dur": 0})
+        # rose off the floor, velocity killed, still roam (so hovering engages)
+        assert p.y < p.floor_y
+        assert p.vy == 0.0 and p.mode == "roam"
+        hover_y = p.y
+        # ticking must NOT pull it down (gravity is skipped while floating)
+        for _ in range(5):
+            p._tick()
+        assert p.y == hover_y            # hovers in place, no fall, no snap
+    finally:
+        p._cleanup()
+
+
+def test_menu_helpers_play_motion_and_toggle_float():
+    p = P.Pet(session_id="m6")
+    try:
+        p._play_motion("jump", 2.0)
+        assert p._motion == "jump"
+        # float toggle flips on, then off (off restores gravity)
+        assert p._floating is False
+        p._toggle_float()
+        assert p._floating is True
+        p._toggle_float()
+        assert p._floating is False and p.mode == "thrown"
+    finally:
+        p._cleanup()
+
+
+def test_follow_toggle_and_tick_glides_toward_cursor():
+    p = P.Pet(session_id="m7")
+    try:
+        assert p._follow is False
+        p._toggle_follow()
+        assert p._follow is True
+        # place the pet far from the cursor; ticking must glide it toward the
+        # cursor (position changes) and stay within the desktop, without crashing
+        p.mode = "roam"
+        p.x, p.y = float(p.screen_rect.right() - p.w), float(p.floor_y)
+        start = (p.x, p.y)
+        for _ in range(3):
+            p._tick()
+        assert (p.x, p.y) != start
+        assert p.screen_rect.left() <= p.x <= p.screen_rect.right()
+        p._toggle_follow()
+        assert p._follow is False
+    finally:
+        p._cleanup()
+
+
+def test_cursor_feed_parsed_and_used():
+    p = P.Pet(session_id="m12")
+    try:
+        assert p._cursor is None                 # falls back to QCursor until fed
+        p._on_cursor("640,480")
+        assert p._cursor == (640, 480)
+        assert p._cursor_pos() == (640, 480)     # compositor value preferred
+        p._on_cursor("garbage")                  # must not crash or corrupt
+        assert p._cursor == (640, 480)
+    finally:
+        p._cleanup()
+
+
+def test_floating_follow_tracks_x_and_y():
+    p = P.Pet(session_id="m11")
+    try:
+        p.mode = "roam"
+        p._follow = True
+        p._floating = True
+        p.x = float(p.screen_rect.right() - p.w)
+        p.y = float(p.screen_rect.bottom() - p.h)
+        start_y = p.y
+        for _ in range(3):
+            p._tick()
+        # unlike grounded follow (x only), floating follow also moves in y
+        assert p.y != start_y
+        assert p._render_state == "float"
+    finally:
+        p._cleanup()
+
+
+def test_fling_inside_window_bounces_within_it():
+    import windows as W
+    p = P.Pet(session_id="m8")
+    try:
+        p._wins = [W.Win("0x1", 0, 0, 4000, 2000, "X")]   # window under the pet
+        p.x, p.y = 100.0, 100.0
+        p._moved = True
+        p._floating = False
+        now = time.monotonic()
+        # fast flick: 60px in 0.02s -> speed well over the fling threshold
+        p._vel_samples = [(now, QPoint(0, 0)), (now + 0.02, QPoint(60, 0))]
+        p.mouseReleaseEvent(_LeftRelease())
+        assert p.mode == "thrown"        # thrown -> bounces off the interior
+        assert p._contain is not None    # but stays inside the window
+    finally:
+        p._cleanup()
+
+
+def test_gentle_drop_on_window_perches():
+    import windows as W
+    p = P.Pet(session_id="m9")
+    try:
+        p._wins = [W.Win("0x1", 0, 0, 4000, 2000, "X")]
+        p.x, p.y = 100.0, 100.0
+        p._moved = True
+        p._floating = False
+        now = time.monotonic()
+        # slow drop: 2px over 0.1s -> below the fling threshold
+        p._vel_samples = [(now, QPoint(0, 0)), (now + 0.1, QPoint(2, 0))]
+        p.mouseReleaseEvent(_LeftRelease())
+        assert p._contain is not None    # settled into the window
+        assert p.mode == "roam"
+    finally:
+        p._cleanup()
+
+
+def test_drag_centre_out_of_window_leaves_it():
+    import windows as W
+    p = P.Pet(session_id="m10")
+    try:
+        p._contain = W.Win("0x1", 0, 0, 100, 100, "X")   # was living in a window
+        p._wins = [p._contain]
+        p.x, p.y = 3000.0, 500.0        # centre now well outside the window
+        p._moved = True
+        p._floating = False
+        now = time.monotonic()
+        p._vel_samples = [(now, QPoint(0, 0)), (now + 0.1, QPoint(1, 0))]
+        p.mouseReleaseEvent(_LeftRelease())
+        assert p._contain is None        # left the window
+        assert p.mode == "thrown"
+    finally:
+        p._cleanup()
+
+
+def test_float_still_shows_claude_animation():
+    p = P.Pet(session_id="m5")
+    try:
+        # a working Claude state while floating should still render as working,
+        # not be masked by the float mode
+        p._handle_event({"event": "PreToolUse", "session": "m5", "tool_name": "Bash"})
+        p._handle_event({"cmd": "motion", "motion": "float", "dur": 0})
+        p._tick()
+        assert p._floating is True
+        assert p._render_state == "work_computer"   # animation NOT masked by float
+        # and a transient motion still plays over the float
+        p._handle_event({"cmd": "motion", "motion": "jump", "dur": 2.0})
+        p._tick()
+        assert p._render_state == "jump"
     finally:
         p._cleanup()
