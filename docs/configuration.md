@@ -31,3 +31,13 @@ jump  wave  sing  juggle
 
 Anything unknown is ignored, so a typo just falls back to the defaults. Restart the
 pet to pick up changes.
+
+## Language
+
+`lang` sets the language of the pet's speech bubbles, tray tooltips, and right-click
+menu — `"ko"`, `"en"`, or `"auto"` (default; follows your locale, falling back to
+English):
+
+```json
+{ "lang": "en" }
+```

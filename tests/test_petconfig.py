@@ -11,7 +11,7 @@ def _write(tmp, obj):
     return p
 
 
-EMPTY = {"tool_states": {}, "event_states": {}, "raw_events": {}}
+EMPTY = {"tool_states": {}, "event_states": {}, "raw_events": {}, "lang": "auto"}
 
 
 def test_valid_overrides_kept():
@@ -55,3 +55,23 @@ def test_non_dict_json_yields_empty():
 def test_config_path_respects_xdg(monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdgtest")
     assert petconfig.config_path() == "/tmp/xdgtest/claude-pet/config.json"
+
+
+def test_lang_parsed_and_defaulted(tmp_path):
+    p = _write(str(tmp_path), {"lang": "en"})
+    assert petconfig.load_config(p)["lang"] == "en"
+    p2 = _write(str(tmp_path), {"lang": "nonsense"})
+    assert petconfig.load_config(p2)["lang"] == "auto"   # bad value -> auto
+    p3 = _write(str(tmp_path), {})
+    assert petconfig.load_config(p3)["lang"] == "auto"    # absent -> auto
+
+
+def test_resolve_lang(monkeypatch):
+    assert petconfig.resolve_lang("ko") == "ko"
+    assert petconfig.resolve_lang("en") == "en"
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+    monkeypatch.delenv("LC_MESSAGES", raising=False)
+    assert petconfig.resolve_lang("auto") == "ko"
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    assert petconfig.resolve_lang("auto") == "en"

@@ -49,3 +49,15 @@ def test_new_motions_render_without_error():
                 p = QPainter(img)
                 C.draw_creature(p, 0, 0, 6, st, frame, facing=facing)
                 p.end()
+
+
+def test_speech_language_switch():
+    # set_lang flips the bubble text; default is Korean
+    C.set_lang("ko")
+    assert C._speech("thinking") == "고민중…"
+    C.set_lang("en")
+    assert C._speech("thinking") == "hmm…"
+    assert C._speech("asking") == "yeah?"
+    C.set_lang("bogus")          # unknown -> Korean fallback
+    assert C._speech("thinking") == "고민중…"
+    C.set_lang("ko")             # restore default for other tests

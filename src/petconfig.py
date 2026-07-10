@@ -47,7 +47,21 @@ def _clean(raw):
     for key, val in (raw.get("raw_events") or {}).items():
         if isinstance(key, str) and val in MAPPABLE_STATES:
             raw_events[key] = val
-    return {"tool_states": tools, "event_states": events, "raw_events": raw_events}
+    lang = raw.get("lang")
+    if lang not in ("ko", "en", "auto"):
+        lang = "auto"
+    return {"tool_states": tools, "event_states": events,
+            "raw_events": raw_events, "lang": lang}
+
+
+def resolve_lang(value):
+    """Map a config lang to a concrete "ko"/"en". "auto" (or anything odd) reads
+    the locale: Korean locale -> ko, otherwise en."""
+    if value in ("ko", "en"):
+        return value
+    loc = (os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES")
+           or os.environ.get("LANG") or "")
+    return "ko" if loc.lower().startswith("ko") else "en"
 
 
 def load_config(path=None):
@@ -58,7 +72,9 @@ def load_config(path=None):
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
     except (OSError, ValueError):
-        return {"tool_states": {}, "event_states": {}, "raw_events": {}}
+        return {"tool_states": {}, "event_states": {}, "raw_events": {},
+                "lang": "auto"}
     if not isinstance(raw, dict):
-        return {"tool_states": {}, "event_states": {}, "raw_events": {}}
+        return {"tool_states": {}, "event_states": {}, "raw_events": {},
+                "lang": "auto"}
     return _clean(raw)

@@ -48,27 +48,47 @@ U = 5                                   # art-pixel size in device px
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
 FPS = 20
 
-# short label per state, shown as the tray tooltip
+# short label per state (tray tooltip), per language
 STATE_LABELS = {
-    "idle": "대기", "sleeping": "자는 중", "walk": "산책",
-    "thinking": "고민 중", "work_computer": "작업 중", "work_search": "탐색 중",
-    "work_web": "연락 중", "work_agent": "서브에이전트", "work_skill": "스킬 사용",
-    "attention": "입력 대기!", "asking": "답 기다림",
-    "autopilot": "자동 진행", "auto_computer": "자동·코딩",
-    "auto_search": "자동·탐색", "auto_web": "자동·웹", "auto_agent": "자동·에이전트",
-    "auto_skill": "자동·스킬", "celebrate": "완료!",
-    "error": "에러",
+    "ko": {
+        "idle": "대기", "sleeping": "자는 중", "walk": "산책",
+        "thinking": "고민 중", "work_computer": "작업 중", "work_search": "탐색 중",
+        "work_web": "연락 중", "work_agent": "서브에이전트", "work_skill": "스킬 사용",
+        "attention": "입력 대기!", "asking": "답 기다림", "autopilot": "자동 진행",
+        "auto_computer": "자동·코딩", "auto_search": "자동·탐색", "auto_web": "자동·웹",
+        "auto_agent": "자동·에이전트", "auto_skill": "자동·스킬",
+        "celebrate": "완료!", "error": "에러",
+    },
+    "en": {
+        "idle": "idle", "sleeping": "sleeping", "walk": "strolling",
+        "thinking": "thinking", "work_computer": "working", "work_search": "searching",
+        "work_web": "web", "work_agent": "subagent", "work_skill": "skill",
+        "attention": "needs you!", "asking": "waiting", "autopilot": "autopilot",
+        "auto_computer": "auto·edit", "auto_search": "auto·search", "auto_web": "auto·web",
+        "auto_agent": "auto·subagent", "auto_skill": "auto·skill",
+        "celebrate": "done!", "error": "error",
+    },
 }
 # representative animation frame to freeze for each state's tray icon
 _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 
-# transient motions offered in the right-click / tray menus: (label, name, seconds)
+# right-click / tray menu UI strings, per language
+UI = {
+    "ko": {"follow": "커서 따라오기", "motions": "모션",
+           "float": "둥둥 띄우기 (중력 끄기)", "quiet": "조용히 (알림 끔)",
+           "release": "창에서 꺼내기", "quit": "종료"},
+    "en": {"follow": "Follow cursor", "motions": "Motions",
+           "float": "Float (no gravity)", "quiet": "Quiet (mute)",
+           "release": "Release from window", "quit": "Quit"},
+}
+
+# transient motions offered in the menus: (name, seconds, {lang: label})
 MOTION_MENU = [
-    ("점프", "jump", 2.5),
-    ("손 흔들기", "wave", 2.5),
-    ("노래", "sing", 3.0),
-    ("저글링", "juggle", 3.0),
-    ("축하", "celebrate", 2.5),
+    ("jump", 2.5, {"ko": "점프", "en": "Jump"}),
+    ("wave", 2.5, {"ko": "손 흔들기", "en": "Wave"}),
+    ("sing", 3.0, {"ko": "노래", "en": "Sing"}),
+    ("juggle", 3.0, {"ko": "저글링", "en": "Juggle"}),
+    ("celebrate", 2.5, {"ko": "축하", "en": "Celebrate"}),
 ]
 
 # device-px from the pet window's top down to the creature's feet (legs bottom).
@@ -137,6 +157,11 @@ class Pet(QWidget):
                                   tool_states=cfg["tool_states"],
                                   event_states=cfg["event_states"],
                                   raw_events=cfg["raw_events"])
+        # language for user-facing strings (speech bubbles, tray, menus)
+        self.lang = petconfig.resolve_lang(cfg.get("lang", "auto"))
+        C.set_lang(self.lang)
+        self.labels = STATE_LABELS[self.lang]
+        self.ui = UI[self.lang]
         self.claude_state = "sleeping"       # last state the engine reported
         self.dnd = False                     # do-not-disturb
         self._quit_timer = None              # pending SessionEnd -> quit timer
@@ -855,30 +880,30 @@ class Pet(QWidget):
 
     def _menu(self, gpos):
         m = QMenu()
-        a_follow = QAction("커서 따라오기", m, checkable=True)
+        a_follow = QAction(self.ui["follow"], m, checkable=True)
         a_follow.setChecked(self._follow)
         m.addAction(a_follow)
 
-        sub = m.addMenu("모션")
+        sub = m.addMenu(self.ui["motions"])
         motion_acts = {}
-        for label, name, dur in MOTION_MENU:
-            act = QAction(label, sub)
+        for name, dur, label in MOTION_MENU:
+            act = QAction(label[self.lang], sub)
             sub.addAction(act)
             motion_acts[act] = (name, dur)
 
-        a_float = QAction("둥둥 띄우기 (중력 끄기)", m, checkable=True)
+        a_float = QAction(self.ui["float"], m, checkable=True)
         a_float.setChecked(self._floating)
         m.addAction(a_float)
 
-        a_dnd = QAction("조용히 (알림 끔)", m, checkable=True)
+        a_dnd = QAction(self.ui["quiet"], m, checkable=True)
         a_dnd.setChecked(self.dnd)
         m.addAction(a_dnd)
         a_release = None
         if self._contain is not None:
-            a_release = QAction("창에서 꺼내기", m)
+            a_release = QAction(self.ui["release"], m)
             m.addAction(a_release)
         m.addSeparator()
-        a_quit = QAction("종료", m)
+        a_quit = QAction(self.ui["quit"], m)
         m.addAction(a_quit)
         chosen = m.exec(gpos)
         if chosen is None:
@@ -945,24 +970,24 @@ class Pet(QWidget):
             return
         self.tray = QSystemTrayIcon(self)
         m = QMenu()
-        self._act_follow = QAction("커서 따라오기", m, checkable=True)
+        self._act_follow = QAction(self.ui["follow"], m, checkable=True)
         m.addAction(self._act_follow)
         self._act_follow.triggered.connect(self._toggle_follow)
 
-        sub = m.addMenu("모션")
-        for label, name, dur in MOTION_MENU:
-            act = QAction(label, sub)
+        sub = m.addMenu(self.ui["motions"])
+        for name, dur, label in MOTION_MENU:
+            act = QAction(label[self.lang], sub)
             sub.addAction(act)
             act.triggered.connect(
                 lambda _checked=False, n=name, d=dur: self._play_motion(n, d))
 
-        self._act_float = QAction("둥둥 띄우기 (중력 끄기)", m, checkable=True)
+        self._act_float = QAction(self.ui["float"], m, checkable=True)
         m.addAction(self._act_float)
         self._act_float.triggered.connect(self._toggle_float)
 
-        self._act_dnd = QAction("조용히 (알림 끔)", m, checkable=True)
+        self._act_dnd = QAction(self.ui["quiet"], m, checkable=True)
         m.addAction(self._act_dnd)
-        act_quit = QAction("종료", m)
+        act_quit = QAction(self.ui["quit"], m)
         m.addSeparator()
         m.addAction(act_quit)
         self._act_dnd.triggered.connect(self._toggle_dnd)
@@ -986,7 +1011,7 @@ class Pet(QWidget):
             return
         self._tray_state = st
         tray.setIcon(self._state_icon(st))
-        tray.setToolTip("claude-pet — " + STATE_LABELS.get(st, st))
+        tray.setToolTip("claude-pet — " + self.labels.get(st, st))
 
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""

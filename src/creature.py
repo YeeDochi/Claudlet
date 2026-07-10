@@ -37,14 +37,31 @@ STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
 _AUTO_PROP = {"auto_computer": "window", "auto_search": "magnify",
               "auto_web": "phone", "auto_agent": "clones_v"}
 
-# short spoken line per communicative state (typed out in a bubble)
-SPEECH = {
+# short spoken line per communicative state (typed out in a bubble), per language
+SPEECH = {                      # Korean (default; also drives the mockup sheet)
     "thinking": "고민중…",
     "attention": "이거 맞아?",
     "asking": "응?",
     "celebrate": "다 됐다!",
     "error": "으악!",
 }
+SPEECH_EN = {
+    "thinking": "hmm…",
+    "attention": "this ok?",
+    "asking": "yeah?",
+    "celebrate": "done!",
+    "error": "argh!",
+}
+LANG = "ko"                     # set by pet.py via set_lang(); "ko" | "en"
+
+
+def set_lang(lang):
+    global LANG
+    LANG = "en" if lang == "en" else "ko"
+
+
+def _speech(state):
+    return (SPEECH_EN if LANG == "en" else SPEECH).get(state, "")
 
 ORANGE   = QColor("#D97757")
 ORANGE_L = QColor("#ECA184")   # top bevel / highlight
@@ -496,7 +513,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None):
             by = 2.6 + 3.2 * (1.0 - math.sin(t * math.pi))  # arc: high in the middle
             rect(bx, by, 1.2, 1.2, cols[k])
     elif prop == "speech":
-        phrase = SPEECH.get(state, "")
+        phrase = _speech(state)
         if phrase:
             n = len(phrase)
             cyc = frame % (n * 7 + 30)          # type ~1 char / 7 frames, then hold
