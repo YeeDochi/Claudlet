@@ -13,13 +13,18 @@ Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝
 ## 실제 사용 모습
 
 실제 데스크톱 화면 녹화 — 펫들이 터미널 타이틀바에 올라타고, 바탕화면을 돌아다니고,
-쉴 땐 잠자고, 고민할 땐 말풍선을 띄우고, 창 위를 타고 다녀요.
+작업 사이엔 잠들고(💤), 화면에 뭐가 떠 있든 그 위를 타고 다녀요.
 
-<video src="https://raw.githubusercontent.com/YeeDochi/claude-pet/master/docs/claude-pet-demo.webm" controls muted loop width="100%"></video>
+![바탕화면 위의 claude-pet](docs/screenshot.png)
 
-> 플레이어가 안 보이면 [영상 보기](docs/claude-pet-demo.webm).
+![터미널에 올라타 로밍하는 펫들](docs/demo-1.gif)
+*터미널 위에 올라타고, 돌아다니고, 작업 사이엔 꾸벅꾸벅.*
 
-![screenshot](docs/screenshot.png)
+![펫을 드래그하는 모습](docs/demo-2.gif)
+*집어서 끌고 다닐 수 있고, 나머지는 계속 로밍·낮잠.*
+
+![배경 위를 돌아다니는 펫들](docs/demo-3.gif)
+*화면에 뭐가 떠 있든 그 위를 돌아다녀요.*
 
 ## 설치
 

@@ -14,14 +14,19 @@ Drawn entirely in code — no image assets — so it's self-contained and origin
 
 ## See it in action
 
-Real desktop capture — pets perch on the terminal titlebar, roam the desktop, sleep
-while idle, think in a speech bubble, and ride your windows.
+Real desktop capture. Pets perch on the terminal titlebar, roam the desktop, doze
+off (💤) between tasks, and clamber over whatever else is on screen.
 
-<video src="https://raw.githubusercontent.com/YeeDochi/claude-pet/master/docs/claude-pet-demo.webm" controls muted loop width="100%"></video>
+![claude-pet on the desktop](docs/screenshot.png)
 
-> If the player doesn't show, [watch the clip](docs/claude-pet-demo.webm).
+![Pets perch on the terminal and roam the desktop](docs/demo-1.gif)
+*Perching on the terminal, roaming, and dozing between tasks.*
 
-![screenshot](docs/screenshot.png)
+![Dragging a pet while the others nap](docs/demo-2.gif)
+*Grab and drag them around; the rest keep roaming and napping.*
+
+![Pets roaming over the wallpaper](docs/demo-3.gif)
+*They wander over whatever else is on your screen.*
 
 ## Install
 
