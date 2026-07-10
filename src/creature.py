@@ -302,38 +302,29 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None):
             px(col, er, 1.7, 0.5, EYE); px(col + 0.6, er - 0.6, 0.5, 1.7, EYE)
         elif kind == "happy":
             px(col, er + 0.8, 0.6, 0.6, EYE); px(col + 0.55, er + 0.3, 0.6, 0.6, EYE); px(col + 1.1, er + 0.8, 0.6, 0.6, EYE)
-    if eyes in ("shades", "shades_glint"):
-        # a VR headset worn over the eyes: silver/grey housing wrapping the face,
-        # dark glossy screen inset, a travelling highlight — not black sunglasses.
-        # centred on the body midline (col 10.5): housing 3.9..17.1
-        px(3.9, er - 0.5, 13.2, 2.7, VISOR)                  # silver housing
-        px(3.5, er - 0.5, 1.6, 3.1, VISOR)                   # left wrap (down)
-        px(15.9, er - 0.5, 1.6, 3.1, VISOR)                  # right wrap (down)
-        px(3.9, er - 0.5, 13.2, 0.5, VISOR_HI)               # top highlight rim
-        px(3.9, er + 1.6, 13.2, 0.6, VISOR_D)                # bottom shade
-        px(5.0, er + 0.0, 11.0, 1.5, VISOR_GLASS)            # dark screen inset
-        # a bright reflection sweeps across the screen now and then
-        swp = frame % 96
+    def headset(top, glint):
+        # the SAME VR headset, drawn with its housing top at row `top`. Worn over
+        # the eyes when down; the identical shape raised onto the head when up.
+        px(3.9, top, 13.2, 2.7, VISOR)                       # silver housing
+        px(3.5, top, 1.6, 3.1, VISOR)                        # left wrap (down)
+        px(15.9, top, 1.6, 3.1, VISOR)                       # right wrap (down)
+        px(3.9, top, 13.2, 0.5, VISOR_HI)                    # top highlight rim
+        px(3.9, top + 2.1, 13.2, 0.6, VISOR_D)               # bottom shade
+        px(5.0, top + 0.5, 11.0, 1.5, VISOR_GLASS)           # dark screen inset
+        swp = frame % 96                                     # travelling reflection
         if swp < 12:
-            gx = 5.4 + swp * 0.9
-            px(gx, er + 0.05, 0.9, 1.4, QColor("#9FD3FF"))   # travelling shine
+            px(5.4 + swp * 0.9, top + 0.55, 0.9, 1.4, QColor("#9FD3FF"))
         else:
-            px(9.6, er + 0.25, 1.7, 0.45, QColor("#3A4256"))  # faint resting glint
-        if eyes == "shades_glint" and (frame % 24) < 12:
-            px(12.8, er + 0.35, 1.1, 0.8, QColor("#FF3B3B"))  # red status LED (skill)
+            px(9.6, top + 0.75, 1.7, 0.45, QColor("#3A4256"))
+        if glint and (frame % 24) < 12:
+            px(12.8, top + 0.85, 1.1, 0.8, QColor("#FF3B3B"))  # red status LED
+
+    if eyes in ("shades", "shades_glint"):
+        headset(er - 0.5, glint=(eyes == "shades_glint"))   # worn over the eyes
     else:
         eye(e1, eyes); eye(e2, eyes)
         if visor == "up":
-            # headset pushed up onto the head — eyes visible below it (auto mode,
-            # but not actively "looking": walking, idle, held, following...).
-            vy = 3.5
-            px(6.0, vy, 9.0, 1.3, VISOR)                     # band on the crown
-            px(6.0, vy, 9.0, 0.4, VISOR_HI)                  # top highlight
-            px(6.0, vy + 1.0, 9.0, 0.4, VISOR_D)             # under-shade
-            px(6.7, vy + 0.55, 7.6, 0.55, VISOR_GLASS)       # dark lens strip
-            if frame % 96 < 10:
-                px(7.2 + (frame % 96) * 0.7, vy + 0.5, 0.8, 0.7,
-                   QColor("#9FD3FF"))                        # occasional glint
+            headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
 
     p.restore()
 
