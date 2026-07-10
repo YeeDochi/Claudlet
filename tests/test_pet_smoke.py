@@ -199,6 +199,32 @@ def test_work_search_anchors_locally_and_clears():
         p._cleanup()
 
 
+def test_roam_wanders_locally_within_bounds():
+    import random
+    random.seed(20260710)
+    p = P.Pet(session_id="rw")
+    try:
+        p._wins = []
+        p.mode = "roam"
+        p.claude_state = "idle"
+        p.target_x = None
+        left, right, *_ = p._bounds()
+        p.x = float((left + right) / 2)      # start mid-screen
+        start_x = p.x
+        picked = None
+        for _ in range(2000):
+            p._roam()
+            if p.target_x is not None:
+                picked = p.target_x
+                break
+        assert picked is not None            # eventually decided to wander
+        assert left <= picked <= right       # target stays on-screen
+        assert abs(picked - start_x) <= 900 + 1   # local wander, not teleport
+        assert 1.8 <= p._walk_speed <= 2.8   # per-trip pace variety
+    finally:
+        p._cleanup()
+
+
 def test_cursor_feed_parsed_and_used():
     p = P.Pet(session_id="m12")
     try:

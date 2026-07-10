@@ -143,6 +143,7 @@ class Pet(QWidget):
         self.target_x = None
         self.walk_pause = 0.0
         self.vx = self.vy = 0.0
+        self._walk_speed = 2.2               # per-trip roam speed (varied a little)
         self._search_anchor = None           # x the work_search darts stay around
 
         # transient motion override (jump/wave/... — timed; overrides the render)
@@ -387,21 +388,31 @@ class Pet(QWidget):
             return
         if self.walk_pause > 0:
             self.walk_pause -= 1
+            # occasionally glance the other way while resting (looks alive)
+            if random.random() < 0.01:
+                self.facing = -self.facing
             self.y = floor
             self._render_state = self.claude_state
             return
         if self.target_x is None:
             if random.random() < 0.012:
-                self.target_x = random.uniform(left, max(left, right))
+                # wander mostly nearby; now and then take a longer stroll
+                reach = (random.uniform(120, 320) if random.random() < 0.8
+                         else random.uniform(320, 900))
+                direction = 1 if random.random() < 0.5 else -1
+                self.target_x = min(max(self.x + direction * reach, left), right)
+                self._walk_speed = random.uniform(1.8, 2.8)   # slight pace variety
             self.y = floor
             self._render_state = self.claude_state
             return
-        speed = 2.2
+        speed = self._walk_speed
         dx = self.target_x - self.x
         if abs(dx) <= speed:
             self.x = self.target_x
             self.target_x = None
-            self.walk_pause = random.randint(20, 90)
+            # mostly short pauses, occasionally a longer rest
+            self.walk_pause = (random.randint(20, 90) if random.random() < 0.8
+                               else random.randint(120, 260))
             self._render_state = self.claude_state
         else:
             self.facing = 1 if dx > 0 else -1
