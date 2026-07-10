@@ -54,7 +54,7 @@ def test_non_dict_json_yields_empty():
 
 def test_config_path_respects_xdg(monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdgtest")
-    assert petconfig.config_path() == "/tmp/xdgtest/claude-pet/config.json"
+    assert petconfig.config_path() == os.path.join("/tmp/xdgtest", "claude-pet", "config.json")
 
 
 def test_lang_parsed_and_defaulted(tmp_path):

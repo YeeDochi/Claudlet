@@ -4,6 +4,9 @@ Pure and dependency-free so both `bin/claude-pet-hook` (runs inside the Claude
 Code session, sees its env) and `src/pet.py` can import it and agree.
 """
 import os
+import tempfile
+
+LOOPBACK = "127.0.0.1"
 
 # host -> window-class / app-name substrings used to match/focus that host's
 # window. On Linux these match KWin resourceClass; on macOS the frontmost app
@@ -53,8 +56,31 @@ def mac_app(host):
     return MAC_APP.get(host)
 
 
-def session_sock(session_id):
-    """Unix socket path for a given Claude Code session id."""
-    base = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+def runtime_dir():
+    """Base dir for per-session port files: $XDG_RUNTIME_DIR, else the OS temp dir.
+
+    AF_UNIX sockets aren't available on stock Windows Python builds, so pets
+    listen on a loopback TCP port instead and drop the assigned port in a
+    small file here for hook/motion scripts to read.
+    """
+    return os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+
+
+def session_port_file(session_id):
+    """Path to the file holding the loopback TCP port for a session's pet."""
     sid = session_id or "default"
-    return os.path.join(base, "claude-pet-{}.sock".format(sid))
+    return os.path.join(runtime_dir(), "claude-pet-{}.port".format(sid))
+
+
+def read_session_port(session_id):
+    """Port of the pet attached to this session, or None if unknown/stale."""
+    try:
+        with open(session_port_file(session_id)) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_session_port(session_id, port):
+    with open(session_port_file(session_id), "w") as f:
+        f.write(str(port))

@@ -54,6 +54,21 @@ def _clean(raw):
             "raw_events": raw_events, "lang": lang}
 
 
+def _windows_locale():
+    """User's UI locale (e.g. "ko-KR") via Win32 — Windows doesn't set the
+    POSIX LANG/LC_* vars resolve_lang() otherwise reads, so without this,
+    "auto" would default to English on every Windows machine regardless of
+    the system's actual language."""
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(85)   # LOCALE_NAME_MAX_LENGTH
+        if ctypes.windll.kernel32.GetUserDefaultLocaleName(buf, len(buf)):
+            return buf.value
+    except Exception:
+        pass
+    return ""
+
+
 def resolve_lang(value):
     """Map a config lang to a concrete "ko"/"en". "auto" (or anything odd) reads
     the locale: Korean locale -> ko, otherwise en."""
@@ -61,6 +76,8 @@ def resolve_lang(value):
         return value
     loc = (os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES")
            or os.environ.get("LANG") or "")
+    if not loc and os.name == "nt":
+        loc = _windows_locale()
     return "ko" if loc.lower().startswith("ko") else "en"
 
 

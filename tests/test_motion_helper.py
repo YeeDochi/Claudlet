@@ -3,7 +3,7 @@ import sys, os, json, types
 MOD_PATH = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-motion")
 mod = types.ModuleType("claude_pet_motion")
 mod.__file__ = MOD_PATH
-with open(MOD_PATH) as f:
+with open(MOD_PATH, encoding="utf-8") as f:
     exec(compile(f.read(), MOD_PATH, "exec"), mod.__dict__)
 
 

@@ -30,15 +30,39 @@ def _link_skill():
             os.unlink(SKILL_LINK)
         os.symlink(SKILL_SRC, SKILL_LINK, target_is_directory=True)
         print("linked /claude-pet skill ->", SKILL_LINK)
+        return
     except OSError as e:                      # e.g. Windows without symlink priv
+        if os.name == "nt" and _link_skill_junction():
+            return
         print("could not link skill (%s). Link it manually:\n  %s -> %s"
               % (e, SKILL_LINK, SKILL_SRC), file=sys.stderr)
+
+
+def _link_skill_junction():
+    """Windows fallback: directory junctions don't need elevated privilege."""
+    try:
+        subprocess.check_call(
+            ["cmd", "/c", "mklink", "/J", SKILL_LINK, SKILL_SRC],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("linked /claude-pet skill (junction) ->", SKILL_LINK)
+        return True
+    except (OSError, subprocess.CalledProcessError):
+        return False
 
 
 def _unlink_skill():
     if os.path.islink(SKILL_LINK):
         os.unlink(SKILL_LINK)
         print("unlinked /claude-pet skill")
+    elif os.name == "nt" and os.path.isdir(SKILL_LINK):
+        # os.path.islink() doesn't recognize Windows junctions; rmdir on a
+        # junction removes just the link (leaves SKILL_SRC's contents intact),
+        # but raises if this is actually a real, non-empty directory.
+        try:
+            os.rmdir(SKILL_LINK)
+            print("unlinked /claude-pet skill")
+        except OSError:
+            pass
 
 
 def main():

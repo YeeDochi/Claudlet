@@ -6,6 +6,7 @@ KDE Wayland the active window's class isn't exposed over plain DBus, so we try
 like VS Code or Konsole-under-X). When detection is unavailable we report
 "focused" conservatively, which suppresses celebrate rather than misfiring it.
 """
+import functools
 import shutil
 import subprocess
 import sys
@@ -15,8 +16,17 @@ def _run(cmd):
     return subprocess.check_output(cmd, text=True, timeout=2).strip()
 
 
+@functools.lru_cache(maxsize=None)
+def _has(cmd):
+    # terminal_focused() runs every tick (30-60/s); shutil.which() walks the
+    # whole PATH per call, which is a real per-frame cost on platforms (e.g.
+    # Windows) where these tools never exist. Availability can't change
+    # mid-session, so cache it instead of re-scanning PATH every frame.
+    return shutil.which(cmd) is not None
+
+
 def _active_via_kdotool():
-    if not shutil.which("kdotool"):
+    if not _has("kdotool"):
         return None
     try:
         wid = _run(["kdotool", "getactivewindow"])
@@ -28,7 +38,7 @@ def _active_via_kdotool():
 
 
 def _active_via_xprop():
-    if not shutil.which("xprop"):
+    if not _has("xprop"):
         return None
     try:
         out = _run(["xprop", "-root", "_NET_ACTIVE_WINDOW"])
@@ -45,7 +55,7 @@ def _active_via_xprop():
 def _active_via_applescript():
     """macOS: name of the frontmost app (e.g. 'terminal', 'iterm2', 'code').
     Best-effort — untested on macOS hardware."""
-    if sys.platform != "darwin" or not shutil.which("osascript"):
+    if sys.platform != "darwin" or not _has("osascript"):
         return None
     try:
         return (_run(["osascript", "-e",

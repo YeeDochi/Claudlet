@@ -5,8 +5,8 @@ Claude Code invokes this for each hook event (event name in argv[1], JSON
 payload on stdin). It:
   * on SessionStart, launches a pet for this session if one isn't already
     running (launched from inside the session, so it inherits host app + env);
-  * forwards every event to that session's unix socket
-    ($XDG_RUNTIME_DIR/claude-pet-<session_id>.sock).
+  * forwards every event to that session's pet over a loopback TCP socket,
+    whose port is published in $XDG_RUNTIME_DIR/claude-pet-<session_id>.port.
 
 Must never block or fail Claude: every error is swallowed and exit is always 0.
 """
@@ -15,6 +15,13 @@ import os
 import json
 import socket
 import subprocess
+
+# Claude Code always sends the hook payload as UTF-8 JSON on stdin, but on
+# non-UTF-8-locale Windows (e.g. Korean cp949), Python's default stdin codec
+# follows the console codepage and mangles any multi-byte payload content.
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 try:
     _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,14 +47,16 @@ def build_message(argv, data):
 
 
 def sock_for(data):
-    return hostinfo.session_sock(data.get("session_id") or "default")
+    return hostinfo.read_session_port(data.get("session_id") or "default")
 
 
-def _pet_running(sock_path):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+def _pet_running(port):
+    if port is None:
+        return False
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.2)
     try:
-        s.connect(sock_path)
+        s.connect((hostinfo.LOOPBACK, port))
         s.close()
         return True
     except OSError:
@@ -113,10 +122,12 @@ def _launch_pet(session_id, host):
          "--claude-pid", str(claude_pid)], **kw)
 
 
-def _send(sock_path, payload):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+def _send(port, payload):
+    if port is None:
+        raise OSError("no pet port for this session")
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(0.3)
-    s.connect(sock_path)
+    s.connect((hostinfo.LOOPBACK, port))
     s.sendall(payload)
     s.close()
 
@@ -137,18 +148,18 @@ def main():
 
     event = (sys.argv[1] if len(sys.argv) > 1 else "") or data.get("hook_event_name", "")
     session_id = data.get("session_id") or "default"
-    sock_path = hostinfo.session_sock(session_id)
+    port = hostinfo.read_session_port(session_id)
 
     # on session start, bring up this session's pet if it isn't already there
     if event == "SessionStart":
         try:
-            if not _pet_running(sock_path):
+            if not _pet_running(port):
                 _launch_pet(session_id, hostinfo.detect_host())
         except Exception:
             pass
 
     try:
-        _send(sock_path, build_message(sys.argv, data).encode())
+        _send(port, build_message(sys.argv, data).encode())
     except Exception:
         pass  # pet not running / not ready — ignore silently
 

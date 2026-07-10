@@ -39,7 +39,16 @@ def test_host_classes():
     assert hostinfo.host_classes("unknown") == []
     assert hostinfo.host_classes("nonsense") == []
 
-def test_session_sock_path(monkeypatch):
+def test_session_port_file_path(monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-    assert hostinfo.session_sock("abc") == "/run/user/1000/claude-pet-abc.sock"
-    assert hostinfo.session_sock(None) == "/run/user/1000/claude-pet-default.sock"
+    assert hostinfo.session_port_file("abc") == os.path.join("/run/user/1000", "claude-pet-abc.port")
+    assert hostinfo.session_port_file(None) == os.path.join("/run/user/1000", "claude-pet-default.port")
+
+def test_read_session_port_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    hostinfo.write_session_port("abc", 54321)
+    assert hostinfo.read_session_port("abc") == 54321
+
+def test_read_session_port_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert hostinfo.read_session_port("nope") is None

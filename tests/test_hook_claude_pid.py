@@ -3,7 +3,7 @@ import os, types
 HOOK = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-hook")
 mod = types.ModuleType("claude_pet_hook")
 mod.__file__ = HOOK
-with open(HOOK) as f:
+with open(HOOK, encoding="utf-8") as f:
     exec(compile(f.read(), HOOK, "exec"), mod.__dict__)
 
 

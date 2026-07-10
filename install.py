@@ -14,6 +14,10 @@ import shutil
 import subprocess
 import sys
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 REPO = "https://github.com/YeeDochi/claude-pet.git"
 DEST = os.environ.get("CLAUDE_PET_DIR") or os.path.join(os.path.expanduser("~"),
                                                         "claude-pet")

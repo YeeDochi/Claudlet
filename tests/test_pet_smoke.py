@@ -27,7 +27,7 @@ def test_pet_is_session_and_host_aware():
     p = P.Pet(session_id="sess-x", host="vscode")
     try:
         assert p.host_classes == ["code"]
-        assert p.sock_path.endswith("claude-pet-sess-x.sock")
+        assert p.port_file.endswith("claude-pet-sess-x.port")
         assert p._wtitle == "claude-pet-sess-x"
     finally:
         p._cleanup()
@@ -48,7 +48,7 @@ def test_visibility_hides_with_ridden_window():
     import windows as W
     p = P.Pet(session_id="hv")
     try:
-        p._dbus_name = "x"                        # pretend the KDE feed is active
+        p._geom_active = True                      # pretend a geometry feed is active
         host = W.Win("host", 100, 100, 400, 300, "browser", 1)
         top = W.Win("top", 0, 0, 4000, 2000, "code", 2)    # maximized, stacked above
         p._contain = host                         # pet lives in this window
@@ -73,7 +73,7 @@ def test_visibility_partial_cover_masks():
     import windows as W
     p = P.Pet(session_id="hvp")
     try:
-        p._dbus_name = "x"
+        p._geom_active = True
         host = W.Win("host", 0, 0, 400, 300, "browser", 1)
         p._contain = host
         p.x, p.y = 0.0, 0.0
@@ -95,7 +95,7 @@ def test_visibility_perched_on_top_not_clipped_by_its_window():
     import windows as W
     p = P.Pet(session_id="hvt")
     try:
-        p._dbus_name = "x"
+        p._geom_active = True
         p._contain = None
         X = W.Win("X", 0, 500, 800, 400, "editor", 1)   # top edge at y=500
         p.x = 100.0
@@ -117,7 +117,7 @@ def test_visibility_desktop_never_hides():
     import windows as W
     p = P.Pet(session_id="hv2")
     try:
-        p._dbus_name = "x"
+        p._geom_active = True
         p._contain = None                         # roaming the wallpaper, not on a window
         p.x, p.y = 100.0, 100.0
         p._wins = [W.Win("big", 0, 0, 4000, 2000, "code", 2)]   # maximized window exists
@@ -131,7 +131,7 @@ def test_visibility_off_without_feed():
     import windows as W
     p = P.Pet(session_id="hv3")
     try:
-        p._dbus_name = None                       # no KDE feed
+        p._geom_active = False                     # no geometry feed
         p._contain = W.Win("host", 100, 100, 400, 300, "x", 1)
         p._wins = []                              # would hide if the feed were active
         p._update_visibility()

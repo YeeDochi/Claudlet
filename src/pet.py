@@ -3,7 +3,7 @@
 
 A frameless, translucent, always-on-top creature that wanders the desktop,
 can be dragged & thrown, and switches expression based on Claude Code hook
-events delivered over a unix socket by `claude-pet-hook`.
+events delivered over a loopback TCP socket by `claude-pet-hook`.
 
 Runs on KDE Wayland via XWayland (forced xcb platform) so the window can
 position itself freely across the screen.
@@ -129,7 +129,7 @@ class Pet(QWidget):
         self.host_classes = hostinfo.host_classes(host)
         self._wtitle = "claude-pet-" + str(session_id)
         self.setWindowTitle(self._wtitle)
-        self.sock_path = hostinfo.session_sock(session_id)
+        self.port_file = hostinfo.session_port_file(session_id)
 
         self.w = (C.GRID_W + 2 * PAD_X) * U
         self.h = (C.GRID_H + 2 * PAD_Y) * U
@@ -209,6 +209,11 @@ class Pet(QWidget):
         self._init_tray()
 
         self.timer = QTimer(self)
+        # Qt's default "coarse" timer rounds to the OS system-tick boundary
+        # (~15.6ms on Windows) for power saving — a 50ms (20fps) request
+        # actually fires at ~62.5ms (~16fps) with real jitter, which is very
+        # noticeable for an animation loop. PreciseTimer keeps it on-interval.
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / FPS))
 
@@ -220,14 +225,15 @@ class Pet(QWidget):
 
     # ---------- Claude Code hook socket ----------
     def _init_socket(self):
-        try:
-            os.unlink(self.sock_path)
-        except FileNotFoundError:
-            pass
-        self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.srv.bind(self.sock_path)
+        # Loopback TCP, not AF_UNIX: stock Windows Python builds don't have
+        # unix domain sockets at all. Bind port 0 (OS picks a free one) and
+        # publish it via the port file so the hook/motion scripts can find us.
+        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.srv.bind((hostinfo.LOOPBACK, 0))
         self.srv.listen(16)
         self.srv.setblocking(False)
+        hostinfo.write_session_port(self.session_id, self.srv.getsockname()[1])
         self.notifier = QSocketNotifier(self.srv.fileno(), QSocketNotifier.Type.Read, self)
         self.notifier.activated.connect(self._on_conn)
 
@@ -500,10 +506,18 @@ class Pet(QWidget):
             self._render_state = "falling"   # tumbling through the air
 
     def _setup_geom_feed(self):
-        """Register a D-Bus service and start a persistent KWin script that pushes
-        window geometry to it. All KDE-specific; any failure -> feature just off
-        (self._wins stays empty, behaviour == pre-perch)."""
-        if QDBusConnection is None:          # no QtDBus (some macOS/Windows Qt)
+        """Feed self._wins with other windows' geometry so the pet can perch on
+        and be contained by them. KDE: register a D-Bus service and start a
+        persistent KWin script that pushes on change. Windows: no equivalent
+        push API, so poll Win32's window list on a timer instead. Either way,
+        any failure -> feature just off (self._wins stays empty, pre-perch
+        behaviour). self._geom_active is the generic (backend-agnostic) flag;
+        self._dbus_name stays KDE-specific, used only by the KDE code paths."""
+        self._geom_active = False
+        if os.name == "nt":
+            self._setup_geom_feed_win32()
+            return
+        if QDBusConnection is None:          # no QtDBus (some macOS Qt builds)
             self._dbus_name = None
             return
         try:
@@ -517,8 +531,28 @@ class Pet(QWidget):
             bus.registerObject("/", self._receiver,
                                QDBusConnection.RegisterOption.ExportAllSlots)
             self._start_geom_script()
+            self._geom_active = True
         except Exception:
             self._dbus_name = None
+
+    def _setup_geom_feed_win32(self):
+        try:
+            import windows_win32
+        except Exception:
+            return
+        self._win32_geom = windows_win32
+        self._win32_timer = QTimer(self)
+        self._win32_timer.timeout.connect(self._poll_win32_geom)
+        self._win32_timer.start(220)   # measured ~0.4ms/poll; plenty of headroom
+        self._geom_active = True
+        self._poll_win32_geom()
+
+    def _poll_win32_geom(self):
+        try:
+            dump = self._win32_geom.dump(exclude_hwnd=int(self.winId()))
+        except Exception:
+            return
+        self._on_geom(dump)
 
     def _start_geom_script(self):
         svc = self._dbus_name
@@ -679,8 +713,8 @@ class Pet(QWidget):
         (perched on / contained in): fully covered or window gone -> hidden;
         partially covered -> shown only over the uncovered sliver; on the bare
         desktop -> fully visible (a maximized window in front never hides a pet
-        wandering the wallpaper). No-op without the KDE feed."""
-        if not getattr(self, "_dbus_name", None) or self.mode == "held":
+        wandering the wallpaper). No-op without an active geometry feed."""
+        if not getattr(self, "_geom_active", False) or self.mode == "held":
             self._show_full()
             return
         if self._contain is not None:
@@ -1138,6 +1172,10 @@ class Pet(QWidget):
         )
 
     def _cleanup(self):
+        # A visible QSystemTrayIcon can keep the app (and the process) alive
+        # past QApplication.quit() on Windows; hiding it is a no-op elsewhere.
+        if getattr(self, "tray", None) is not None:
+            self.tray.hide()
         self._stop_cursor_feed()
         for plugin in (getattr(self, "_activate_plugin", None),):
             if plugin:
@@ -1157,15 +1195,26 @@ class Pet(QWidget):
             except Exception:
                 pass
         try:
-            os.unlink(self.sock_path)
+            os.unlink(self.port_file)
         except OSError:
             pass
+
+
+def _lock_exclusive_nonblocking(fd):
+    """Cross-platform advisory lock: fcntl.flock on POSIX, msvcrt on Windows."""
+    if os.name == "posix":
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    else:
+        import msvcrt
+        os.write(fd, b"\0")           # msvcrt.locking needs a byte to lock
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
 
 
 def main():
     import argparse
     import signal
-    import fcntl
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")
@@ -1174,11 +1223,11 @@ def main():
 
     # One pet per session: hold an exclusive lock. If another pet already holds
     # it (e.g. two SessionStart hooks racing), exit BEFORE touching the shared
-    # socket — otherwise the second pet would unlink the first's socket.
-    lock_fd = os.open(hostinfo.session_sock(args.session) + ".lock",
+    # socket — otherwise the second pet would overwrite the first's port file.
+    lock_fd = os.open(hostinfo.session_port_file(args.session) + ".lock",
                       os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_exclusive_nonblocking(lock_fd)
     except OSError:
         os.close(lock_fd)
         return                                # another pet for this session lives

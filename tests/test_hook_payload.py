@@ -3,7 +3,7 @@ import sys, os, json, types
 HOOK = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-hook")
 mod = types.ModuleType("claude_pet_hook")
 mod.__file__ = HOOK
-with open(HOOK) as f:
+with open(HOOK, encoding="utf-8") as f:
     exec(compile(f.read(), HOOK, "exec"), mod.__dict__)
 
 
@@ -36,7 +36,9 @@ def test_missing_fields_omitted():
     assert "tool_name" not in msg
 
 
-def test_sock_for_uses_session(monkeypatch):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-    assert mod.sock_for({"session_id": "xyz"}) == "/run/user/1000/claude-pet-xyz.sock"
-    assert mod.sock_for({}) == "/run/user/1000/claude-pet-default.sock"
+def test_sock_for_uses_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert mod.sock_for({"session_id": "xyz"}) is None       # no pet running yet
+    (tmp_path / "claude-pet-xyz.port").write_text("54321")
+    assert mod.sock_for({"session_id": "xyz"}) == 54321
+    assert mod.sock_for({}) is None
