@@ -376,6 +376,7 @@ class Pet(QWidget):
                     self.x += max(-6, min(6, dx))     # fast step
                 else:
                     self._search_anchor = None        # re-anchor next search episode
+                self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
                 self.y = floor
                 self._render_state = eff
 
@@ -384,6 +385,9 @@ class Pet(QWidget):
 
     def _roam(self):
         left, right, top, floor = self._bounds()
+        # bounds can shift under us (a window we're in/on moved or resized): pull
+        # the pet back inside every tick so it never gets stranded through a wall.
+        self.x = min(max(self.x, left), right)
         # surface under us dropped away (window closed/moved, or we walked off a
         # ledge) -> fall to it instead of snapping/teleporting.
         if self.y < floor - 2:
@@ -593,8 +597,19 @@ class Pet(QWidget):
         self._last_dump = dump
         self._wins = windows.parse_kwin_dump(dump)
         if self._contain is not None:
-            self._contain = next(
-                (w for w in self._wins if w.wid == self._contain.wid), None)
+            prev = self._contain
+            cur = next((w for w in self._wins if w.wid == prev.wid), None)
+            if cur is not None:
+                # the window we live in moved -> ride along with it so we don't get
+                # left behind outside its edges.
+                dx, dy = cur.x - prev.x, cur.y - prev.y
+                if dx or dy:
+                    self.x += dx
+                    self.y += dy
+                    if self.target_x is not None:
+                        self.target_x += dx
+                    self.move(int(self.x), int(self.y))
+            self._contain = cur
 
     def _bounds(self):
         """(left, right, top, floor) for the current context. On the desktop the
