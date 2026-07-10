@@ -35,6 +35,7 @@ from state_engine import StateEngine
 import focus
 import hostinfo
 import petconfig
+import sprites
 import physics
 import windows
 
@@ -129,6 +130,8 @@ class Pet(QWidget):
                                   tool_states=cfg["tool_states"],
                                   event_states=cfg["event_states"],
                                   raw_events=cfg["raw_events"])
+        # optional user art: assets/<state>.gif|png overrides the code drawing
+        self._sprites = sprites.load_overrides(ASSETS, C.STATES)
         self.claude_state = "sleeping"       # last state the engine reported
         self.dnd = False                     # do-not-disturb
         self._quit_timer = None              # pending SessionEnd -> quit timer
@@ -617,9 +620,31 @@ class Pet(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         state = getattr(self, "_render_state", self.claude_state)
-        # facing handled inside draw_creature (body mirrors, text stays upright)
-        C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame, facing=self.facing)
+        frames = self._sprites.get(state)
+        if frames:
+            self._blit_sprite(p, frames[self.frame % len(frames)])
+        else:
+            # facing handled inside draw_creature (body mirrors, text upright)
+            C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
+                            facing=self.facing)
         p.end()
+
+    def _blit_sprite(self, p, pm):
+        """Draw a user sprite frame fit inside the window (aspect-preserving,
+        centred), mirrored when facing left. Nearest-neighbour keeps pixel art
+        crisp."""
+        scaled = pm.scaled(self.w, self.h, Qt.AspectRatioMode.KeepAspectRatio,
+                           Qt.TransformationMode.FastTransformation)
+        x = (self.w - scaled.width()) // 2
+        y = (self.h - scaled.height()) // 2
+        if self.facing < 0:
+            p.save()
+            p.translate(self.w, 0)
+            p.scale(-1, 1)
+            p.drawPixmap(x, y, scaled)   # centred, so the mirror stays in place
+            p.restore()
+        else:
+            p.drawPixmap(x, y, scaled)
 
     # ---------- interaction ----------
     def mousePressEvent(self, e):

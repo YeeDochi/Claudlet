@@ -114,10 +114,17 @@ Remove that file to disable.
 
 ## Custom art (bring your own)
 
-The default creature is code-drawn. If you'd rather use your own animated
-sprites, drop `<state>.gif` files in `assets/` — `assets/` is git-ignored so
-your art never ends up in the repo. (GIF override rendering is a planned
-feature; see the design doc.)
+The default creature is code-drawn. To use your own art, drop
+`assets/<state>.gif` (animated) or `assets/<state>.png` (still) files in
+`assets/` — each overrides the drawing for that state only; states without a
+file keep the code-drawn look. `assets/` is git-ignored, so your art never ends
+up in the repo. `.gif` wins over `.png` for the same state.
+
+State/motion names you can override: `idle`, `walk`, `sleeping`, `thinking`,
+`attention`, `error`, `celebrate`, `work_computer`, `work_search`, `work_web`,
+`work_agent`, `work_skill`, `jump`, `wave`, `sing`, `juggle`, `held`, `falling`.
+Sprites are scaled to fit (aspect-preserving) and mirrored when the pet faces
+left; animation advances one frame per tick. Restart the pet to load new files.
 
 ## Uninstall
 
