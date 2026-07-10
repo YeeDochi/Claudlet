@@ -92,9 +92,24 @@ def resolve_claude_pid(start_pid, proc_info, max_hops=32):
     return 0
 
 
+_win32_proc_table = None   # lazy, cached per hook invocation (see below)
+
+
 def _proc_info(pid):
-    """(comm, ppid) for a pid from /proc, or None. Linux-only; other
-    platforms fall through to None so the reaper is simply skipped."""
+    """(comm, ppid) for a pid, or None if it's gone/undetectable.
+    Linux: /proc/<pid>/stat. Windows: one cached Toolhelp snapshot (process
+    names/parents don't change mid-lookup, so we only take it once even
+    though resolve_claude_pid calls this per hop). macOS: undetectable, so
+    the reaper is simply skipped there."""
+    if os.name == "nt":
+        global _win32_proc_table
+        if _win32_proc_table is None:
+            try:
+                import windows_win32
+                _win32_proc_table = windows_win32.proc_table()
+            except Exception:
+                _win32_proc_table = {}
+        return _win32_proc_table.get(pid)
     try:
         with open("/proc/%d/stat" % pid) as f:
             data = f.read()

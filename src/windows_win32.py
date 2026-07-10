@@ -16,12 +16,30 @@ from ctypes import wintypes
 
 user32 = ctypes.windll.user32 if hasattr(ctypes, "windll") else None
 dwmapi = ctypes.windll.dwmapi if hasattr(ctypes, "windll") else None
+kernel32 = ctypes.windll.kernel32 if hasattr(ctypes, "windll") else None
 
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
+SW_RESTORE = 9
+TH32CS_SNAPPROCESS = 0x00000002
 _WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+
+class _PROCESSENTRY32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", ctypes.c_char * 260),
+    ]
 
 
 def _is_cloaked(hwnd):
@@ -104,3 +122,88 @@ def dump(exclude_hwnd=None):
         "{};{};{},{},{},{};{}".format(hwnd, cls, x, y, w, h, pid)
         for hwnd, cls, x, y, w, h, pid in rows
     )
+
+
+def _proc_snapshot():
+    """[(pid, name, ppid), ...] for every running process, via one Toolhelp
+    snapshot — the Windows equivalent of iterating /proc on Linux."""
+    rows = []
+    if kernel32 is None:
+        return rows
+    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == -1:
+        return rows
+    try:
+        entry = _PROCESSENTRY32()
+        entry.dwSize = ctypes.sizeof(_PROCESSENTRY32)
+        ok = kernel32.Process32First(snap, ctypes.byref(entry))
+        while ok:
+            name = entry.szExeFile.decode(errors="replace").lower()
+            rows.append((entry.th32ProcessID, name, entry.th32ParentProcessID))
+            ok = kernel32.Process32Next(snap, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snap)
+    return rows
+
+
+def proc_table():
+    """{pid: (name, ppid)} for every running process. Used to walk up from a
+    transient hook shell to the real `claude` process by name — the Windows
+    counterpart of reading /proc/<pid>/stat's comm+ppid (see
+    bin/claude-pet-hook's resolve_claude_pid/_proc_info)."""
+    return {pid: (name, ppid) for pid, name, ppid in _proc_snapshot()}
+
+
+def proc_ancestors(pid, max_hops=40):
+    """Set of pids from `pid` up to the top, via a Toolhelp process snapshot —
+    the Windows equivalent of walking /proc/<pid>/stat's ppid chain on Linux.
+    The terminal/IDE window's owning pid is one of these, so matching it to a
+    window pid finds the host window for click-to-focus."""
+    acc = set()
+    try:
+        cur = int(pid)
+    except (TypeError, ValueError):
+        return acc
+    parent = {p: pp for p, _, pp in _proc_snapshot()}
+    if not parent:
+        return acc
+    while cur > 1 and cur not in acc and len(acc) < max_hops:
+        acc.add(cur)
+        nxt = parent.get(cur)
+        if not nxt:
+            break
+        cur = nxt
+    return acc
+
+
+def activate_hwnd(hwnd):
+    """Bring `hwnd` to the foreground (Windows' click-to-focus). Windows only
+    lets the process owning the current foreground window change focus, so we
+    borrow that permission by attaching our input thread to both the current
+    foreground window's and the target's — the standard SetForegroundWindow
+    workaround."""
+    if user32 is None or kernel32 is None or not hwnd:
+        return
+    try:
+        hwnd = int(hwnd)
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, SW_RESTORE)
+        fg = user32.GetForegroundWindow()
+        cur_thread = kernel32.GetCurrentThreadId()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+        target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+        attached_fg = attached_target = False
+        if fg_thread and fg_thread != cur_thread:
+            attached_fg = bool(user32.AttachThreadInput(cur_thread, fg_thread, True))
+        if target_thread and target_thread != cur_thread:
+            attached_target = bool(user32.AttachThreadInput(cur_thread, target_thread, True))
+        try:
+            user32.SetForegroundWindow(hwnd)
+            user32.BringWindowToTop(hwnd)
+        finally:
+            if attached_fg:
+                user32.AttachThreadInput(cur_thread, fg_thread, False)
+            if attached_target:
+                user32.AttachThreadInput(cur_thread, target_thread, False)
+    except Exception:
+        pass

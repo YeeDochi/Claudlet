@@ -44,3 +44,36 @@ def test_matches_claude_with_suffix():
     # comm may be truncated/decorated but still contain 'claude'
     info = tree({90: ("zsh", 80), 80: ("claude-code", 1)})
     assert mod.resolve_claude_pid(90, info) == 80
+
+
+def test_proc_info_windows_branch_walks_via_win32_table(monkeypatch):
+    # _proc_info has no /proc on Windows; it must fall back to a Toolhelp
+    # snapshot (windows_win32.proc_table) instead of always returning None.
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod, "_win32_proc_table", None)
+    fake = types.ModuleType("windows_win32")
+    fake.proc_table = lambda: {90: ("cmd.exe", 80), 80: ("claude.exe", 1)}
+    monkeypatch.setitem(__import__("sys").modules, "windows_win32", fake)
+    assert mod.resolve_claude_pid(90, mod._proc_info) == 80
+
+
+def test_proc_info_windows_branch_caches_table_once(monkeypatch):
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod, "_win32_proc_table", None)
+    calls = []
+    fake = types.ModuleType("windows_win32")
+    def _table():
+        calls.append(1)
+        return {90: ("cmd.exe", 80), 80: ("claude.exe", 1)}
+    fake.proc_table = _table
+    monkeypatch.setitem(__import__("sys").modules, "windows_win32", fake)
+    mod._proc_info(90)
+    mod._proc_info(80)
+    assert len(calls) == 1
+
+
+def test_proc_info_windows_branch_missing_module_returns_none(monkeypatch):
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod, "_win32_proc_table", None)
+    monkeypatch.setitem(__import__("sys").modules, "windows_win32", None)
+    assert mod._proc_info(90) is None

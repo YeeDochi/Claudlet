@@ -681,14 +681,21 @@ class Pet(QWidget):
 
     @staticmethod
     def _proc_ancestors(pid, max_hops=40):
-        """Set of pids from `pid` up to the top via /proc (Linux). The terminal/
-        IDE window's owning pid is one of these, so matching it to a window pid
-        finds our host window. Empty on non-Linux or pid<=0 (tracking then off)."""
-        acc = set()
+        """Set of pids from `pid` up to the top: via /proc/<pid>/stat on Linux,
+        or a Toolhelp process snapshot on Windows. The terminal/IDE window's
+        owning pid is one of these, so matching it to a window pid finds our
+        host window. Empty on macOS or pid<=0 (tracking then off)."""
         try:
             cur = int(pid)
         except (TypeError, ValueError):
-            return acc
+            return set()
+        if os.name == "nt":
+            try:
+                import windows_win32
+                return windows_win32.proc_ancestors(cur, max_hops)
+            except Exception:
+                return set()
+        acc = set()
         while cur > 1 and cur not in acc and len(acc) < max_hops:
             acc.add(cur)
             try:
@@ -1092,8 +1099,11 @@ class Pet(QWidget):
         if sys.platform == "darwin":
             self._activate_claude_macos()
             return
+        if os.name == "nt":
+            self._activate_claude_windows()
+            return
         if not sys.platform.startswith("linux"):
-            return                           # Windows: not implemented yet (no-op)
+            return                           # unknown platform: not implemented (no-op)
         # Linux/KDE: prefer THIS session's own host window (matched by pid ->
         # internalId) so with two consoles the click focuses the right one; fall
         # back to the first window of the host class when we haven't identified it.
@@ -1124,6 +1134,16 @@ class Pet(QWidget):
             '  target.minimized = false;'
             '}'
         )
+
+    def _activate_claude_windows(self):
+        """Bring this session's host terminal/IDE window to the foreground
+        (Win32). Uses the same pid-matched `_host_wid` the perch/occlusion
+        feed already tracks, so with multiple consoles the click focuses the
+        right one."""
+        geom = getattr(self, "_win32_geom", None)
+        if geom is None or not self._host_wid:
+            return
+        geom.activate_hwnd(self._host_wid)
 
     def _activate_claude_macos(self):
         """Bring the host terminal/IDE app to the front via AppleScript.
