@@ -646,7 +646,7 @@ class Pet(QWidget):
         if self._contain is not None:
             cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
             if cur is None:              # contained window minimized/closed
-                self._set_hidden(True)
+                self._hide_fully()
                 return
         else:
             cx = self.x + self.w / 2.0
@@ -671,10 +671,9 @@ class Pet(QWidget):
         self._apply_mask(shown)
 
     def _apply_mask(self, region):
-        if region.isEmpty():             # nothing of the pet is exposed
-            self._set_hidden(True)
-            return
-        self._set_hidden(False)
+        # Mask-only visibility: we never hide()/show() the window, because show()
+        # re-adds it to the taskbar (undoing _skip_taskbar) and races cause flicker.
+        # An empty mask makes it fully invisible while the window stays mapped.
         if region == QRegion(QRect(0, 0, self.w, self.h)):
             self._show_full()            # fully exposed -> drop any clip
             return
@@ -682,21 +681,17 @@ class Pet(QWidget):
             self.setMask(region)
             self._masked = True
             self._last_mask = region
+        self._hidden_for_win = region.isEmpty()
+
+    def _hide_fully(self):
+        self._apply_mask(QRegion())      # empty mask -> invisible, still mapped
 
     def _show_full(self):
         if self._masked:
             self.clearMask()
             self._masked = False
             self._last_mask = None
-        self._set_hidden(False)
-
-    def _set_hidden(self, hide):
-        if hide and not self._hidden_for_win:
-            self._hidden_for_win = True
-            self.hide()
-        elif not hide and self._hidden_for_win:
-            self._hidden_for_win = False
-            self.show()
+        self._hidden_for_win = False
 
     def _on_geom(self, dump):
         if dump == getattr(self, "_last_dump", None):
