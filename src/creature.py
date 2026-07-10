@@ -334,24 +334,37 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
             p.drawText(int(ox + 18 * u), int(oy + (3.2 + bob) * u), "?")
             p.setPen(Qt.PenStyle.NoPen)
     elif prop == "magnify":
-        # a little magnifying glass held out front
-        rect(17.6, 6.2, 2.6, 2.6, QColor("#BFC7D0"))     # lens ring
-        rect(18.1, 6.7, 1.6, 1.6, QColor("#9FD3E8"))     # glass
-        rect(19.4, 8.4, 1.4, 1.2, ORANGE_D)              # handle
+        # a magnifying glass sweeping side to side out front — dark rim for
+        # contrast against the body, bright glass with a travelling glint.
+        mx = _sin(frame, 26, 0.7)                        # slow scanning sweep
+        rect(17.2 + mx, 5.8, 3.2, 3.2, EYE)              # dark outline rim
+        rect(17.5 + mx, 6.1, 2.6, 2.6, QColor("#D7DEE6"))  # metal ring
+        rect(18.0 + mx, 6.6, 1.6, 1.6, QColor("#8FD0EA"))  # glass
+        rect(18.2 + mx + _sin(frame, 26, 0.4, 0.25), 6.8, 0.6, 0.6, WHITE)  # glint
+        rect(19.8 + mx, 8.6, 1.8, 1.5, EYE)              # handle (grip)
     elif prop == "phone":
-        # a chunky handset held to the head; slow "ring" dots
-        rect(2.0, 6.0, 1.6, 3.0, QColor("#2A2A30"))      # handset body
-        rect(1.7, 5.7, 2.2, 0.9, QColor("#2A2A30"))      # ear piece
-        if (frame % 40) < 20:
-            rect(0.4, 4.4, 0.8, 0.8, BULB_L)             # ~ ring spark
+        # a handset held to the ear — earpiece + mouthpiece so it reads as a
+        # phone, a bright speaker slit, and expanding ring waves that pulse out.
+        rect(1.7, 6.0, 1.7, 3.2, QColor("#33333B"))      # handset body
+        rect(1.3, 5.6, 2.5, 1.0, QColor("#33333B"))      # earpiece
+        rect(1.3, 8.7, 2.5, 1.0, QColor("#33333B"))      # mouthpiece
+        rect(1.9, 5.8, 1.0, 0.5, QColor("#8FD0EA"))      # speaker slit
+        rw = frame % 46                                  # ring waves radiate out
+        if rw < 34:
+            step = rw // 12                              # 0,1,2 -> up from the ear
+            # radiate up-and-slightly-left but stay on-window (only col >= -1 shows)
+            rect(0.3 - step * 0.5, 4.6 - step * 1.1, 0.8, 0.8, BULB_L)
     elif prop == "clones":
-        # two mini creatures filing out to the right, bobbing in sequence
+        # two mini creatures filing out to the right, bobbing in sequence,
+        # each with a dark outline + shadow so they pop off the body.
         for k in range(2):
             mb = _sin(frame, 18, 0.6, phase=k * 0.5)
-            bx = 18.5 + k * 2.2
+            bx = 18.5 + k * 2.4
+            rect(bx - 0.2, 9.3 + mb, 2.2, 2.2, EYE)      # dark outline
             rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
             rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
-            rect(bx + 0.3, 10.1 + mb, 0.4, 0.5, EYE)     # eye
+            rect(bx + 0.35, 10.1 + mb, 0.45, 0.55, EYE)  # eye
+            rect(bx + 0.1, 11.4, 1.6, 0.4, QColor("#00000040"))  # ground shadow
     elif prop == "hat":
         # party/wizard cone hat + a sparkle
         rect(9.0, 2.0, 3.0, 0.7, QColor("#6C5CE7"))      # brim
@@ -448,5 +461,7 @@ if __name__ == "__main__":
         p.drawText(QRectF(x0, y0 + cellh - 40, cellw, 24), Qt.AlignmentFlag.AlignCenter, labels[st])
         p.setPen(Qt.PenStyle.NoPen)
     p.end()
-    out = "/tmp/claude-1000/-home-ljh-claude-pet/b142d975-b346-4277-b238-03dacd7f5afa/scratchpad/creature_sheet.png"
+    import tempfile
+    out = sys.argv[1] if len(sys.argv) > 1 else \
+        os.path.join(tempfile.gettempdir(), "creature_sheet.png")
     img.save(out); print("saved", out)
