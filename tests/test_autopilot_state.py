@@ -82,3 +82,32 @@ def test_auto_variant_decays_when_quiet():
     e.handle(_pre("Edit", pm="auto"), 0.0)
     assert e.display_state(1.0) == "auto_computer"
     assert e.display_state(1000.0) in ("idle", "sleeping")
+
+
+# --- auto_active(): visor persists across states while in an auto mode ---
+
+def test_auto_active_true_in_auto_mode():
+    e = StateEngine()
+    e.handle(_pre("Edit", pm="auto"), 0.0)
+    assert e.auto_active() is True
+
+
+def test_auto_active_false_in_default_mode():
+    e = StateEngine()
+    e.handle(_pre("Edit", pm="default"), 0.0)
+    assert e.auto_active() is False
+
+
+def test_auto_active_persists_through_events_without_pm():
+    # an idle/Stop tick may omit pm; the remembered mode carries the visor over
+    e = StateEngine()
+    e.handle(_pre("Edit", pm="auto"), 0.0)
+    e.handle({"event": "Stop", "session": "a"}, 1.0)   # no permission_mode
+    assert e.auto_active() is True
+
+
+def test_auto_active_cleared_on_session_end():
+    e = StateEngine()
+    e.handle(_pre("Edit", pm="auto"), 0.0)
+    e.handle({"event": "SessionEnd", "session": "a"}, 1.0)
+    assert e.auto_active() is False

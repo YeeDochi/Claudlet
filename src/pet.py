@@ -31,7 +31,7 @@ from PyQt6.QtDBus import QDBusConnection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import creature as C
-from state_engine import StateEngine, AUTO_ROAM
+from state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
 import focus
 import hostinfo
 import petconfig
@@ -278,6 +278,7 @@ class Pet(QWidget):
         self.frame += 1
         now = time.monotonic()
         self.claude_state = self.engine.display_state(now)
+        self._auto = self.engine.auto_active()   # keep the visor on across states
         eff = self.claude_state
         self._update_tray_icon()
 
@@ -661,9 +662,13 @@ class Pet(QWidget):
         if frames:
             self._blit_sprite(p, frames[self.frame % len(frames)])
         else:
+            # in an auto mode the visor stays on: worn by the auto_* states,
+            # pushed up onto the head for every other state.
+            vis = "up" if getattr(self, "_auto", False) and \
+                state not in AUTO_STATES else None
             # facing handled inside draw_creature (body mirrors, text upright)
             C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
-                            facing=self.facing)
+                            facing=self.facing, visor=vis)
         p.end()
 
     def _blit_sprite(self, p, pm):

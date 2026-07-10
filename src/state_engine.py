@@ -107,6 +107,7 @@ class StateEngine:
                  raw_events=None):
         self.sessions = {}
         self.is_focused = is_focused or (lambda: True)
+        self._last_pm = None        # last-seen permission_mode (drives auto_active)
         # merge user overrides over the defaults (see petconfig.load_config)
         self._tools = dict(TOOL_STATES)
         self._tools.update(tool_states or {})
@@ -134,8 +135,12 @@ class StateEngine:
     def handle(self, ev, now):
         name = ev.get("event") or ev.get("hook_event_name") or ""
         sid = str(ev.get("session") or ev.get("session_id") or "default")
+        if "permission_mode" in ev:          # every hook carries it; remember it
+            self._last_pm = ev.get("permission_mode")
         if name == "SessionEnd":
             self.sessions.pop(sid, None)
+            if not self.sessions:
+                self._last_pm = None          # nobody left -> drop auto mode
             return
         s = self.sessions.get(sid)
         if s is None:
@@ -205,3 +210,8 @@ class StateEngine:
             return "sleeping"
         return max((s.state for s in self.sessions.values()),
                    key=lambda st: self._priority.get(st, 0))
+
+    def auto_active(self):
+        """True while the session is in an autonomous permission mode — the pet
+        keeps its visor on (worn while working, pushed up otherwise) throughout."""
+        return self._last_pm in AUTO_MODES
