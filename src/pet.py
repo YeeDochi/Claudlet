@@ -530,8 +530,11 @@ class Pet(QWidget):
             'if(workspace.windowAdded)workspace.windowAdded.connect('
             '  function(c){_hook(c);_dump();});'
             'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
-            # re-dump when focus/stacking changes so occlusion (a window raised
-            # over our host) is noticed, not just geometry/minimize changes.
+            # re-dump when focus/stacking changes so occlusion is noticed even on
+            # a pure RAISE (click a window behind ours -> only stacking changes,
+            # no geometry/minimize event). stackingOrderChanged is the key one;
+            # windowActivated is a fallback for KWin builds without it.
+            'if(workspace.stackingOrderChanged)workspace.stackingOrderChanged.connect(_dump);'
             'if(workspace.windowActivated)workspace.windowActivated.connect(_dump);'
             '_dump();'
         )
@@ -652,17 +655,18 @@ class Pet(QWidget):
             if cur is None:              # on the desktop -> always visible
                 self._show_full()
                 return
-        # visible part of the ridden window = its rect minus every higher window
-        vis = QRegion(QRect(cur.x, cur.y, cur.w, cur.h))
+        # The pet is occluded only by windows stacked ABOVE the one it rides.
+        # (Don't intersect with the ridden window's rect: a PERCHED pet stands on
+        # the window's top edge with its body reaching ABOVE the window, so that
+        # would wrongly clip the body. A contained pet sits inside the window, so
+        # subtracting just the higher windows is right for it too.)
         try:
             i = self._wins.index(cur)
         except ValueError:
             i = len(self._wins)
+        shown = QRegion(QRect(int(self.x), int(self.y), self.w, self.h))
         for w in self._wins[i + 1:]:
-            vis = vis.subtracted(QRegion(QRect(w.x, w.y, w.w, w.h)))
-        # intersect with the pet's own rect, in the pet's local coordinates
-        shown = vis.intersected(QRegion(QRect(int(self.x), int(self.y),
-                                              self.w, self.h)))
+            shown = shown.subtracted(QRegion(QRect(w.x, w.y, w.w, w.h)))
         shown.translate(-int(self.x), -int(self.y))
         self._apply_mask(shown)
 

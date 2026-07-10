@@ -91,6 +91,28 @@ def test_visibility_partial_cover_masks():
         p._cleanup()
 
 
+def test_visibility_perched_on_top_not_clipped_by_its_window():
+    import windows as W
+    p = P.Pet(session_id="hvt")
+    try:
+        p._dbus_name = "x"
+        p._contain = None
+        X = W.Win("X", 0, 500, 800, 400, "editor", 1)   # top edge at y=500
+        p.x = 100.0
+        p.y = float(500 - P.FOOT_Y)                       # feet on X's top edge
+        p._wins = [X]
+        p._update_visibility()
+        # standing ON TOP of X with nothing above -> body must NOT be clipped
+        assert p._hidden_for_win is False and p._masked is False
+        # a window raised above X, over the pet's body -> now occluded
+        Y = W.Win("Y", 0, 300, 800, 400, "code", 2)
+        p._wins = [X, Y]
+        p._update_visibility()
+        assert p._masked is True or p._hidden_for_win is True
+    finally:
+        p._cleanup()
+
+
 def test_visibility_desktop_never_hides():
     import windows as W
     p = P.Pet(session_id="hv2")
