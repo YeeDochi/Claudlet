@@ -36,6 +36,8 @@
 - [x] 리퍼 오판 수정: 훅이 넘기던 `os.getppid()`는 일회성 shell이라 세션 시작 ~3s 후 펫이
       자멸 → `/proc` 부모 체인을 타고 진짜 `claude` PID를 잡아 넘김. (2026-07-10 `feat/reaper-pid-fix`)
 - [x] work_search 좌우 뛰기: 앵커 고정으로 로컬 양방향 (화면 가로지르기/한쪽 드리프트 제거).
+- [x] 배회 중 창 이동/왼쪽 벽 뚫기: 담긴 창이 움직이면 펫도 같이 이동(ride-along) +
+      매 틱 x를 bounds로 클램프. (2026-07-10)
 
 ## 📋 다음 계획 (미착수)
 - [x] **멀티모니터** — 배회/바닥 계산 전체 모니터 기준 (3모니터). (2026-07-10 완료, `b08c46e`)
@@ -45,14 +47,25 @@
 - [x] **이벤트→모션 매핑 커스텀** — `~/.config/claude-pet/config.json`의 `tools`/`events`로
       도구·이벤트→모션 오버라이드. `petconfig.py` 로더(검증), `StateEngine` 인자 주입(순수 유지).
       README 문서화. (2026-07-10)
-- [ ] **오토 진행 중 전용 상태/애니** — auto/plan "혼자 쭉 작업".
+- [x] **오토 진행 전용 상태/애니** — `permission_mode` auto/bypass면 VR 바이저 착용.
+      작업 종류별 변형(auto_computer=파란 코드창 / auto_search=돋보기 / auto_web=폰 /
+      auto_agent=바이저 낀 분신 / auto_skill=붉은 안광), 웹·검색만 배회. 바이저는
+      **모든 상태에서 유지**(작업=내려씀 / 그 외=머리 위로 젖힘, `auto_active`). (2026-07-10)
 - [x] **걷기 폴리시** — 걷기 사이클 자연스럽게. (2026-07-10 머지 `feat/walk-policy`)
-- [ ] **새 상태 아트 튜닝** — work_search/web 등 prop 아이콘 작은 스케일에서 밋밋.
-- [ ] plan 승인/AskUserQuestion 등 "답 기다림" 세분화 (attention보다 잘게).
-- [x] 진짜 도트 스프라이트 / GIF override(`assets/<state>.gif|png`) — `sprites.py` 로더,
-      paintEvent에서 코드 렌더 대신 스프라이트 blit(aspect-fit, facing 미러). (2026-07-10)
+- [x] **새 상태 아트 튜닝** — 돋보기/전화/분신 prop 대비·형태·미세 애니로 또렷하게. (2026-07-10)
+- [x] plan 승인/AskUserQuestion "답 기다림" 세분화 — `asking` 상태("응?", attention보다
+      상위 우선순위), `PreToolUse`의 `ExitPlanMode`/`AskUserQuestion` tool_name 매핑. (2026-07-10)
+- [~] 진짜 도트 스프라이트 / GIF override — 만들었다가 **제거**(별로여서). 전부 코드 렌더로 복귀. (2026-07-10)
 
-## 🌍 플랫폼 (나중)
+## 🪟 창/세션/포커스 (2026-07-10 접수 — 자율 진행 예정)
+- [ ] **포커스 대상 콘솔 혼선** — 탭 떼내기 하거나 콘솔 2개에서 클로드를 각각 돌릴 때,
+      좌클릭이 포커스 줘야 할 콘솔(커맨드 창)을 잘못 고르는 경우가 있음. 세션↔창을 정확히
+      매칭해 이 펫의 세션 창만 활성화되게. (focus.py / `_activate_claude` / KWin 스크립트)
+- [ ] **호스트 창 가림/최소화 시 펫 숨김** — 어떤 창에 속해있을 때(perch/contain) 그 위로
+      다른 창이 올라오거나 창이 최소화되면 펫도 같이 안 보이게. (stackingOrder 오클루전 +
+      minimized 감지 → hide)
+- [ ] **IDE 세션별 별도 펫** — IntelliJ 등 IDE에서 세션별로 따로 띄우기. (사용자도 "무리"로
+      봄 — 우선 실현성 조사, 안 되면 이유 문서화)
 - [ ] Mac / Windows 이식 — 코어(state_engine/creature/hook)는 이식가능. 창 활성화·포커스·
       perching만 OS별(Win32/AppleScript). GNOME 제외. perching은 KDE 전용 유지.
 
@@ -61,7 +74,7 @@
 - [ ] 비-KDE/X11 순정 폴백 동작 확인.
 
 ---
-_검증된 것_: 유닛테스트 97개 통과. session-bound 펫 2마리 독립 반응·SessionEnd 퇴장(라이브),
+_검증된 것_: 유닛테스트 114개 통과. session-bound 펫 2마리 독립 반응·SessionEnd 퇴장(라이브),
 perching(창 담기/착지/minimized 제외/sticky, 라이브), 물리(던지기·천장·전상태 중력, 라이브),
 말풍선·잡기/낙하 애니(라이브), `/claude-pet` attach, 트레이·하단바숨김, 훅 자동실행.
 _미검증_: Mac/Windows, 우클릭 펫메뉴 안정성.
