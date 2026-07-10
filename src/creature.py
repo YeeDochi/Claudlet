@@ -19,7 +19,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QRectF
 
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
-          "work_agent", "work_skill", "thinking", "attention",
+          "work_agent", "work_skill", "thinking", "attention", "asking",
           "error", "celebrate", "sleeping", "held", "falling",
           "jump", "wave", "sing", "juggle", "float")
 
@@ -27,6 +27,7 @@ STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
 SPEECH = {
     "thinking": "고민중…",
     "attention": "이거 맞아?",
+    "asking": "응?",
     "celebrate": "다 됐다!",
     "error": "으악!",
 }
@@ -105,6 +106,14 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         bob = j
         sx = 1.0 + 0.10 * (j / 3.2)
         sy = 1.0 - 0.12 * (j / 3.2) + 0.12 * (1 - j / 3.2)
+        eyes = "wide"
+        prop = "speech"
+    elif state == "asking":
+        # calmly waiting on the user to answer (a question or plan approval):
+        # patient bob, slow curious head cant, attentive eyes, "응?" bubble.
+        # distinct from `attention` (a jumpy permission alert).
+        bob = _sin(frame, 40, 0.4)
+        tilt = _sin(frame, 70, 2.5)
         eyes = "wide"
         prop = "speech"
     elif state == "error":
@@ -412,11 +421,12 @@ if __name__ == "__main__":
               "work_search": "검색 중(돋보기)", "work_web": "웹/전화",
               "work_agent": "에이전트(분신)", "work_skill": "스킬(모자)",
               "thinking": "생각 중(음...)", "attention": "봐줘!(입력대기)",
+              "asking": "답 기다림(질문/plan)",
               "celebrate": "완료/신남", "error": "에러", "sleeping": "쿨쿨(수면)",
               "jump": "점프", "wave": "손 흔들기", "sing": "노래", "juggle": "저글링",
               "float": "둥실둥실"}
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
-             "work_agent", "work_skill", "thinking", "attention",
+             "work_agent", "work_skill", "thinking", "attention", "asking",
              "celebrate", "error", "sleeping",
              "jump", "wave", "sing", "juggle", "float"]
     # show two animation frames per state to convey motion
