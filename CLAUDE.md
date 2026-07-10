@@ -22,7 +22,7 @@ python3 src/creature.py                 # NOTE: output path is hardcoded near th
 pip install PyQt6                        # requires KDE Plasma/Wayland with XWayland; qdbus6 for click-to-focus
 ```
 
-Tests live in `tests/` (pytest); run them with `python3 -m pytest -q`. Pure logic (state engine, hook payloads, physics, config, hostinfo, sprites) is unit-tested; the GUI/roaming behavior has no automated coverage, so also verify visually by running the pet or the `creature.py` sprite sheet. There is no linter or build step.
+Tests live in `tests/` (pytest); run them with `python3 -m pytest -q`. Pure logic (state engine, hook payloads, physics, config, hostinfo) is unit-tested; the GUI/roaming behavior has no automated coverage, so also verify visually by running the pet or the `creature.py` sprite sheet. There is no linter or build step.
 
 ## Architecture
 
@@ -61,6 +61,6 @@ Three moving parts communicate over a unix socket at `$XDG_RUNTIME_DIR/claude-pe
 
 ## Conventions
 
-- `assets/` (custom `*.gif`/`*.png`) and `transcript/` are `.gitignore`d — the former to avoid committing unlicensed art, the latter because raw session logs may contain secrets. Keep it that way; don't commit files there.
+- `transcript/` is `.gitignore`d (raw session logs may contain secrets); `assets/*.gif`/`*.png` stay ignored too, so any stray art never lands in the repo. Keep it that way; don't commit files there. (All creature art is code-drawn in `creature.py` — there is no image-asset pipeline.)
 - User-facing menu strings are in Korean.
 - Design rationale and decisions live in `docs/superpowers/specs/2026-07-09-claude-pet-design.md`.
