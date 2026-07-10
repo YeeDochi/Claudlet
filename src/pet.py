@@ -123,9 +123,12 @@ class Pet(QWidget):
         self.walk_pause = 0.0
         self.vx = self.vy = 0.0
 
-        # user-triggered motion override (timed; independent of StateEngine)
+        # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
         self._motion_expiry = None       # monotonic deadline; None = hold
+        # float is a MODE, not a render override: suspends gravity so the pet
+        # hovers, while its normal animation keeps playing. Cleared by `stop`.
+        self._floating = False
 
         # drag tracking
         self._press_global = None
@@ -189,10 +192,23 @@ class Pet(QWidget):
         if ev.get("cmd") == "motion":
             motion = ev.get("motion")
             if not motion:
-                if self._motion == "float":
-                    self.mode = "thrown"        # gravity brings the floater home
+                # `stop` clears everything and restores gravity if we were floating
+                was_floating = self._floating
+                self._floating = False
                 self._motion = None
                 self._motion_expiry = None
+                if was_floating and self.mode != "held":
+                    self.mode = "thrown"        # gravity brings the floater home
+            elif motion == "float":
+                # float is a MODE toggle, not a transient render override — it
+                # does NOT touch self._motion, so the pet keeps its normal
+                # animation while hovering. Anti-gravity: rise a little, kill
+                # velocity; roam/physics are skipped while floating.
+                self._floating = True
+                if self.mode != "held":
+                    self.vx = self.vy = 0.0
+                    self.mode = "roam"
+                    self.y = max(float(self.screen_rect.top()), self.y - 240.0)
             else:
                 dur = ev.get("dur", 0) or 0
                 self._motion = motion
@@ -229,27 +245,32 @@ class Pet(QWidget):
         eff = self.claude_state
         self._update_tray_icon()
 
-        # user-triggered motion override wins over roam/idle, but never over
-        # drag/throw physics (held/thrown paint their own thing).
+        # transient motion override (jump/wave/sing/juggle + exposed states):
+        # plays for its duration then reverts. Never overrides drag/throw.
         motion_active = False
         if self._motion and self.mode not in ("held", "thrown"):
             if self._motion_expiry is not None and now >= self._motion_expiry:
                 self._motion = None
                 self._motion_expiry = None
             else:
-                if self._motion == "float":
-                    self.y = float(self.screen_rect.top() + self.h)  # hover high
                 self._render_state = self._motion
                 motion_active = True
 
+        # float is a MODE: it suspends gravity/roam so the pet hovers where it is
+        # (and wherever you drag it), but the pet keeps its normal animation.
+        floating = self._floating and self.mode not in ("held", "thrown")
         roaming = eff in ("idle", "sleeping") and self.mode == "roam" and not self.dnd
 
-        if motion_active:
-            pass                            # override painted; skip roam/physics this tick
-        elif self.mode == "held":
+        if self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()
+        elif motion_active:
+            pass                            # transient motion already set the render
+        elif floating:
+            # hover in place (no gravity): show the floaty pose when idle,
+            # otherwise keep the live Claude-activity animation.
+            self._render_state = "float" if eff in ("idle", "sleeping") else eff
         elif roaming:
             self._roam()
         else:
@@ -473,6 +494,12 @@ class Pet(QWidget):
             return
         if not self._moved:
             self._activate_claude()
+            self.mode = "roam"
+        elif self._floating:
+            # floating: stay put wherever you drop it — no fall, no perch, no
+            # snap-back. `stop` is what restores gravity.
+            self._contain = None
+            self.vx = self.vy = 0.0
             self.mode = "roam"
         else:
             cxp = int(self.x + self.w / 2)

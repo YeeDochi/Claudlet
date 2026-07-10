@@ -93,13 +93,50 @@ def test_motion_command_does_not_cancel_quit_timer():
         p._cleanup()
 
 
-def test_motion_clear_releases_override():
+def test_float_toggle_and_stop_restores_gravity():
     p = P.Pet(session_id="m3")
     try:
         p._handle_event({"cmd": "motion", "motion": "float", "dur": 0})
-        assert p._motion == "float"
+        assert p._floating is True
+        assert p._motion is None          # float is a mode, not a render override
         p._handle_event({"cmd": "motion", "motion": None, "dur": 0})
-        assert p._motion is None
-        assert p.mode == "thrown"
+        assert p._floating is False
+        assert p.mode == "thrown"         # stop restores gravity
+    finally:
+        p._cleanup()
+
+
+def test_float_rises_and_hovers_without_falling():
+    p = P.Pet(session_id="m4")
+    try:
+        p.mode = "roam"
+        p.y = float(p.floor_y)
+        p._handle_event({"cmd": "motion", "motion": "float", "dur": 0})
+        # rose off the floor, velocity killed, still roam (so hovering engages)
+        assert p.y < p.floor_y
+        assert p.vy == 0.0 and p.mode == "roam"
+        hover_y = p.y
+        # ticking must NOT pull it down (gravity is skipped while floating)
+        for _ in range(5):
+            p._tick()
+        assert p.y == hover_y            # hovers in place, no fall, no snap
+    finally:
+        p._cleanup()
+
+
+def test_float_still_shows_claude_animation():
+    p = P.Pet(session_id="m5")
+    try:
+        # a working Claude state while floating should still render as working,
+        # not be masked by the float mode
+        p._handle_event({"event": "PreToolUse", "session": "m5", "tool_name": "Bash"})
+        p._handle_event({"cmd": "motion", "motion": "float", "dur": 0})
+        p._tick()
+        assert p._floating is True
+        assert p._render_state == "work_computer"   # animation NOT masked by float
+        # and a transient motion still plays over the float
+        p._handle_event({"cmd": "motion", "motion": "jump", "dur": 2.0})
+        p._tick()
+        assert p._render_state == "jump"
     finally:
         p._cleanup()
