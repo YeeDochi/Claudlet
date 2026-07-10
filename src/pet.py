@@ -25,8 +25,8 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
-from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QObject, pyqtSlot
+from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QObject, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -88,7 +88,7 @@ class _GeomReceiver(QObject):
 
 
 class Pet(QWidget):
-    def __init__(self, session_id="default", host="unknown"):
+    def __init__(self, session_id="default", host="unknown", claude_pid=0):
         super().__init__()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -137,6 +137,14 @@ class Pet(QWidget):
         self._quit_timer = None              # pending SessionEnd -> quit timer
         self._wins = []                      # last window-geometry poll
         self._contain = None                 # Win we're living inside, or None
+        # host-window tracking: hide the pet when its own console/IDE window is
+        # minimized or fully covered, and aim click-to-focus at THAT window. The
+        # host window is the one whose pid is an ancestor of our Claude process.
+        self._ancestor_pids = self._proc_ancestors(claude_pid)
+        self._host_wid = None                # internalId of our host window (focus)
+        self._hidden_for_win = False         # hidden because our perch/host went away
+        self._masked = False                 # pet clipped to a window's exposed part
+        self._last_mask = None               # last applied QRegion (skip redundant sets)
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -379,6 +387,8 @@ class Pet(QWidget):
                 self._render_state = eff
 
         self.move(int(self.x), int(self.y))
+        # hide/show with the window we're riding (perched-on / contained-in)
+        self._update_visibility()
         self.update()
 
     def _roam(self):
@@ -495,18 +505,26 @@ class Pet(QWidget):
             '      return c.desktop<0||c.desktop===workspace.currentDesktop;'
             '  }catch(e){}'
             '  return true;}'                             # unknown API -> don't filter
-            'function _dump(){'
+            'function _dump(top){'
             # stackingOrder is bottom->top, so windows.window_at's "last match
             # wins" correctly picks the TOPMOST window under the pet.
             '  var ws=(typeof workspace.stackingOrder!=="undefined"&&workspace.stackingOrder)'
             '    ?workspace.stackingOrder'
             '    :((typeof workspace.windowList==="function")'
             '      ?workspace.windowList():workspace.clientList());'
-            '  var o=[];'
+            '  var ent=[];'
             '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
             '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c))'   # visible, on this desktop
-            '      o.push(c.internalId+";"+(c.resourceClass||"")+";"'
-            '      +g.x+","+g.y+","+g.width+","+g.height);}'
+            '      ent.push({id:(""+c.internalId),'
+            '        s:c.internalId+";"+(c.resourceClass||"")+";"'
+            '        +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0)});}'
+            # workspace.stackingOrder lags a raise in this KWin (it settles AFTER
+            # windowActivated fires), so a just-activated window would still look
+            # buried for one click. We KNOW it is now topmost -> force it last.
+            '  if(top){var tid=""+top.internalId;'
+            '    for(var j=0;j<ent.length;j++){if(ent[j].id===tid){'
+            '      ent.push(ent.splice(j,1)[0]);break;}}}'
+            '  var o=[];for(var k=0;k<ent.length;k++)o.push(ent[k].s);'
             '  callDBus(SVC,"/","","push",o.join("|"));'
             '}'
             'function _hook(c){if(!c)return;'
@@ -520,6 +538,11 @@ class Pet(QWidget):
             'if(workspace.windowAdded)workspace.windowAdded.connect('
             '  function(c){_hook(c);_dump();});'
             'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
+            # re-dump on RAISE (click a window behind ours). windowActivated hands
+            # us the raised window; _dump forces it to the top of the reported
+            # order, because workspace.stackingOrder hasn't settled yet when this
+            # fires (relying on it lagged occlusion by one click).
+            'if(workspace.windowActivated)workspace.windowActivated.connect(_dump);'
             '_dump();'
         )
         # stable plugin name so a re-launched pet for the SAME session replaces
@@ -589,11 +612,103 @@ class Pet(QWidget):
             self._cursor_plugin = None
         self._cursor = None                     # drop stale pos -> QCursor fallback
 
+    @staticmethod
+    def _proc_ancestors(pid, max_hops=40):
+        """Set of pids from `pid` up to the top via /proc (Linux). The terminal/
+        IDE window's owning pid is one of these, so matching it to a window pid
+        finds our host window. Empty on non-Linux or pid<=0 (tracking then off)."""
+        acc = set()
+        try:
+            cur = int(pid)
+        except (TypeError, ValueError):
+            return acc
+        while cur > 1 and cur not in acc and len(acc) < max_hops:
+            acc.add(cur)
+            try:
+                with open("/proc/%d/stat" % cur) as f:
+                    data = f.read()
+                ppid = int(data[data.rindex(")") + 2:].split()[1])
+            except (OSError, ValueError, IndexError):
+                break
+            cur = ppid
+        return acc
+
+    def _update_host_wid(self):
+        """Remember this session's host window (matched by pid) for click-to-focus.
+        Independent of visibility — focus targets the console/IDE, not the perch."""
+        if self._ancestor_pids:
+            h = windows.find_host(self._wins, self._ancestor_pids)
+            if h is not None:
+                self._host_wid = h.wid
+
+    def _update_visibility(self):
+        """Clip the pet to the still-exposed part of the window it's RIDING
+        (perched on / contained in): fully covered or window gone -> hidden;
+        partially covered -> shown only over the uncovered sliver; on the bare
+        desktop -> fully visible (a maximized window in front never hides a pet
+        wandering the wallpaper). No-op without the KDE feed."""
+        if not getattr(self, "_dbus_name", None) or self.mode == "held":
+            self._show_full()
+            return
+        if self._contain is not None:
+            cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
+            if cur is None:              # contained window minimized/closed
+                self._hide_fully()
+                return
+        else:
+            cx = self.x + self.w / 2.0
+            feet = self.y + FOOT_Y
+            cur = windows.window_under_feet(cx, feet, self._wins)
+            if cur is None:              # on the desktop -> always visible
+                self._show_full()
+                return
+        # The pet is occluded only by windows stacked ABOVE the one it rides.
+        # (Don't intersect with the ridden window's rect: a PERCHED pet stands on
+        # the window's top edge with its body reaching ABOVE the window, so that
+        # would wrongly clip the body. A contained pet sits inside the window, so
+        # subtracting just the higher windows is right for it too.)
+        try:
+            i = self._wins.index(cur)
+        except ValueError:
+            i = len(self._wins)
+        shown = QRegion(QRect(int(self.x), int(self.y), self.w, self.h))
+        for w in self._wins[i + 1:]:
+            shown = shown.subtracted(QRegion(QRect(w.x, w.y, w.w, w.h)))
+        shown.translate(-int(self.x), -int(self.y))
+        self._apply_mask(shown)
+
+    def _apply_mask(self, region):
+        # Mask-only visibility: we never hide()/show() the window, because show()
+        # re-adds it to the taskbar (undoing _skip_taskbar) and races cause flicker.
+        if region == QRegion(QRect(0, 0, self.w, self.h)):
+            self._show_full()            # fully exposed -> drop any clip
+            return
+        self._hidden_for_win = region.isEmpty()
+        if self._hidden_for_win:
+            # setMask(<empty>) is treated as "no mask" (shows everything!), so to
+            # hide fully we mask to a 1px region OUTSIDE the widget instead.
+            region = QRegion(QRect(-1, -1, 1, 1))
+        if not self._masked or region != self._last_mask:
+            self.setMask(region)
+            self._masked = True
+            self._last_mask = region
+
+    def _hide_fully(self):
+        self._apply_mask(QRegion())      # empty mask -> invisible, still mapped
+
+    def _show_full(self):
+        if self._masked:
+            self.clearMask()
+            self._masked = False
+            self._last_mask = None
+        self._hidden_for_win = False
+
     def _on_geom(self, dump):
         if dump == getattr(self, "_last_dump", None):
             return                       # coalesce identical pushes (cheap anti-spam)
         self._last_dump = dump
         self._wins = windows.parse_kwin_dump(dump)
+        self._update_host_wid()
         if self._contain is not None:
             prev = self._contain
             cur = next((w for w in self._wins if w.wid == prev.wid), None)
@@ -907,23 +1022,34 @@ class Pet(QWidget):
 
     # ---------- bring the Claude Code terminal forward (KDE Wayland) ----------
     def _activate_claude(self):
+        # Prefer THIS session's own host window (matched by pid -> internalId), so
+        # with two consoles the click focuses the right one. Fall back to the
+        # first window of the host class when we haven't identified it.
         classes = self.host_classes or ["konsole"]
         want = "[" + ",".join('"%s"' % c for c in classes) + "]"
+        hostid = self._host_wid or ""
         self._run_kwin_script(
+            'var HOSTID = "' + hostid + '";'
             'var want = ' + want + ';'
             'var cs = (typeof workspace.windowList === "function") '
             '? workspace.windowList() : workspace.clientList();'
-            'for (var i = 0; i < cs.length; i++) {'
-            '  var c = cs[i];'
-            '  var rc = (c.resourceClass || "").toString().toLowerCase();'
-            '  var hit = false;'
-            '  for (var j = 0; j < want.length; j++) {'
-            '    if (rc.indexOf(want[j]) >= 0) { hit = true; break; }'
+            'var target = null;'
+            'if (HOSTID) {'
+            '  for (var i = 0; i < cs.length; i++) {'
+            '    if (("" + cs[i].internalId) === HOSTID) { target = cs[i]; break; }'
             '  }'
-            '  if (hit) {'
-            '    try { workspace.activeWindow = c; } catch (e) { workspace.activeClient = c; }'
-            '    c.minimized = false; break;'
+            '}'
+            'if (!target) {'
+            '  for (var i = 0; i < cs.length && !target; i++) {'
+            '    var rc = (cs[i].resourceClass || "").toString().toLowerCase();'
+            '    for (var j = 0; j < want.length; j++) {'
+            '      if (rc.indexOf(want[j]) >= 0) { target = cs[i]; break; }'
+            '    }'
             '  }'
+            '}'
+            'if (target) {'
+            '  try { workspace.activeWindow = target; } catch (e) { workspace.activeClient = target; }'
+            '  target.minimized = false;'
             '}'
         )
 
@@ -1009,7 +1135,7 @@ def main():
     app.setApplicationName("claude-pet")
     app.setDesktopFileName("claude-pet")
     app.setQuitOnLastWindowClosed(False)
-    pet = Pet(session_id=args.session, host=args.host)
+    pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid)
     pet._lock_fd = lock_fd                    # keep the fd (and the lock) alive
     # always tear down the KWin geom script — including on `kill`/SIGTERM, which
     # otherwise skips _cleanup and leaks a script that keeps pushing geometry.

@@ -8,7 +8,9 @@ XWayland — no remapping needed.
 """
 from collections import namedtuple
 
-Win = namedtuple("Win", "wid x y w h title")
+# `title` actually holds the resourceClass; `pid` is the owning process id (or
+# None when the feed predates pid reporting). Defaults keep old 6-arg callers OK.
+Win = namedtuple("Win", "wid x y w h title pid", defaults=(None,))
 
 # KWin classes that are shell chrome / helpers, never perch targets
 EXCLUDE_CLASSES = {"plasmashell", "xwaylandvideobridge", "claude-pet", ""}
@@ -24,10 +26,10 @@ def parse_kwin_dump(text, min_size=40):
         tok = tok.strip()
         if not tok:
             continue
-        parts = tok.split(";", 2)
-        if len(parts) != 3:
+        parts = tok.split(";")
+        if len(parts) < 3:
             continue
-        wid, cls, geo = parts
+        wid, cls, geo = parts[0], parts[1], parts[2]
         cls = cls.strip().lower()
         if cls in EXCLUDE_CLASSES:
             continue
@@ -40,8 +42,52 @@ def parse_kwin_dump(text, min_size=40):
             continue
         if w < min_size or h < min_size:
             continue
-        wins.append(Win(wid, x, y, w, h, cls))
+        pid = None
+        if len(parts) >= 4 and parts[3].strip().isdigit():
+            pid = int(parts[3])
+        wins.append(Win(wid, x, y, w, h, cls, pid))
     return wins
+
+
+def find_host(wins, ancestor_pids):
+    """The window owned by this session's host app: the first whose pid is in
+    `ancestor_pids` (the pet's Claude process and its parents — the terminal/IDE
+    that owns the window is one of them). None if no pid matches."""
+    if not ancestor_pids:
+        return None
+    for w in wins:
+        if w.pid is not None and w.pid in ancestor_pids:
+            return w
+    return None
+
+
+def window_under_feet(cx, feet_y, wins, tol=6):
+    """The window a creature at column cx with feet at feet_y is resting ON — its
+    top edge at or just below the feet (within tol). Highest such top wins. None
+    when the feet are on the bare desktop (mirrors support_surface_under, but
+    returns the Win so callers know WHICH window the pet is perched on)."""
+    best = None
+    for w in wins:
+        if w.x <= cx <= w.x + w.w and abs(w.y - feet_y) <= tol:
+            if best is None or w.y < best.y:
+                best = w
+    return best
+
+
+def covered_by_higher(target, wins):
+    """True if some window stacked ABOVE `target` fully covers its rect. `wins`
+    is bottom->top stacking order (as the feed delivers it). Only full coverage
+    counts — a maximized window on top hides it; a partial overlap doesn't."""
+    try:
+        i = wins.index(target)
+    except ValueError:
+        return False
+    tx2, ty2 = target.x + target.w, target.y + target.h
+    for w in wins[i + 1:]:
+        if (w.x <= target.x and w.y <= target.y
+                and w.x + w.w >= tx2 and w.y + w.h >= ty2):
+            return True
+    return False
 
 
 def window_at(px, py, wins):
