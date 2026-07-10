@@ -12,6 +12,17 @@ Drawn entirely in code — no image assets — so it's self-contained and origin
 
 ![states](docs/creature_sheet.en.png)
 
+## See it in action
+
+Real desktop capture — pets perch on the terminal titlebar, roam the desktop, sleep
+while idle, think in a speech bubble, and ride your windows.
+
+<video src="https://raw.githubusercontent.com/YeeDochi/claude-pet/master/docs/claude-pet-demo.webm" controls muted loop width="100%"></video>
+
+> If the player doesn't show, [watch the clip](docs/claude-pet-demo.webm).
+
+![screenshot](docs/screenshot.png)
+
 ## Install
 
 One line — clones, installs PyQt6, and registers the hooks + skill (needs Python & git):

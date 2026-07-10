@@ -10,6 +10,17 @@ Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝
 
 ![states](docs/creature_sheet.png)
 
+## 실제 사용 모습
+
+실제 데스크톱 화면 녹화 — 펫들이 터미널 타이틀바에 올라타고, 바탕화면을 돌아다니고,
+쉴 땐 잠자고, 고민할 땐 말풍선을 띄우고, 창 위를 타고 다녀요.
+
+<video src="https://raw.githubusercontent.com/YeeDochi/claude-pet/master/docs/claude-pet-demo.webm" controls muted loop width="100%"></video>
+
+> 플레이어가 안 보이면 [영상 보기](docs/claude-pet-demo.webm).
+
+![screenshot](docs/screenshot.png)
+
 ## 설치
 
 한 줄 — 클론·PyQt6 설치·훅+스킬 등록까지 한 번에 (Python·git 필요):
