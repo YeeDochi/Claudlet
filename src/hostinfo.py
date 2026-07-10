@@ -5,12 +5,24 @@ Code session, sees its env) and `src/pet.py` can import it and agree.
 """
 import os
 
-# host -> window-class substrings used to match/activate/focus that host's window
+# host -> window-class / app-name substrings used to match/focus that host's
+# window. On Linux these match KWin resourceClass; on macOS the frontmost app
+# name (from AppleScript) is matched against the same substrings.
 HOST_CLASSES = {
     "vscode": ["code"],
     "jetbrains": ["jetbrains"],
     "konsole": ["konsole"],
+    "apple_terminal": ["terminal"],
+    "iterm": ["iterm"],
     "unknown": [],
+}
+
+# host -> macOS application name, for `osascript ... to activate` (click-to-focus).
+# None where we can't name it reliably (varies per JetBrains IDE).
+MAC_APP = {
+    "vscode": "Visual Studio Code",
+    "apple_terminal": "Terminal",
+    "iterm": "iTerm",
 }
 
 
@@ -23,12 +35,22 @@ def detect_host(env=None):
         return "jetbrains"
     if env.get("KONSOLE_VERSION"):
         return "konsole"
+    tp = env.get("TERM_PROGRAM", "")
+    if tp == "Apple_Terminal":
+        return "apple_terminal"
+    if tp == "iTerm.app":
+        return "iterm"
     return "unknown"
 
 
 def host_classes(host):
-    """Window-class substrings for a host (empty list if unknown)."""
+    """Window-class / app-name substrings for a host (empty list if unknown)."""
     return HOST_CLASSES.get(host, [])
+
+
+def mac_app(host):
+    """macOS application name to activate for a host, or None if unknown."""
+    return MAC_APP.get(host)
 
 
 def session_sock(session_id):

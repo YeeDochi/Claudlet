@@ -1028,11 +1028,16 @@ class Pet(QWidget):
         except Exception:
             pass
 
-    # ---------- bring the Claude Code terminal forward (KDE Wayland) ----------
+    # ---------- bring the Claude Code terminal forward ----------
     def _activate_claude(self):
-        # Prefer THIS session's own host window (matched by pid -> internalId), so
-        # with two consoles the click focuses the right one. Fall back to the
-        # first window of the host class when we haven't identified it.
+        if sys.platform == "darwin":
+            self._activate_claude_macos()
+            return
+        if not sys.platform.startswith("linux"):
+            return                           # Windows: not implemented yet (no-op)
+        # Linux/KDE: prefer THIS session's own host window (matched by pid ->
+        # internalId) so with two consoles the click focuses the right one; fall
+        # back to the first window of the host class when we haven't identified it.
         classes = self.host_classes or ["konsole"]
         want = "[" + ",".join('"%s"' % c for c in classes) + "]"
         hostid = self._host_wid or ""
@@ -1060,6 +1065,20 @@ class Pet(QWidget):
             '  target.minimized = false;'
             '}'
         )
+
+    def _activate_claude_macos(self):
+        """Bring the host terminal/IDE app to the front via AppleScript.
+        Best-effort; UNTESTED on macOS. Can't target a specific window (no KWin),
+        so it activates the whole app."""
+        app = hostinfo.mac_app(self.host)
+        if not app or not shutil.which("osascript"):
+            return
+        try:
+            subprocess.run(
+                ["osascript", "-e", 'tell application "%s" to activate' % app],
+                timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        except Exception:
+            pass
 
     # ---------- drop our own taskbar/pager entry (KDE Wayland) ----------
     def _skip_taskbar(self):

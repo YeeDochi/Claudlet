@@ -8,6 +8,7 @@ like VS Code or Konsole-under-X). When detection is unavailable we report
 """
 import shutil
 import subprocess
+import sys
 
 
 def _run(cmd):
@@ -41,9 +42,23 @@ def _active_via_xprop():
         return None
 
 
+def _active_via_applescript():
+    """macOS: name of the frontmost app (e.g. 'terminal', 'iterm2', 'code').
+    Best-effort — untested on macOS hardware."""
+    if sys.platform != "darwin" or not shutil.which("osascript"):
+        return None
+    try:
+        return (_run(["osascript", "-e",
+                      "tell application \"System Events\" to get name of "
+                      "first process whose frontmost is true"]).lower() or None)
+    except Exception:
+        return None
+
+
 def _active_window_class():
-    """Active window's class lowercased, or None if undetectable."""
-    return _active_via_kdotool() or _active_via_xprop()
+    """Active window's class/app-name lowercased, or None if undetectable."""
+    return (_active_via_kdotool() or _active_via_xprop()
+            or _active_via_applescript())
 
 
 def terminal_focused(classes):

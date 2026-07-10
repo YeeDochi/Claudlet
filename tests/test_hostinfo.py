@@ -18,6 +18,21 @@ def test_detect_konsole():
 def test_detect_unknown():
     assert hostinfo.detect_host({}) == "unknown"
 
+def test_detect_macos_terminals():
+    assert hostinfo.detect_host({"TERM_PROGRAM": "Apple_Terminal"}) == "apple_terminal"
+    assert hostinfo.detect_host({"TERM_PROGRAM": "iTerm.app"}) == "iterm"
+
+def test_mac_app_names():
+    assert hostinfo.mac_app("vscode") == "Visual Studio Code"
+    assert hostinfo.mac_app("apple_terminal") == "Terminal"
+    assert hostinfo.mac_app("konsole") is None      # no macOS app for konsole
+    assert hostinfo.mac_app("unknown") is None
+
+def test_macos_host_classes_match_app_names():
+    # frontmost app name on macOS is matched against these substrings
+    assert hostinfo.host_classes("apple_terminal") == ["terminal"]
+    assert hostinfo.host_classes("iterm") == ["iterm"]
+
 def test_host_classes():
     assert hostinfo.host_classes("vscode") == ["code"]
     assert hostinfo.host_classes("konsole") == ["konsole"]

@@ -64,6 +64,19 @@ and simply switches off elsewhere — the pet still runs.
 Only KDE is actively tested. GNOME is out of scope for window integration. Non-KDE
 just falls back to the desktop floor with everything KDE-specific disabled.
 
+### Help test on your OS
+
+macOS/Windows paths are best-effort and **unverified on real hardware** — reports
+welcome. If you run it, please check and open an issue:
+
+- **Launches?** `bin/claude-pet` shows the creature; it roams, and drag-and-throw works.
+- **Reacts?** After `claude-pet-install-hooks`, using Claude Code changes its state
+  (working / thinking / celebrate).
+- **Tray** icon appears and its menu works.
+- **macOS only:** left-click brings your terminal/IDE (Terminal/iTerm/VS Code) to the
+  front (`osascript`); frontmost-app detection gates the "celebrate" pose.
+- Note what's broken vs. the table above (perch/occlusion/taskbar-hide are KDE-only by design).
+
 ## Install
 
 ```bash
