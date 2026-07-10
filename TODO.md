@@ -47,7 +47,8 @@
 - [ ] **걷기 폴리시** — 걷기 사이클 자연스럽게.
 - [ ] **새 상태 아트 튜닝** — work_search/web 등 prop 아이콘 작은 스케일에서 밋밋.
 - [ ] plan 승인/AskUserQuestion 등 "답 기다림" 세분화 (attention보다 잘게).
-- [ ] 진짜 도트 스프라이트 / GIF override(`assets/<state>.gif`).
+- [x] 진짜 도트 스프라이트 / GIF override(`assets/<state>.gif|png`) — `sprites.py` 로더,
+      paintEvent에서 코드 렌더 대신 스프라이트 blit(aspect-fit, facing 미러). (2026-07-10)
 
 ## 🌍 플랫폼 (나중)
 - [ ] Mac / Windows 이식 — 코어(state_engine/creature/hook)는 이식가능. 창 활성화·포커스·
