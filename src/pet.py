@@ -673,15 +673,18 @@ class Pet(QWidget):
     def _apply_mask(self, region):
         # Mask-only visibility: we never hide()/show() the window, because show()
         # re-adds it to the taskbar (undoing _skip_taskbar) and races cause flicker.
-        # An empty mask makes it fully invisible while the window stays mapped.
         if region == QRegion(QRect(0, 0, self.w, self.h)):
             self._show_full()            # fully exposed -> drop any clip
             return
+        self._hidden_for_win = region.isEmpty()
+        if self._hidden_for_win:
+            # setMask(<empty>) is treated as "no mask" (shows everything!), so to
+            # hide fully we mask to a 1px region OUTSIDE the widget instead.
+            region = QRegion(QRect(-1, -1, 1, 1))
         if not self._masked or region != self._last_mask:
             self.setMask(region)
             self._masked = True
             self._last_mask = region
-        self._hidden_for_win = region.isEmpty()
 
     def _hide_fully(self):
         self._apply_mask(QRegion())      # empty mask -> invisible, still mapped
