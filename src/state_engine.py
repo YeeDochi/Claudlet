@@ -26,19 +26,26 @@ DEFAULT_EVENT_STATES = {
     "error": "error",           # StopFailure
     "permission": "attention",  # Notification / permission_prompt
     "idle_prompt": "sleeping",  # Notification / idle_prompt
+    "asking": "asking",         # PreToolUse / AskUserQuestion or ExitPlanMode
 }
+
+# tools that mean "Claude is waiting on the user to answer" rather than working:
+# a question (AskUserQuestion) or a plan awaiting approval (ExitPlanMode). They
+# arrive as PreToolUse and map to the calm, expectant `asking` state — finer than
+# the `attention` alert used for permission prompts.
+ASK_TOOLS = {"AskUserQuestion", "ExitPlanMode"}
 
 # states a user is allowed to map a tool/event to (expressive display states;
 # excludes internal/mode-only ones like walk/held/falling/float). Kept as a plain
 # set so this module stays Qt-free — mirror of the renderable creature states.
 MAPPABLE_STATES = {
-    "idle", "sleeping", "thinking", "attention", "error", "celebrate",
+    "idle", "sleeping", "thinking", "attention", "asking", "error", "celebrate",
     "work_computer", "work_search", "work_web", "work_agent", "work_skill",
     "jump", "wave", "sing", "juggle",
 }
 
 PRIORITY = {
-    "attention": 6, "error": 5,
+    "asking": 7, "attention": 6, "error": 5,
     "work_computer": 4, "work_search": 4, "work_web": 4,
     "work_agent": 4, "work_skill": 4,
     "thinking": 3, "celebrate": 2, "idle": 1, "sleeping": 0,
@@ -122,7 +129,11 @@ class StateEngine:
         elif name == "UserPromptSubmit":
             s.set_state(self._events["prompt"], now)
         elif name == "PreToolUse":
-            self._set_work(s, self._tool_state(ev.get("tool_name", "")), now)
+            tool = ev.get("tool_name", "")
+            if tool in ASK_TOOLS:
+                s.set_state(self._events["asking"], now)  # waiting on the user
+            else:
+                self._set_work(s, self._tool_state(tool), now)
         elif name == "Notification":
             nt = ev.get("notification_type", "")
             if nt == "permission_prompt":
@@ -161,7 +172,7 @@ class StateEngine:
             s.set_state("idle", now)
         # work/thinking gone quiet for a long time: no Stop ever came (e.g. the
         # user interrupted with ESC), so fall back to calm idle.
-        if (s.state in self._work_like or s.state == "thinking") and \
+        if (s.state in self._work_like or s.state in ("thinking", "asking")) and \
            (now - s.last_event) >= WORK_TIMEOUT:
             s.set_state("idle", now)
         # calm idle falls asleep after a long quiet spell
