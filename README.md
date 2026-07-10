@@ -10,7 +10,7 @@ back to the front.
 Drawn entirely in code — no image assets — so it's self-contained and original
 (CC0 artwork).
 
-![states](docs/creature_sheet.png)
+![states](docs/creature_sheet.en.png)
 
 ## Install
 

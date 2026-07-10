@@ -546,20 +546,39 @@ if __name__ == "__main__":
     from PyQt6.QtCore import Qt, QRectF
     app = QGuiApplication(sys.argv)
 
+    # sheet language: `python3 creature.py <out.png> [ko|en]` (default ko)
+    sheet_lang = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] in ("ko", "en") else "ko"
+    set_lang(sheet_lang)
+
     # caption = what triggers this animation (no parenthetical prop notes)
-    labels = {"idle": "대기", "walk": "배회",
-              "work_computer": "편집·실행", "work_search": "읽기·검색",
-              "work_web": "웹·MCP", "work_agent": "서브에이전트",
-              "work_skill": "스킬 실행",
-              "autopilot": "자동 진행", "auto_computer": "자동 편집",
-              "auto_search": "자동 읽기·검색", "auto_web": "자동 웹",
-              "auto_agent": "자동 서브에이전트", "auto_skill": "자동 스킬",
-              "thinking": "프롬프트 받음", "attention": "권한 요청",
-              "asking": "질문·플랜 대기", "celebrate": "완료",
-              "error": "실패", "sleeping": "수면",
-              "jump": "모션 · 점프", "wave": "모션 · 손 흔들기",
-              "sing": "모션 · 노래", "juggle": "모션 · 저글링",
-              "float": "모션 · 둥둥"}
+    LABELS = {
+        "ko": {"idle": "대기", "walk": "배회",
+               "work_computer": "편집·실행", "work_search": "읽기·검색",
+               "work_web": "웹·MCP", "work_agent": "서브에이전트",
+               "work_skill": "스킬 실행", "autopilot": "자동 진행",
+               "auto_computer": "자동 편집", "auto_search": "자동 읽기·검색",
+               "auto_web": "자동 웹", "auto_agent": "자동 서브에이전트",
+               "auto_skill": "자동 스킬", "thinking": "프롬프트 받음",
+               "attention": "권한 요청", "asking": "질문·플랜 대기",
+               "celebrate": "완료", "error": "실패", "sleeping": "수면",
+               "jump": "모션 · 점프", "wave": "모션 · 손 흔들기",
+               "sing": "모션 · 노래", "juggle": "모션 · 저글링", "float": "모션 · 둥둥"},
+        "en": {"idle": "idle", "walk": "roaming",
+               "work_computer": "edit · run", "work_search": "read · search",
+               "work_web": "web · MCP", "work_agent": "subagent",
+               "work_skill": "skill", "autopilot": "autopilot",
+               "auto_computer": "auto · edit", "auto_search": "auto · read/search",
+               "auto_web": "auto · web", "auto_agent": "auto · subagent",
+               "auto_skill": "auto · skill", "thinking": "prompt in",
+               "attention": "permission", "asking": "question / plan",
+               "celebrate": "done", "error": "failed", "sleeping": "asleep",
+               "jump": "motion · jump", "wave": "motion · wave",
+               "sing": "motion · sing", "juggle": "motion · juggle",
+               "float": "motion · float"},
+    }
+    labels = LABELS[sheet_lang]
+    TITLE = {"ko": "claude-pet — 오리지널 크리처 · 전부 코드 렌더 · CC0",
+             "en": "claude-pet — original creature · all code-rendered · CC0"}
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
              "work_agent", "work_skill", "autopilot",
              "auto_computer", "auto_search", "auto_web", "auto_agent", "auto_skill",
@@ -577,8 +596,7 @@ if __name__ == "__main__":
     p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
     p.setPen(QPen(QColor("#ECA184"))); f = QFont("Sans", 15); f.setBold(True); p.setFont(f)
-    p.drawText(QRectF(0, 14, W, 26), Qt.AlignmentFlag.AlignCenter,
-               "claude-pet — 오리지널 크리처 · 전부 코드 렌더 · CC0")
+    p.drawText(QRectF(0, 14, W, 26), Qt.AlignmentFlag.AlignCenter, TITLE[sheet_lang])
     from PyQt6.QtGui import QPainterPath
     for i, st in enumerate(order):
         c = i % cols; r = i // cols
@@ -590,7 +608,7 @@ if __name__ == "__main__":
         gx = x0 + (cellw - GRID_W * u) / 2
         gy = y0 + (cellh - GRID_H * u) / 2 - 6
         if st in SPEECH:            # freeze where the bubble is fully typed & held
-            frame = len(SPEECH[st]) * 7 + 5
+            frame = len(_speech(st)) * 7 + 5
         elif st == "work_computer":
             frame = 100
         elif st == "walk":
