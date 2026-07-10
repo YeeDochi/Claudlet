@@ -22,6 +22,11 @@ WORK_STATES = {"work_computer", "work_search", "work_web",
 # read-only planning, not autonomous execution.
 AUTO_MODES = {"auto", "bypassPermissions"}
 
+# work states kept distinct even under an auto mode — the "milestone" tools
+# (spawning a subagent, running a skill) still change the pet's face so a long
+# autonomous run isn't one unchanging autopilot. Routine edit/search/web collapse.
+AUTO_KEEP = {"work_agent", "work_skill"}
+
 # the direct single-state events, keyed by short name -> default state. Users can
 # override any of these via config (see petconfig.py).
 DEFAULT_EVENT_STATES = {
@@ -129,10 +134,13 @@ class StateEngine:
         elif name == "UserPromptSubmit":
             s.set_state(self._events["prompt"], now)
         elif name == "PreToolUse":
-            if ev.get("permission_mode") in AUTO_MODES:
-                self._set_work(s, self._events["autopilot"], now)  # cruising solo
-            else:
-                self._set_work(s, self._tool_state(ev.get("tool_name", "")), now)
+            st = self._tool_state(ev.get("tool_name", ""))
+            if ev.get("permission_mode") in AUTO_MODES and st not in AUTO_KEEP:
+                # cruising solo: collapse routine edit/search/web into one
+                # autopilot state, but keep the milestone tools (subagent, skill)
+                # distinct so a long autonomous run still shows what's happening.
+                st = self._events["autopilot"]
+            self._set_work(s, st, now)
         elif name == "Notification":
             nt = ev.get("notification_type", "")
             if nt == "permission_prompt":

@@ -35,6 +35,26 @@ def test_missing_permission_mode_is_normal_work():
     assert e.display_state(0.0) == "work_search"
 
 
+def test_auto_mode_keeps_subagent_distinct():
+    # spawning a subagent is a milestone worth showing even while autonomous
+    e = StateEngine()
+    e.handle(_pre("Task", pm="auto"), 0.0)
+    assert e.display_state(0.0) == "work_agent"
+
+
+def test_auto_mode_keeps_skill_distinct():
+    e = StateEngine()
+    e.handle(_pre("Skill", pm="bypassPermissions"), 0.0)
+    assert e.display_state(0.0) == "work_skill"
+
+
+def test_auto_mode_collapses_routine_tools():
+    # routine edit/search/web still collapse to the single autopilot cruise
+    e = StateEngine()
+    e.handle(_pre("Read", pm="auto"), 0.0)
+    assert e.display_state(0.0) == "autopilot"
+
+
 def test_plan_mode_is_not_autopilot():
     # plan mode is read-only planning, not autonomous grinding
     e = StateEngine()
