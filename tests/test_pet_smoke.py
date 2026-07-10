@@ -44,37 +44,53 @@ def test_sessionend_quit_is_cancelled_by_later_event():
         p._cleanup()
 
 
-def test_host_visibility_hide_when_covered_show_when_clear():
+def test_visibility_hides_with_ridden_window():
     import windows as W
     p = P.Pet(session_id="hv")
     try:
-        p._ancestor_pids = {4242}                 # pretend our host process is 4242
-        host = W.Win("host", 100, 100, 400, 300, "konsole", 4242)
-        top = W.Win("top", 0, 0, 4000, 2000, "code", 99)   # maximized, stacked above
-        # host fully covered -> pet hides, and remembers its host wid
+        p._dbus_name = "x"                        # pretend the KDE feed is active
+        host = W.Win("host", 100, 100, 400, 300, "browser", 1)
+        top = W.Win("top", 0, 0, 4000, 2000, "code", 2)    # maximized, stacked above
+        p._contain = host                         # pet lives in this window
+        # ridden window fully covered -> hide
         p._wins = [host, top]
-        p._update_host_visibility()
-        assert p._host_wid == "host"
-        assert p._hidden_for_host is True
-        # covering window gone -> pet shows again
+        p._update_visibility()
+        assert p._hidden_for_win is True
+        # covering window gone -> show
         p._wins = [host]
-        p._update_host_visibility()
-        assert p._hidden_for_host is False
-        # host minimized (drops out of the feed) -> hide again
+        p._update_visibility()
+        assert p._hidden_for_win is False
+        # ridden window minimized/closed (drops from the feed) -> hide
         p._wins = []
-        p._update_host_visibility()
-        assert p._hidden_for_host is True
+        p._update_visibility()
+        assert p._hidden_for_win is True
     finally:
         p._cleanup()
 
 
-def test_host_visibility_off_when_pid_unknown():
+def test_visibility_desktop_never_hides():
+    import windows as W
     p = P.Pet(session_id="hv2")
     try:
-        p._ancestor_pids = set()                  # no claude pid -> tracking off
-        p._wins = []
-        p._update_host_visibility()
-        assert p._hidden_for_host is False        # never hides when it can't identify host
+        p._dbus_name = "x"
+        p._contain = None                         # roaming the wallpaper, not on a window
+        p.x, p.y = 100.0, 100.0
+        p._wins = [W.Win("big", 0, 0, 4000, 2000, "code", 2)]   # maximized window exists
+        p._update_visibility()
+        assert p._hidden_for_win is False         # not perched on it -> stays visible
+    finally:
+        p._cleanup()
+
+
+def test_visibility_off_without_feed():
+    import windows as W
+    p = P.Pet(session_id="hv3")
+    try:
+        p._dbus_name = None                       # no KDE feed
+        p._contain = W.Win("host", 100, 100, 400, 300, "x", 1)
+        p._wins = []                              # would hide if the feed were active
+        p._update_visibility()
+        assert p._hidden_for_win is False
     finally:
         p._cleanup()
 

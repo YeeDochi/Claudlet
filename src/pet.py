@@ -141,9 +141,8 @@ class Pet(QWidget):
         # minimized or fully covered, and aim click-to-focus at THAT window. The
         # host window is the one whose pid is an ancestor of our Claude process.
         self._ancestor_pids = self._proc_ancestors(claude_pid)
-        self._host_wid = None                # internalId of our host window
-        self._host_seen = False              # have we ever matched it? (gates hiding)
-        self._hidden_for_host = False        # currently hidden because host is gone
+        self._host_wid = None                # internalId of our host window (focus)
+        self._hidden_for_win = False         # hidden because our perch/host went away
 
         # movement
         self.mode = "roam"                   # roam | held | thrown
@@ -386,6 +385,8 @@ class Pet(QWidget):
                 self._render_state = eff
 
         self.move(int(self.x), int(self.y))
+        # hide/show with the window we're riding (perched-on / contained-in)
+        self._update_visibility()
         self.update()
 
     def _roam(self):
@@ -620,27 +621,39 @@ class Pet(QWidget):
             cur = ppid
         return acc
 
-    def _update_host_visibility(self):
-        """Hide the pet while its host window is minimized (dropped from the feed)
-        or fully covered by another window; show it again when the host returns.
-        No-op until we've matched the host at least once (so non-KDE / unknown
-        pid never hides the pet)."""
-        if not self._ancestor_pids or self.mode == "held":
+    def _update_host_wid(self):
+        """Remember this session's host window (matched by pid) for click-to-focus.
+        Independent of visibility — focus targets the console/IDE, not the perch."""
+        if self._ancestor_pids:
+            h = windows.find_host(self._wins, self._ancestor_pids)
+            if h is not None:
+                self._host_wid = h.wid
+
+    def _update_visibility(self):
+        """Hide the pet only when the window it's RIDING — perched on top of, or
+        contained in — goes away (minimized/closed) or is fully covered by a
+        higher window. On the bare desktop it always stays visible (a maximized
+        window in front doesn't hide a pet that's wandering the wallpaper).
+        No-op without the KDE feed, so non-KDE never hides it."""
+        if not getattr(self, "_dbus_name", None) or self.mode == "held":
+            self._set_hidden(False)
             return
-        host = windows.find_host(self._wins, self._ancestor_pids)
-        if host is not None:
-            self._host_wid = host.wid
-            self._host_seen = True
-            hide = windows.covered_by_higher(host, self._wins)
-        elif self._host_seen:
-            hide = True                  # host left the feed: minimized/off-desktop
+        if self._contain is not None:
+            cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
+            hide = cur is None or windows.covered_by_higher(cur, self._wins)
         else:
-            return                       # never identified a host -> don't interfere
-        if hide and not self._hidden_for_host:
-            self._hidden_for_host = True
+            cx = self.x + self.w / 2.0
+            feet = self.y + FOOT_Y
+            cur = windows.window_under_feet(cx, feet, self._wins)
+            hide = cur is not None and windows.covered_by_higher(cur, self._wins)
+        self._set_hidden(hide)
+
+    def _set_hidden(self, hide):
+        if hide and not self._hidden_for_win:
+            self._hidden_for_win = True
             self.hide()
-        elif not hide and self._hidden_for_host:
-            self._hidden_for_host = False
+        elif not hide and self._hidden_for_win:
+            self._hidden_for_win = False
             self.show()
 
     def _on_geom(self, dump):
@@ -648,7 +661,7 @@ class Pet(QWidget):
             return                       # coalesce identical pushes (cheap anti-spam)
         self._last_dump = dump
         self._wins = windows.parse_kwin_dump(dump)
-        self._update_host_visibility()
+        self._update_host_wid()
         if self._contain is not None:
             prev = self._contain
             cur = next((w for w in self._wins if w.wid == prev.wid), None)

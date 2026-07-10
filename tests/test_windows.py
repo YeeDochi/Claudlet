@@ -91,3 +91,24 @@ def test_not_covered_by_partial_overlap():
     host = windows.Win("h", 100, 100, 400, 300, "konsole", 1)
     partial = windows.Win("p", 300, 100, 400, 300, "code", 2)      # overlaps, not full
     assert windows.covered_by_higher(host, [host, partial]) is False
+
+
+def test_window_under_feet_returns_perch():
+    w = windows.Win("w", 100, 200, 400, 300, "browser", 1)
+    # feet resting on the window's top edge (y=200) -> that's the perch
+    assert windows.window_under_feet(150, 200, [w]).wid == "w"
+
+
+def test_window_under_feet_none_on_desktop():
+    w = windows.Win("w", 100, 200, 400, 300, "browser", 1)
+    # feet well below the window top and outside it -> bare desktop
+    assert windows.window_under_feet(150, 900, [w]) is None
+    # feet above the window top (not resting on it) -> not perched on it
+    assert windows.window_under_feet(150, 50, [w]) is None
+
+
+def test_window_under_feet_picks_highest_top():
+    lo = windows.Win("lo", 0, 400, 800, 300, "a", 1)
+    hi = windows.Win("hi", 0, 250, 800, 300, "b", 2)
+    # both span cx; feet at 250 -> the higher top (250) is the perch
+    assert windows.window_under_feet(100, 250, [lo, hi]).wid == "hi"

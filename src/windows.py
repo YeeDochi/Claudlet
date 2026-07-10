@@ -61,6 +61,19 @@ def find_host(wins, ancestor_pids):
     return None
 
 
+def window_under_feet(cx, feet_y, wins, tol=6):
+    """The window a creature at column cx with feet at feet_y is resting ON — its
+    top edge at or just below the feet (within tol). Highest such top wins. None
+    when the feet are on the bare desktop (mirrors support_surface_under, but
+    returns the Win so callers know WHICH window the pet is perched on)."""
+    best = None
+    for w in wins:
+        if w.x <= cx <= w.x + w.w and abs(w.y - feet_y) <= tol:
+            if best is None or w.y < best.y:
+                best = w
+    return best
+
+
 def covered_by_higher(target, wins):
     """True if some window stacked ABOVE `target` fully covers its rect. `wins`
     is bottom->top stacking order (as the feed delivers it). Only full coverage
