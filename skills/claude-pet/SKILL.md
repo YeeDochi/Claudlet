@@ -1,6 +1,6 @@
 ---
 name: claude-pet
-description: Launch/attach the claude-pet desktop buddy. "/claude-pet" attaches a pet to the CURRENT Claude Code session so it reacts to this session's activity; "/claude-pet standalone" launches an unattached roaming pet. Use when the user types "/claude-pet", "펫 띄워", "펫 붙여", "start the pet".
+description: Launch/attach the claude-pet desktop buddy, or trigger a motion on it. "/claude-pet" attaches a pet to the CURRENT session; "/claude-pet standalone" launches an unattached roaming pet; "/claude-pet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claude-pet list" lists motions; "/claude-pet stop" clears a held motion. Use when the user types "/claude-pet", "펫 띄워", "펫 붙여", "펫 점프", "start the pet".
 ---
 
 # claude-pet — launch the desktop buddy
@@ -8,6 +8,27 @@ description: Launch/attach the claude-pet desktop buddy. "/claude-pet" attaches 
 A frameless roaming pixel creature. By default this **attaches** a pet to the
 **current session** (so it reacts to this session's Claude Code activity). Pass
 `standalone` for an unattached one.
+
+## Routing
+
+Look at the argument the user passed after `/claude-pet`:
+
+- a **motion name** (`jump`, `wave`, `sing`, `juggle`, `float`, `celebrate`,
+  `thinking`, `sleeping`, `error`, `attention`), or `list`, or `stop`/`clear`
+  → run the motion helper (below); do NOT launch a pet.
+- `standalone` → the standalone section.
+- nothing → the attach section.
+
+### Trigger a motion
+
+```bash
+~/claude-pet/bin/claude-pet-motion <arg>
+```
+e.g. `~/claude-pet/bin/claude-pet-motion jump`, `~/claude-pet/bin/claude-pet-motion float`
+(holds until `~/claude-pet/bin/claude-pet-motion stop`), `~/claude-pet/bin/claude-pet-motion list`.
+The helper broadcasts to every running pet and prints how many reacted; if it
+says `-> 0 pet(s)`, no pet is running — offer to attach one with `/claude-pet`.
+```
 
 ## Default: attach to THIS session
 
