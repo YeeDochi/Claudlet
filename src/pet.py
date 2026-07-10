@@ -231,6 +231,7 @@ class Pet(QWidget):
 
         # user-triggered motion override wins over roam/idle, but never over
         # drag/throw physics (held/thrown paint their own thing).
+        motion_active = False
         if self._motion and self.mode not in ("held", "thrown"):
             if self._motion_expiry is not None and now >= self._motion_expiry:
                 self._motion = None
@@ -239,11 +240,13 @@ class Pet(QWidget):
                 if self._motion == "float":
                     self.y = float(self.screen_rect.top() + self.h)  # hover high
                 self._render_state = self._motion
-                return
+                motion_active = True
 
         roaming = eff in ("idle", "sleeping") and self.mode == "roam" and not self.dnd
 
-        if self.mode == "held":
+        if motion_active:
+            pass                            # override painted; skip roam/physics this tick
+        elif self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()

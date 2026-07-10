@@ -88,6 +88,7 @@ def test_motion_command_does_not_cancel_quit_timer():
         assert p._quit_timer is not None
         p._handle_event({"cmd": "motion", "motion": "wave", "dur": 1.0})
         assert p._quit_timer is not None      # a motion cmd is NOT a Claude event
+        assert p._motion == "wave"
     finally:
         p._cleanup()
 
@@ -99,5 +100,6 @@ def test_motion_clear_releases_override():
         assert p._motion == "float"
         p._handle_event({"cmd": "motion", "motion": None, "dur": 0})
         assert p._motion is None
+        assert p.mode == "thrown"
     finally:
         p._cleanup()
