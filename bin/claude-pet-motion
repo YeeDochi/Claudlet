@@ -49,20 +49,31 @@ def port_files():
 
 
 def send(msg):
-    """Broadcast msg to every live pet; return how many accepted it."""
+    """Broadcast msg to every live pet; return how many accepted it.
+
+    A pet that died without cleanup (crash, force-kill) leaves its .port
+    file behind; a refused/failed connect is the signal that's stale, so
+    remove it here rather than letting these accumulate forever."""
     n = 0
     for path in port_files():
         try:
             with open(path) as f:
                 port = int(f.read().strip())
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.3)
+        except (OSError, ValueError):
+            continue
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.3)
+        try:
             s.connect((LOOPBACK, port))
             s.sendall(msg.encode("utf-8"))
             s.close()
             n += 1
-        except (OSError, ValueError):
-            pass
+        except OSError:
+            s.close()
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
     return n
 
 

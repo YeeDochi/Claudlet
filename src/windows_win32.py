@@ -42,6 +42,64 @@ class _PROCESSENTRY32(ctypes.Structure):
     ]
 
 
+# Without argtypes/restype, ctypes assumes every call returns a 32-bit c_int
+# and marshals HWND/HANDLE args as plain ints — Microsoft documents that both
+# stay within the 32-bit range even on 64-bit Windows, so this has been
+# harmless in practice, but declaring the real types is what makes that
+# reliable rather than incidental (and gives ctypes correct argument
+# marshalling instead of guessing from the Python value passed in).
+if user32 is not None:
+    user32.EnumWindows.argtypes = [_WNDENUMPROC, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.IsIconic.restype = wintypes.BOOL
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = wintypes.LONG
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetClassNameW.restype = ctypes.c_int
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.GetWindowRect.restype = wintypes.BOOL
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    user32.BringWindowToTop.restype = wintypes.BOOL
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.AttachThreadInput.restype = wintypes.BOOL
+
+if dwmapi is not None:
+    dwmapi.DwmGetWindowAttribute.argtypes = [
+        wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+    dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long   # HRESULT
+
+# CreateToolhelp32Snapshot returns a real kernel HANDLE, not a small window
+# id — give it its own correctly-sized invalid-handle sentinel rather than
+# reusing the `== -1` check that only happened to work by accident under the
+# untyped c_int default.
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+if kernel32 is not None:
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32)]
+    kernel32.Process32First.restype = wintypes.BOOL
+    kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32)]
+    kernel32.Process32Next.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.GetCurrentThreadId.argtypes = []
+    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
+
 def _is_cloaked(hwnd):
     """True if DWM is hiding this window despite IsWindowVisible() saying True.
     Modern Windows leaves UWP/shell surfaces (Settings, input UI, etc.) around
@@ -131,7 +189,7 @@ def _proc_snapshot():
     if kernel32 is None:
         return rows
     snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if not snap or snap == -1:
+    if not snap or snap == INVALID_HANDLE_VALUE:
         return rows
     try:
         entry = _PROCESSENTRY32()

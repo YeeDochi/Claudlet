@@ -1,4 +1,4 @@
-import sys, os, json, types
+import sys, os, json, types, socket
 
 MOD_PATH = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-motion")
 mod = types.ModuleType("claude_pet_motion")
@@ -37,3 +37,58 @@ def test_build_message_clear():
 def test_main_list_and_unknown(capsys):
     assert mod.main(["claude-pet-motion", "list"]) == 0
     assert mod.main(["claude-pet-motion", "bogus"]) == 1
+
+
+def _free_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def test_send_removes_stale_port_file(tmp_path, monkeypatch):
+    # a dead pet leaves its .port file behind; nothing listens on the port
+    # it names, so the connect is refused -> that's the "stale" signal.
+    stale = tmp_path / "claude-pet-dead.port"
+    stale.write_text(str(_free_port()))
+    monkeypatch.setattr(mod, "port_files", lambda: [str(stale)])
+
+    n = mod.send(mod.build_motion_message("jump", 1.0))
+
+    assert n == 0
+    assert not stale.exists()
+
+
+def test_send_keeps_live_port_file(tmp_path, monkeypatch):
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    try:
+        live = tmp_path / "claude-pet-live.port"
+        live.write_text(str(srv.getsockname()[1]))
+        monkeypatch.setattr(mod, "port_files", lambda: [str(live)])
+
+        n = mod.send(mod.build_motion_message("jump", 1.0))
+        conn, _ = srv.accept()
+        data = conn.recv(200)
+        conn.close()
+    finally:
+        srv.close()
+
+    assert n == 1
+    assert live.exists()
+    assert b"jump" in data
+
+
+def test_send_ignores_malformed_port_file(tmp_path, monkeypatch):
+    # malformed content, not a refused connection -> not the dead-pet signal
+    # this cleanup targets, so leave it alone rather than guessing.
+    bad = tmp_path / "claude-pet-bad.port"
+    bad.write_text("not-a-port")
+    monkeypatch.setattr(mod, "port_files", lambda: [str(bad)])
+
+    n = mod.send(mod.build_motion_message("jump", 1.0))
+
+    assert n == 0
+    assert bad.exists()
