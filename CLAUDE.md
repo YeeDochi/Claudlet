@@ -22,7 +22,7 @@ python3 src/creature.py                 # NOTE: output path is hardcoded near th
 pip install PyQt6                        # requires KDE Plasma/Wayland with XWayland; qdbus6 for click-to-focus
 ```
 
-There is no test suite, linter, or build step. Verify changes by running the pet or the `creature.py` sprite sheet.
+Tests live in `tests/` (pytest); run them with `python3 -m pytest -q`. Pure logic (state engine, hook payloads, physics, config, hostinfo, sprites) is unit-tested; the GUI/roaming behavior has no automated coverage, so also verify visually by running the pet or the `creature.py` sprite sheet. There is no linter or build step.
 
 ## Architecture
 

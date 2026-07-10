@@ -31,8 +31,10 @@
 - [x] `_activate_claude` 일회성 KWin 스크립트 — 고정 플러그인명 + unload + _cleanup 정리로 누적 제거.
 - [x] perching 마이너: 작은 창 삐져나옴 → 펫보다 작으면 가운데 정렬; windowList 스택순서 →
       `workspace.stackingOrder` 사용; 담긴 창이 다른 데스크톱 → geom 스크립트가 현재 데스크톱만 push.
-- [x] session-bound 마이너: SIGKILL orphan → `--claude-pid` 리퍼(부모 죽으면 종료, 라이브 검증);
+- [x] session-bound 마이너: SIGKILL orphan → `--claude-pid` 리퍼(부모 죽으면 종료);
       동시 SessionStart 이중실행 → 세션별 flock(중복 실행 즉시 종료, 라이브 검증).
+- [x] 리퍼 오판 수정: 훅이 넘기던 `os.getppid()`는 일회성 shell이라 세션 시작 ~3s 후 펫이
+      자멸 → `/proc` 부모 체인을 타고 진짜 `claude` PID를 잡아 넘김. (2026-07-10 `feat/reaper-pid-fix`)
 - [x] work_search 좌우 뛰기: 앵커 고정으로 로컬 양방향 (화면 가로지르기/한쪽 드리프트 제거).
 
 ## 📋 다음 계획 (미착수)
@@ -44,7 +46,7 @@
       도구·이벤트→모션 오버라이드. `petconfig.py` 로더(검증), `StateEngine` 인자 주입(순수 유지).
       README 문서화. (2026-07-10)
 - [ ] **오토 진행 중 전용 상태/애니** — auto/plan "혼자 쭉 작업".
-- [ ] **걷기 폴리시** — 걷기 사이클 자연스럽게.
+- [x] **걷기 폴리시** — 걷기 사이클 자연스럽게. (2026-07-10 머지 `feat/walk-policy`)
 - [ ] **새 상태 아트 튜닝** — work_search/web 등 prop 아이콘 작은 스케일에서 밋밋.
 - [ ] plan 승인/AskUserQuestion 등 "답 기다림" 세분화 (attention보다 잘게).
 - [x] 진짜 도트 스프라이트 / GIF override(`assets/<state>.gif|png`) — `sprites.py` 로더,
@@ -59,7 +61,7 @@
 - [ ] 비-KDE/X11 순정 폴백 동작 확인.
 
 ---
-_검증된 것_: 유닛테스트 53개 통과. session-bound 펫 2마리 독립 반응·SessionEnd 퇴장(라이브),
+_검증된 것_: 유닛테스트 97개 통과. session-bound 펫 2마리 독립 반응·SessionEnd 퇴장(라이브),
 perching(창 담기/착지/minimized 제외/sticky, 라이브), 물리(던지기·천장·전상태 중력, 라이브),
 말풍선·잡기/낙하 애니(라이브), `/claude-pet` attach, 트레이·하단바숨김, 훅 자동실행.
 _미검증_: Mac/Windows, 우클릭 펫메뉴 안정성.
