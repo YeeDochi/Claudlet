@@ -14,7 +14,13 @@ TOOL_STATES = {
     "Skill": "work_skill",
 }
 WORK_STATES = {"work_computer", "work_search", "work_web",
-               "work_agent", "work_skill"}
+               "work_agent", "work_skill", "autopilot"}
+
+# permission_mode values (present on every hook payload) that mean Claude is
+# grinding on its own without stopping to ask — the pet cruises on "autopilot"
+# instead of showing each individual tool. "plan" is deliberately excluded: it's
+# read-only planning, not autonomous execution.
+AUTO_MODES = {"auto", "bypassPermissions"}
 
 # the direct single-state events, keyed by short name -> default state. Users can
 # override any of these via config (see petconfig.py).
@@ -26,6 +32,7 @@ DEFAULT_EVENT_STATES = {
     "error": "error",           # StopFailure
     "permission": "attention",  # Notification / permission_prompt
     "idle_prompt": "sleeping",  # Notification / idle_prompt
+    "autopilot": "autopilot",   # PreToolUse while permission_mode is autonomous
 }
 
 # states a user is allowed to map a tool/event to (expressive display states;
@@ -34,13 +41,13 @@ DEFAULT_EVENT_STATES = {
 MAPPABLE_STATES = {
     "idle", "sleeping", "thinking", "attention", "error", "celebrate",
     "work_computer", "work_search", "work_web", "work_agent", "work_skill",
-    "jump", "wave", "sing", "juggle",
+    "autopilot", "jump", "wave", "sing", "juggle",
 }
 
 PRIORITY = {
     "attention": 6, "error": 5,
     "work_computer": 4, "work_search": 4, "work_web": 4,
-    "work_agent": 4, "work_skill": 4,
+    "work_agent": 4, "work_skill": 4, "autopilot": 4,
     "thinking": 3, "celebrate": 2, "idle": 1, "sleeping": 0,
 }
 
@@ -122,7 +129,10 @@ class StateEngine:
         elif name == "UserPromptSubmit":
             s.set_state(self._events["prompt"], now)
         elif name == "PreToolUse":
-            self._set_work(s, self._tool_state(ev.get("tool_name", "")), now)
+            if ev.get("permission_mode") in AUTO_MODES:
+                self._set_work(s, self._events["autopilot"], now)  # cruising solo
+            else:
+                self._set_work(s, self._tool_state(ev.get("tool_name", "")), now)
         elif name == "Notification":
             nt = ev.get("notification_type", "")
             if nt == "permission_prompt":

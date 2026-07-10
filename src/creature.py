@@ -19,7 +19,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QRectF
 
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
-          "work_agent", "work_skill", "thinking", "attention",
+          "work_agent", "work_skill", "autopilot", "thinking", "attention",
           "error", "celebrate", "sleeping", "held", "falling",
           "jump", "wave", "sing", "juggle", "float")
 
@@ -94,6 +94,15 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         bob = _sin(frame, 28, 0.5)
         eyes = "happy"
         prop = "hat"
+    elif state == "autopilot":
+        # cruising on its own (auto / bypass mode) — relaxed and confident:
+        # easy stroll, slight forward lean, cool shades, a gear ticking over
+        # to signal "running by itself".
+        bob = _sin(frame, 20, 0.5)
+        legphase = (frame / 16.0) % 1.0
+        tilt = 2.0
+        eyes = "shades"
+        prop = "gear"
     elif state == "thinking":
         bob = _sin(frame, 46, 0.35)
         tilt = _sin(frame, 92, 3.0)               # slow head cant, "hmm"
@@ -203,7 +212,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
     leg_cols = [4.0, 7.5, 11.5, 15.0]
     for i, lc in enumerate(leg_cols):
         lift = 0.0
-        if state == "walk":
+        if state in ("walk", "autopilot"):
             ph = (legphase + (0.5 if i % 2 else 0.0)) % 1.0
             lift = max(0.0, math.sin(ph * math.pi)) * 1.3
         if state == "work_computer" and i >= 2:  # front two legs tap
@@ -261,7 +270,13 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
             px(col, er, 1.7, 0.5, EYE); px(col + 0.6, er - 0.6, 0.5, 1.7, EYE)
         elif kind == "happy":
             px(col, er + 0.8, 0.6, 0.6, EYE); px(col + 0.55, er + 0.3, 0.6, 0.6, EYE); px(col + 1.1, er + 0.8, 0.6, 0.6, EYE)
-    eye(e1, eyes); eye(e2, eyes)
+    if eyes == "shades":
+        # cool wraparound visor across the face (autopilot "I got this")
+        px(4.6, er - 0.2, 10.8, 1.7, EYE)                    # dark lens band
+        px(4.6, er - 0.2, 10.8, 0.45, QColor("#6A6A78"))     # top glint
+        px(5.2, er + 0.2, 2.0, 0.5, QColor("#9AA0AA"))       # corner shine
+    else:
+        eye(e1, eyes); eye(e2, eyes)
 
     p.restore()
 
@@ -359,6 +374,23 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         rect(10.1, 0.1, 0.8, 0.8, BULB_L)                # pom
         if (frame % 30) < 15:
             rect(13.0, 1.4, 0.9, 0.9, BULB_L)            # sparkle
+    elif prop == "gear":
+        # a cog ticking over beside the head — teeth alternate N/S/E/W vs
+        # diagonal each tick so it reads as turning ("running by itself").
+        gx, gy = 18.3, 2.2
+        cog, hole = QColor("#B8BEC8"), QColor("#25252B")
+        rect(gx + 0.9, gy + 0.9, 1.7, 1.7, cog)          # hub
+        if (frame // 5) % 2 == 0:
+            rect(gx + 1.4, gy, 0.8, 0.9, cog)            # N
+            rect(gx + 1.4, gy + 2.6, 0.8, 0.9, cog)      # S
+            rect(gx, gy + 1.4, 0.9, 0.8, cog)            # W
+            rect(gx + 2.6, gy + 1.4, 0.9, 0.8, cog)      # E
+        else:
+            rect(gx + 0.4, gy + 0.4, 0.85, 0.85, cog)    # NW
+            rect(gx + 2.2, gy + 0.4, 0.85, 0.85, cog)    # NE
+            rect(gx + 0.4, gy + 2.2, 0.85, 0.85, cog)    # SW
+            rect(gx + 2.2, gy + 2.2, 0.85, 0.85, cog)    # SE
+        rect(gx + 1.45, gy + 1.45, 0.6, 0.6, hole)       # center hole
     elif prop == "note":
         # music notes bobbing up beside the head, cycling
         for k in range(2):
@@ -411,12 +443,13 @@ if __name__ == "__main__":
     labels = {"idle": "대기", "walk": "걷기", "work_computer": "코딩 중(노트북)",
               "work_search": "검색 중(돋보기)", "work_web": "웹/전화",
               "work_agent": "에이전트(분신)", "work_skill": "스킬(모자)",
+              "autopilot": "자동진행(순항)",
               "thinking": "생각 중(음...)", "attention": "봐줘!(입력대기)",
               "celebrate": "완료/신남", "error": "에러", "sleeping": "쿨쿨(수면)",
               "jump": "점프", "wave": "손 흔들기", "sing": "노래", "juggle": "저글링",
               "float": "둥실둥실"}
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
-             "work_agent", "work_skill", "thinking", "attention",
+             "work_agent", "work_skill", "autopilot", "thinking", "attention",
              "celebrate", "error", "sleeping",
              "jump", "wave", "sing", "juggle", "float"]
     # show two animation frames per state to convey motion

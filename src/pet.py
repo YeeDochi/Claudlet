@@ -50,7 +50,8 @@ STATE_LABELS = {
     "idle": "대기", "sleeping": "자는 중", "walk": "산책",
     "thinking": "고민 중", "work_computer": "작업 중", "work_search": "탐색 중",
     "work_web": "연락 중", "work_agent": "서브에이전트", "work_skill": "스킬 사용",
-    "attention": "입력 대기!", "celebrate": "완료!", "error": "에러",
+    "autopilot": "자동 진행", "attention": "입력 대기!", "celebrate": "완료!",
+    "error": "에러",
 }
 # representative animation frame to freeze for each state's tray icon
 _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}

@@ -31,7 +31,8 @@ def build_message(argv, data):
     """Build the JSON line to send to the pet. Pure; unit-tested."""
     event = (argv[1] if len(argv) > 1 else "") or data.get("hook_event_name", "")
     msg = {"event": event, "session": data.get("session_id") or "default"}
-    for key in ("tool_name", "notification_type", "error_type"):
+    for key in ("tool_name", "notification_type", "error_type",
+                "permission_mode"):
         val = data.get(key)
         if val:
             msg[key] = val
