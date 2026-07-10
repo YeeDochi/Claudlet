@@ -31,7 +31,7 @@ from PyQt6.QtDBus import QDBusConnection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import creature as C
-from state_engine import StateEngine
+from state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
 import focus
 import hostinfo
 import petconfig
@@ -50,7 +50,10 @@ STATE_LABELS = {
     "idle": "대기", "sleeping": "자는 중", "walk": "산책",
     "thinking": "고민 중", "work_computer": "작업 중", "work_search": "탐색 중",
     "work_web": "연락 중", "work_agent": "서브에이전트", "work_skill": "스킬 사용",
-    "attention": "입력 대기!", "asking": "답 기다림", "celebrate": "완료!",
+    "attention": "입력 대기!", "asking": "답 기다림",
+    "autopilot": "자동 진행", "auto_computer": "자동·코딩",
+    "auto_search": "자동·탐색", "auto_web": "자동·웹", "auto_agent": "자동·에이전트",
+    "auto_skill": "자동·스킬", "celebrate": "완료!",
     "error": "에러",
 }
 # representative animation frame to freeze for each state's tray icon
@@ -276,6 +279,7 @@ class Pet(QWidget):
         self.frame += 1
         now = time.monotonic()
         self.claude_state = self.engine.display_state(now)
+        self._auto = self.engine.auto_active()   # keep the visor on across states
         eff = self.claude_state
         self._update_tray_icon()
 
@@ -294,7 +298,10 @@ class Pet(QWidget):
         # (and wherever you drag it), but the pet keeps its normal animation.
         floating = self._floating and self.mode not in ("held", "thrown")
         following = self._follow and self.mode not in ("held", "thrown")
-        roaming = eff in ("idle", "sleeping") and self.mode == "roam" and not self.dnd
+        # in auto mode the "looking things up" states wander (visor on); coding/
+        # agent/skill stay put and focus. idle/waiting roam as before.
+        roaming = (eff in ("idle", "sleeping") or eff in AUTO_ROAM) \
+            and self.mode == "roam" and not self.dnd
 
         if self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
@@ -371,6 +378,7 @@ class Pet(QWidget):
                     self.x += max(-6, min(6, dx))     # fast step
                 else:
                     self._search_anchor = None        # re-anchor next search episode
+                self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
                 self.y = floor
                 self._render_state = eff
 
@@ -379,6 +387,9 @@ class Pet(QWidget):
 
     def _roam(self):
         left, right, top, floor = self._bounds()
+        # bounds can shift under us (a window we're in/on moved or resized): pull
+        # the pet back inside every tick so it never gets stranded through a wall.
+        self.x = min(max(self.x, left), right)
         # surface under us dropped away (window closed/moved, or we walked off a
         # ledge) -> fall to it instead of snapping/teleporting.
         if self.y < floor - 2:
@@ -418,8 +429,13 @@ class Pet(QWidget):
         else:
             self.facing = 1 if dx > 0 else -1
             self.x += speed * self.facing
-            self._render_state = "walk"
+            self._render_state = self._walk_render()
         self.y = floor
+
+    def _walk_render(self):
+        """Render state while walking a roam leg: an auto_* variant walks with its
+        visor + prop on; plain idle/waiting roaming shows the generic walk."""
+        return self.claude_state if self.claude_state in AUTO_ROAM else "walk"
 
     def _on_cursor(self, xy):
         try:
@@ -583,8 +599,19 @@ class Pet(QWidget):
         self._last_dump = dump
         self._wins = windows.parse_kwin_dump(dump)
         if self._contain is not None:
-            self._contain = next(
-                (w for w in self._wins if w.wid == self._contain.wid), None)
+            prev = self._contain
+            cur = next((w for w in self._wins if w.wid == prev.wid), None)
+            if cur is not None:
+                # the window we live in moved -> ride along with it so we don't get
+                # left behind outside its edges.
+                dx, dy = cur.x - prev.x, cur.y - prev.y
+                if dx or dy:
+                    self.x += dx
+                    self.y += dy
+                    if self.target_x is not None:
+                        self.target_x += dx
+                    self.move(int(self.x), int(self.y))
+            self._contain = cur
 
     def _bounds(self):
         """(left, right, top, floor) for the current context. On the desktop the
@@ -636,9 +663,13 @@ class Pet(QWidget):
         if frames:
             self._blit_sprite(p, frames[self.frame % len(frames)])
         else:
+            # in an auto mode the visor stays on: worn by the auto_* states,
+            # pushed up onto the head for every other state.
+            vis = "up" if getattr(self, "_auto", False) and \
+                state not in AUTO_STATES else None
             # facing handled inside draw_creature (body mirrors, text upright)
             C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
-                            facing=self.facing)
+                            facing=self.facing, visor=vis)
         p.end()
 
     def _blit_sprite(self, p, pm):

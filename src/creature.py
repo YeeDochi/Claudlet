@@ -18,10 +18,24 @@ import math
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QRectF
 
+# autonomous (auto/bypass mode) variants: the pet wears a visor and wanders while
+# it works, each work type keeping its own prop. `autopilot` is the generic cruise.
+AUTO_VARIANTS = ("auto_computer", "auto_search", "auto_web",
+                 "auto_agent", "auto_skill")
+# states that animate with a walking leg cycle: plain walk, the generic autopilot
+# stroll, and the auto variants that actually roam (web/search). coding/agent/skill
+# variants stay put, so their legs don't do a walk cycle.
+_WALKERS = ("walk", "autopilot", "auto_web", "auto_search")
+
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
-          "work_agent", "work_skill", "thinking", "attention", "asking",
+          "work_agent", "work_skill", "autopilot") + AUTO_VARIANTS + (
+          "thinking", "attention", "asking",
           "error", "celebrate", "sleeping", "held", "falling",
           "jump", "wave", "sing", "juggle", "float")
+
+# prop drawn beside each auto_* variant (auto_skill uses a visor glint instead)
+_AUTO_PROP = {"auto_computer": "window", "auto_search": "magnify",
+              "auto_web": "phone", "auto_agent": "clones_v"}
 
 # short spoken line per communicative state (typed out in a bubble)
 SPEECH = {
@@ -41,6 +55,11 @@ BULB_L   = QColor("#FFF0B8")
 WHITE    = QColor("#FFFFFF")
 BANG     = QColor("#D0402E")
 ZTXT     = QColor("#EFE7DF")
+# VR-headset visor (auto mode): silver housing + dark glossy screen
+VISOR      = QColor("#C2C8D2")   # silver housing
+VISOR_HI   = QColor("#E9EDF3")   # top highlight
+VISOR_D    = QColor("#8A90A0")   # bottom shade
+VISOR_GLASS = QColor("#1E2230")  # dark screen inset
 
 GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props/bounce)
 
@@ -49,8 +68,12 @@ def _sin(frame, period, amp, phase=0.0):
     return math.sin((frame / period + phase) * 2 * math.pi) * amp
 
 
-def draw_creature(p, ox, oy, u, state, frame, facing=1):
-    """Draw the creature. All coordinates are in art pixels * u."""
+def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None):
+    """Draw the creature. All coordinates are in art pixels * u.
+
+    visor="up" pushes a VR-headset up onto the head (auto mode while not actively
+    "looking"); the auto_* states draw the headset worn over the eyes themselves.
+    """
     p.setPen(p.pen())  # no-op keep
     from PyQt6.QtCore import Qt
     p.setPen(Qt.PenStyle.NoPen)
@@ -95,6 +118,23 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         bob = _sin(frame, 28, 0.5)
         eyes = "happy"
         prop = "hat"
+    elif state == "autopilot":
+        # cruising on its own (auto / bypass mode) — relaxed and confident:
+        # easy stroll, slight forward lean, cool shades, a gear ticking over
+        # to signal "running by itself".
+        bob = _sin(frame, 20, 0.5)
+        legphase = (frame / 16.0) % 1.0
+        tilt = 2.0
+        eyes = "shades"
+        prop = "gear"
+    elif state in AUTO_VARIANTS:
+        # visor on, wandering while it works: same relaxed stroll as autopilot,
+        # but each work type carries its own prop (auto_skill: a red visor glint).
+        bob = _sin(frame, 20, 0.5)
+        legphase = (frame / 16.0) % 1.0
+        tilt = 2.0
+        eyes = "shades_glint" if state == "auto_skill" else "shades"
+        prop = _AUTO_PROP.get(state)
     elif state == "thinking":
         bob = _sin(frame, 46, 0.35)
         tilt = _sin(frame, 92, 3.0)               # slow head cant, "hmm"
@@ -179,7 +219,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
     arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
            "held": "up", "falling": "up", "juggle": "up", "wave": "wave"}.get(state, "side")
-    arm_swing = _sin(frame, 12, 0.5) if state == "walk" else 0.0
+    arm_swing = (_sin(frame, 12, 0.5) if state == "walk" else
+                 _sin(frame, 16, 0.5) if state in _WALKERS else 0.0)
 
     # ---- geometry (art-pixel space), origin at ox,oy ----
     # body occupies cols 3..18, rows 5..12 ; legs rows 12..15 ; crown rows 3..5
@@ -212,7 +253,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
     leg_cols = [4.0, 7.5, 11.5, 15.0]
     for i, lc in enumerate(leg_cols):
         lift = 0.0
-        if state == "walk":
+        if state in _WALKERS:
             ph = (legphase + (0.5 if i % 2 else 0.0)) % 1.0
             lift = max(0.0, math.sin(ph * math.pi)) * 1.3
         if state == "work_computer" and i >= 2:  # front two legs tap
@@ -270,7 +311,29 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
             px(col, er, 1.7, 0.5, EYE); px(col + 0.6, er - 0.6, 0.5, 1.7, EYE)
         elif kind == "happy":
             px(col, er + 0.8, 0.6, 0.6, EYE); px(col + 0.55, er + 0.3, 0.6, 0.6, EYE); px(col + 1.1, er + 0.8, 0.6, 0.6, EYE)
-    eye(e1, eyes); eye(e2, eyes)
+    def headset(top, glint):
+        # the SAME VR headset, drawn with its housing top at row `top`. Worn over
+        # the eyes when down; the identical shape raised onto the head when up.
+        px(3.9, top, 13.2, 2.7, VISOR)                       # silver housing
+        px(3.5, top, 1.6, 3.1, VISOR)                        # left wrap (down)
+        px(15.9, top, 1.6, 3.1, VISOR)                       # right wrap (down)
+        px(3.9, top, 13.2, 0.5, VISOR_HI)                    # top highlight rim
+        px(3.9, top + 2.1, 13.2, 0.6, VISOR_D)               # bottom shade
+        px(5.0, top + 0.5, 11.0, 1.5, VISOR_GLASS)           # dark screen inset
+        swp = frame % 96                                     # travelling reflection
+        if swp < 12:
+            px(5.4 + swp * 0.9, top + 0.55, 0.9, 1.4, QColor("#9FD3FF"))
+        else:
+            px(9.6, top + 0.75, 1.7, 0.45, QColor("#3A4256"))
+        if glint and (frame % 24) < 12:
+            px(12.8, top + 0.85, 1.1, 0.8, QColor("#FF3B3B"))  # red status LED
+
+    if eyes in ("shades", "shades_glint"):
+        headset(er - 0.5, glint=(eyes == "shades_glint"))   # worn over the eyes
+    else:
+        eye(e1, eyes); eye(e2, eyes)
+        if visor == "up":
+            headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
 
     p.restore()
 
@@ -381,6 +444,42 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1):
         rect(10.1, 0.1, 0.8, 0.8, BULB_L)                # pom
         if (frame % 30) < 15:
             rect(13.0, 1.4, 0.9, 0.9, BULB_L)            # sparkle
+    elif prop == "gear":
+        # a cog ticking over beside the head — teeth alternate N/S/E/W vs
+        # diagonal each tick so it reads as turning ("running by itself").
+        gx, gy = 18.3, 2.2
+        cog, hole = QColor("#B8BEC8"), QColor("#25252B")
+        rect(gx + 0.9, gy + 0.9, 1.7, 1.7, cog)          # hub
+        if (frame // 5) % 2 == 0:
+            rect(gx + 1.4, gy, 0.8, 0.9, cog)            # N
+            rect(gx + 1.4, gy + 2.6, 0.8, 0.9, cog)      # S
+            rect(gx, gy + 1.4, 0.9, 0.8, cog)            # W
+            rect(gx + 2.6, gy + 1.4, 0.9, 0.8, cog)      # E
+        else:
+            rect(gx + 0.4, gy + 0.4, 0.85, 0.85, cog)    # NW
+            rect(gx + 2.2, gy + 0.4, 0.85, 0.85, cog)    # NE
+            rect(gx + 0.4, gy + 2.2, 0.85, 0.85, cog)    # SW
+            rect(gx + 2.2, gy + 2.2, 0.85, 0.85, cog)    # SE
+        rect(gx + 1.45, gy + 1.45, 0.6, 0.6, hole)       # center hole
+    elif prop == "window":
+        # a little blue code window floating beside the visor (auto_computer)
+        wx, wy = 16.8, 1.2
+        rect(wx, wy, 5.4, 4.4, QColor("#2A3550"))        # window body
+        rect(wx, wy, 5.4, 1.0, QColor("#3E5488"))        # title bar
+        rect(wx + 0.4, wy + 0.35, 0.4, 0.4, QColor("#E06C6C"))  # close dot
+        rect(wx + 1.1, wy + 0.35, 0.4, 0.4, QColor("#E0B24C"))  # min dot
+        rect(wx + 0.5, wy + 1.5, 3.4, 0.5, QColor("#6FC3E0"))   # code line
+        rect(wx + 0.5, wy + 2.4, 2.4, 0.5, QColor("#8FD0EA"))   # code line
+        if (frame % 30) < 18:
+            rect(wx + 0.5, wy + 3.3, 1.6, 0.5, QColor("#6FC3E0"))  # typing line
+    elif prop == "clones_v":
+        # mini creatures like `clones`, but each wears a tiny visor too
+        for k in range(2):
+            mb = _sin(frame, 18, 0.6, phase=k * 0.5)
+            bx = 18.5 + k * 2.2
+            rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
+            rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
+            rect(bx + 0.2, 10.15 + mb, 1.4, 0.5, EYE)    # tiny visor band
     elif prop == "note":
         # music notes bobbing up beside the head, cycling
         for k in range(2):
@@ -433,13 +532,19 @@ if __name__ == "__main__":
     labels = {"idle": "대기", "walk": "걷기", "work_computer": "코딩 중(노트북)",
               "work_search": "검색 중(돋보기)", "work_web": "웹/전화",
               "work_agent": "에이전트(분신)", "work_skill": "스킬(모자)",
+              "autopilot": "자동진행(순항)",
+              "auto_computer": "auto·코딩(파란창)", "auto_search": "auto·검색",
+              "auto_web": "auto·웹", "auto_agent": "auto·에이전트",
+              "auto_skill": "auto·스킬(붉은안광)",
               "thinking": "생각 중(음...)", "attention": "봐줘!(입력대기)",
               "asking": "답 기다림(질문/plan)",
               "celebrate": "완료/신남", "error": "에러", "sleeping": "쿨쿨(수면)",
               "jump": "점프", "wave": "손 흔들기", "sing": "노래", "juggle": "저글링",
               "float": "둥실둥실"}
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
-             "work_agent", "work_skill", "thinking", "attention", "asking",
+             "work_agent", "work_skill", "autopilot",
+             "auto_computer", "auto_search", "auto_web", "auto_agent", "auto_skill",
+             "thinking", "attention", "asking",
              "celebrate", "error", "sleeping",
              "jump", "wave", "sing", "juggle", "float"]
     # show two animation frames per state to convey motion

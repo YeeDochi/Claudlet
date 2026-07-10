@@ -13,8 +13,30 @@ TOOL_STATES = {
     "Task": "work_agent",
     "Skill": "work_skill",
 }
+# permission_mode values (present on every hook payload) that mean Claude is
+# grinding on its own without stopping to ask. "plan" is excluded: it's read-only
+# planning, not autonomous execution.
+AUTO_MODES = {"auto", "bypassPermissions"}
+
+# Under an auto mode the pet puts its visor on and wanders while it works: each
+# work type keeps its own flavour (prop/animation) but visor-clad. Maps the plain
+# work state -> its autonomous "auto_*" variant. Anything without a variant falls
+# back to the generic `autopilot` cruise.
+AUTO_VARIANT = {
+    "work_computer": "auto_computer",
+    "work_search": "auto_search",
+    "work_web": "auto_web",
+    "work_agent": "auto_agent",
+    "work_skill": "auto_skill",
+}
+AUTO_STATES = {"autopilot", *AUTO_VARIANT.values()}
+
+# of those, the ones that WANDER the screen while working — "looking things up"
+# reads as roaming; coding/agent/skill stay put and focus. (pet.py roam gating)
+AUTO_ROAM = {"auto_web", "auto_search"}
+
 WORK_STATES = {"work_computer", "work_search", "work_web",
-               "work_agent", "work_skill"}
+               "work_agent", "work_skill"} | AUTO_STATES
 
 # the direct single-state events, keyed by short name -> default state. Users can
 # override any of these via config (see petconfig.py).
@@ -27,6 +49,7 @@ DEFAULT_EVENT_STATES = {
     "permission": "attention",  # Notification / permission_prompt
     "idle_prompt": "sleeping",  # Notification / idle_prompt
     "asking": "asking",         # PreToolUse / AskUserQuestion or ExitPlanMode
+    "autopilot": "autopilot",   # PreToolUse while permission_mode is autonomous
 }
 
 # tools that mean "Claude is waiting on the user to answer" rather than working:
@@ -41,7 +64,7 @@ ASK_TOOLS = {"AskUserQuestion", "ExitPlanMode"}
 MAPPABLE_STATES = {
     "idle", "sleeping", "thinking", "attention", "asking", "error", "celebrate",
     "work_computer", "work_search", "work_web", "work_agent", "work_skill",
-    "jump", "wave", "sing", "juggle",
+    "autopilot", "jump", "wave", "sing", "juggle",
 }
 
 PRIORITY = {
@@ -50,6 +73,8 @@ PRIORITY = {
     "work_agent": 4, "work_skill": 4,
     "thinking": 3, "celebrate": 2, "idle": 1, "sleeping": 0,
 }
+for _st in AUTO_STATES:                 # auto variants show at work-level priority
+    PRIORITY[_st] = 4
 
 DEBOUNCE = 0.8
 SLEEP_TIMEOUT = 60.0
@@ -89,6 +114,7 @@ class StateEngine:
                  raw_events=None):
         self.sessions = {}
         self.is_focused = is_focused or (lambda: True)
+        self._last_pm = None        # last-seen permission_mode (drives auto_active)
         # merge user overrides over the defaults (see petconfig.load_config)
         self._tools = dict(TOOL_STATES)
         self._tools.update(tool_states or {})
@@ -116,8 +142,12 @@ class StateEngine:
     def handle(self, ev, now):
         name = ev.get("event") or ev.get("hook_event_name") or ""
         sid = str(ev.get("session") or ev.get("session_id") or "default")
+        if "permission_mode" in ev:          # every hook carries it; remember it
+            self._last_pm = ev.get("permission_mode")
         if name == "SessionEnd":
             self.sessions.pop(sid, None)
+            if not self.sessions:
+                self._last_pm = None          # nobody left -> drop auto mode
             return
         s = self.sessions.get(sid)
         if s is None:
@@ -131,9 +161,14 @@ class StateEngine:
         elif name == "PreToolUse":
             tool = ev.get("tool_name", "")
             if tool in ASK_TOOLS:
-                s.set_state(self._events["asking"], now)  # waiting on the user
+                s.set_state(self._events["asking"], now)   # waiting on the user
             else:
-                self._set_work(s, self._tool_state(tool), now)
+                st = self._tool_state(tool)
+                if ev.get("permission_mode") in AUTO_MODES:
+                    # visor on, wandering while it works: each work type keeps its
+                    # own flavour as an auto_* variant; else -> generic autopilot.
+                    st = AUTO_VARIANT.get(st, self._events["autopilot"])
+                self._set_work(s, st, now)
         elif name == "Notification":
             nt = ev.get("notification_type", "")
             if nt == "permission_prompt":
@@ -186,3 +221,8 @@ class StateEngine:
             return "sleeping"
         return max((s.state for s in self.sessions.values()),
                    key=lambda st: self._priority.get(st, 0))
+
+    def auto_active(self):
+        """True while the session is in an autonomous permission mode — the pet
+        keeps its visor on (worn while working, pushed up otherwise) throughout."""
+        return self._last_pm in AUTO_MODES

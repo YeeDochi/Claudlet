@@ -16,6 +16,13 @@ def test_pretooluse_forwards_tool_name():
     assert msg["tool_name"] == "Edit"
 
 
+def test_forwards_permission_mode():
+    msg = json.loads(mod.build_message(
+        ["claude-pet-hook", "PreToolUse"],
+        {"session_id": "s1", "tool_name": "Edit", "permission_mode": "auto"}))
+    assert msg["permission_mode"] == "auto"
+
+
 def test_notification_forwards_type():
     msg = json.loads(mod.build_message(
         ["claude-pet-hook", "Notification"],
