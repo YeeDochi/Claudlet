@@ -135,6 +135,7 @@ class Pet(QWidget):
         self.target_x = None
         self.walk_pause = 0.0
         self.vx = self.vy = 0.0
+        self._search_anchor = None           # x the work_search darts stay around
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -149,6 +150,7 @@ class Pet(QWidget):
         # Wayland the compositor is the only reliable source off-surface.
         self._cursor = None
         self._cursor_plugin = None       # KWin cursor-feed script, loaded on follow
+        self._activate_plugin = None     # one-shot click-to-focus KWin script
 
         # drag tracking
         self._press_global = None
@@ -343,14 +345,22 @@ class Pet(QWidget):
                 self.mode = "thrown"          # fall onto the surface, even mid-state
             else:
                 if eff == "work_search":
-                    # quick random horizontal darts while rummaging
+                    # quick random horizontal darts while rummaging, kept LOCAL:
+                    # pick targets around a fixed anchor (clamped to bounds) so it
+                    # darts both ways in place instead of random-walking off across
+                    # the screen / through window walls.
+                    if self._search_anchor is None:
+                        self._search_anchor = self.x
                     if self.target_x is None or abs(self.target_x - self.x) < 4:
-                        span = self.w * 3
-                        self.target_x = min(max(self.x + random.uniform(-span, span),
+                        span = self.w * 1.5
+                        self.target_x = min(max(self._search_anchor
+                                                + random.uniform(-span, span),
                                                 lft), rgt)
                     dx = self.target_x - self.x
                     self.facing = 1 if dx > 0 else -1
                     self.x += max(-6, min(6, dx))     # fast step
+                else:
+                    self._search_anchor = None        # re-anchor next search episode
                 self.y = floor
                 self._render_state = eff
 
@@ -439,12 +449,30 @@ class Pet(QWidget):
         svc = self._dbus_name
         js = (
             'var SVC="' + svc + '";'
+            # only windows on the CURRENT virtual desktop count (a perched pet is
+            # sticky/all-desktops, so a window that leaves the desktop must drop
+            # out of the feed -> pet falls to the desktop floor instead of
+            # hovering where the vanished window was).
+            'function _onDesk(c){'
+            '  if(c.onAllDesktops)return true;'
+            '  try{'
+            '    if(c.desktops&&c.desktops.length!==undefined){var cur=workspace.currentDesktop;'
+            '      for(var k=0;k<c.desktops.length;k++){if(c.desktops[k]===cur)return true;}'
+            '      return false;}'
+            '    if(typeof c.desktop==="number")'
+            '      return c.desktop<0||c.desktop===workspace.currentDesktop;'
+            '  }catch(e){}'
+            '  return true;}'                             # unknown API -> don't filter
             'function _dump(){'
-            '  var ws=(typeof workspace.windowList==="function")'
-            '    ?workspace.windowList():workspace.clientList();'
+            # stackingOrder is bottom->top, so windows.window_at's "last match
+            # wins" correctly picks the TOPMOST window under the pet.
+            '  var ws=(typeof workspace.stackingOrder!=="undefined"&&workspace.stackingOrder)'
+            '    ?workspace.stackingOrder'
+            '    :((typeof workspace.windowList==="function")'
+            '      ?workspace.windowList():workspace.clientList());'
             '  var o=[];'
             '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
-            '    if(g&&!c.minimized&&!c.hidden)'          # only currently-visible windows
+            '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c))'   # visible, on this desktop
             '      o.push(c.internalId+";"+(c.resourceClass||"")+";"'
             '      +g.x+","+g.y+","+g.width+","+g.height);}'
             '  callDBus(SVC,"/","","push",o.join("|"));'
@@ -544,10 +572,16 @@ class Pet(QWidget):
         When contained, bounds are the window's interior."""
         if self._contain is not None:
             c = self._contain
-            left = c.x
-            right = max(left, c.x + c.w - self.w)
-            top = c.y
-            floor = max(top, c.y + c.h - self.h)
+            if c.w < self.w:                 # window narrower than the pet:
+                left = right = c.x + (c.w - self.w) / 2.0   # centre it, don't jut right
+            else:
+                left = c.x
+                right = c.x + c.w - self.w
+            if c.h < self.h:                 # window shorter than the pet: centre
+                top = floor = c.y + (c.h - self.h) / 2.0
+            else:
+                top = c.y
+                floor = c.y + c.h - self.h
             return left, right, top, floor
         scr = self.screen_rect
         left = scr.left()
@@ -800,21 +834,26 @@ class Pet(QWidget):
 
     # ---------- KWin scripting helper (KDE Wayland) ----------
     def _run_kwin_script(self, js):
-        """Load, run and unload a one-shot KWin script. Best-effort; never raises."""
+        """Load and run a one-shot KWin script under a STABLE plugin name, so the
+        next call (and _cleanup) unloads the previous one instead of leaving a
+        stopped-but-registered script behind on every click-to-focus. Best-effort;
+        never raises."""
+        plugin = "claudepet_act_" + re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
         try:
+            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                            "org.kde.kwin.Scripting.unloadScript", plugin],
+                           timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
             with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
                 f.write(js)
                 path = f.name
-            sid = subprocess.check_output(
+            subprocess.check_output(
                 ["qdbus6", "org.kde.KWin", "/Scripting",
-                 "org.kde.kwin.Scripting.loadScript", path],
-                text=True, timeout=3).strip()
+                 "org.kde.kwin.Scripting.loadScript", path, plugin],
+                text=True, timeout=3)
             subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
                             "org.kde.kwin.Scripting.start"], timeout=3)
-            subprocess.run(["qdbus6", "org.kde.KWin", f"/Scripting/Script{sid}",
-                            "org.kde.kwin.Script.stop"], timeout=3,
-                           stderr=subprocess.DEVNULL)
             os.unlink(path)
+            self._activate_plugin = plugin
         except Exception:
             pass
 
@@ -874,6 +913,15 @@ class Pet(QWidget):
 
     def _cleanup(self):
         self._stop_cursor_feed()
+        for plugin in (getattr(self, "_activate_plugin", None),):
+            if plugin:
+                try:
+                    subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
+                                    "org.kde.kwin.Scripting.unloadScript", plugin],
+                                   timeout=3, stderr=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL)
+                except Exception:
+                    pass
         if getattr(self, "_geom_plugin", None):
             try:
                 subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
@@ -891,16 +939,30 @@ class Pet(QWidget):
 def main():
     import argparse
     import signal
+    import fcntl
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")
+    ap.add_argument("--claude-pid", type=int, default=0)
     args, _ = ap.parse_known_args()
+
+    # One pet per session: hold an exclusive lock. If another pet already holds
+    # it (e.g. two SessionStart hooks racing), exit BEFORE touching the shared
+    # socket — otherwise the second pet would unlink the first's socket.
+    lock_fd = os.open(hostinfo.session_sock(args.session) + ".lock",
+                      os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(lock_fd)
+        return                                # another pet for this session lives
 
     app = QApplication(sys.argv[:1])          # keep our flags away from Qt
     app.setApplicationName("claude-pet")
     app.setDesktopFileName("claude-pet")
     app.setQuitOnLastWindowClosed(False)
     pet = Pet(session_id=args.session, host=args.host)
+    pet._lock_fd = lock_fd                    # keep the fd (and the lock) alive
     # always tear down the KWin geom script — including on `kill`/SIGTERM, which
     # otherwise skips _cleanup and leaks a script that keeps pushing geometry.
     app.aboutToQuit.connect(pet._cleanup)
@@ -910,6 +972,20 @@ def main():
     _sig_timer = QTimer()
     _sig_timer.timeout.connect(lambda: None)
     _sig_timer.start(300)
+    # orphan reaper: if the Claude process that spawned us dies without sending
+    # SessionEnd (e.g. SIGKILL), wind down instead of lingering forever.
+    _reaper = None
+    if args.claude_pid > 0:
+        def _check_parent():
+            try:
+                os.kill(args.claude_pid, 0)
+            except ProcessLookupError:
+                app.quit()
+            except OSError:
+                pass                          # EPERM etc. -> assume still alive
+        _reaper = QTimer()
+        _reaper.timeout.connect(_check_parent)
+        _reaper.start(3000)
     pet.show()
     sys.exit(app.exec())
 

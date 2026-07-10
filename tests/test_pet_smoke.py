@@ -166,6 +166,39 @@ def test_follow_toggle_and_tick_glides_toward_cursor():
         p._cleanup()
 
 
+def test_small_window_centres_pet_instead_of_jutting():
+    import windows as W
+    p = P.Pet(session_id="sm")
+    try:
+        # window narrower AND shorter than the pet -> centre, don't clamp to a corner
+        p._contain = W.Win("0x1", 500, 500, 20, 20, "X")
+        left, right, top, floor = p._bounds()
+        assert left == right                 # no horizontal travel room
+        assert top == floor
+        assert left < 500 and top < 500      # centred (negative offset), not stuck at c.x
+    finally:
+        p._cleanup()
+
+
+def test_work_search_anchors_locally_and_clears():
+    p = P.Pet(session_id="ws")
+    try:
+        p.mode = "roam"
+        p._handle_event({"event": "PreToolUse", "session": "ws", "tool_name": "Grep"})
+        p._tick()
+        assert p.claude_state == "work_search"
+        assert p._search_anchor is not None          # anchored on entering search
+        # leaving search clears the anchor so the next episode re-anchors
+        p._handle_event({"event": "UserPromptSubmit", "session": "ws"})
+        p._handle_event({"cmd": "motion", "motion": None})   # ensure not floating
+        for _ in range(3):
+            p._tick()
+        if p.claude_state != "work_search":
+            assert p._search_anchor is None
+    finally:
+        p._cleanup()
+
+
 def test_cursor_feed_parsed_and_used():
     p = P.Pet(session_id="m12")
     try:

@@ -27,13 +27,13 @@
 - 좌우반전 시 몸만 반전(텍스트/말풍선 정상). 트레이 아이콘(상태 반영) + 작업표시줄 숨김.
 
 ## 🐞 남은 버그 / 다듬기
-- [ ] **우클릭 메뉴 동작 불안정** — 여전히 미검증. (트레이 우클릭 메뉴는 대안으로 있음)
-- [ ] `_activate_claude` 일회성 KWin 스크립트 — 로드/stop만, unload 안 함(누적 경미). geom 피드는
-      고정 이름 unload로 해결됨.
-- [ ] perching 리뷰 이월 마이너: 작은 창에 펫이 살짝 삐져나옴, windowList 스택순서 비보장,
-      담긴 창이 다른 데스크톱일 때 처리.
-- [ ] session-bound 이월 마이너: SIGKILL(강제종료) 시 orphan 가능(리퍼 없음), 동시 SessionStart
-      TOCTOU 이중실행(이론상).
+- [x] **우클릭 메뉴 동작** — 새 모션/float 메뉴 라이브 검증됨 (2026-07-10).
+- [x] `_activate_claude` 일회성 KWin 스크립트 — 고정 플러그인명 + unload + _cleanup 정리로 누적 제거.
+- [x] perching 마이너: 작은 창 삐져나옴 → 펫보다 작으면 가운데 정렬; windowList 스택순서 →
+      `workspace.stackingOrder` 사용; 담긴 창이 다른 데스크톱 → geom 스크립트가 현재 데스크톱만 push.
+- [x] session-bound 마이너: SIGKILL orphan → `--claude-pid` 리퍼(부모 죽으면 종료, 라이브 검증);
+      동시 SessionStart 이중실행 → 세션별 flock(중복 실행 즉시 종료, 라이브 검증).
+- [x] work_search 좌우 뛰기: 앵커 고정으로 로컬 양방향 (화면 가로지르기/한쪽 드리프트 제거).
 
 ## 📋 다음 계획 (미착수)
 - [x] **멀티모니터** — 배회/바닥 계산 전체 모니터 기준 (3모니터). (2026-07-10 완료, `b08c46e`)
