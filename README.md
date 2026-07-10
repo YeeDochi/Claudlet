@@ -11,7 +11,7 @@ Best on **KDE Plasma**, but the creature itself runs anywhere PyQt6 does. It's
 drawn entirely in code — no image assets — so the whole thing is self-contained
 and original (CC0 artwork).
 
-![states](docs/superpowers/specs/creature_sheet.png)
+![states](docs/creature_sheet.png)
 
 ## States
 

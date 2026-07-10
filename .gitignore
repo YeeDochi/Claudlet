@@ -11,5 +11,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# 개발 도구 로컬 상태
+# 개발 도구 로컬 상태 (공개 repo에서 제외, 로컬엔 유지)
 .superpowers/
+docs/superpowers/
+CLAUDE.md
+FEATURES_FOR_REVIEW.md

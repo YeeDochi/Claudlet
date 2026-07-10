@@ -9,7 +9,7 @@
 **KDE Plasma**에서 가장 잘 동작하지만, 크리처 자체는 PyQt6가 도는 곳이면 어디서든 실행돼요.
 아트는 전부 코드로 그려서(이미지 에셋 없음) 자체 완결적이고 오리지널이에요 (아트 CC0).
 
-![states](docs/superpowers/specs/creature_sheet.png)
+![states](docs/creature_sheet.png)
 
 ## 상태
 
