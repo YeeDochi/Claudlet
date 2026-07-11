@@ -632,9 +632,11 @@ if __name__ == "__main__":
     labels = LABELS[sheet_lang]
     TITLE = {"ko": "claudlet — 오리지널 크리처 · 전부 코드 렌더 · CC0",
              "en": "claudlet — original creature · all code-rendered · CC0"}
+    # NOTE: work_agent / auto_agent are omitted — subagents are now shown by the
+    # follower companion, not a main-creature state, so they'd never appear here.
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
-             "work_agent", "work_skill", "autopilot",
-             "auto_computer", "auto_search", "auto_web", "auto_agent", "auto_skill",
+             "work_skill", "autopilot",
+             "auto_computer", "auto_search", "auto_web", "auto_skill",
              "thinking", "attention", "asking",
              "celebrate", "error", "sleeping",
              "jump", "wave", "sing", "juggle", "float"]
