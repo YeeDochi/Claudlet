@@ -10,7 +10,11 @@ TOOL_STATES = {
     "NotebookEdit": "work_computer", "Bash": "work_computer",
     "Read": "work_search", "Grep": "work_search", "Glob": "work_search",
     "WebFetch": "work_web", "WebSearch": "work_web",
-    "Task": "work_agent",
+    # the subagent-dispatch tool reports tool_name "Agent" on current Claude Code
+    # (verified live: PreToolUse fires with tool_name="Agent", NOT "Task"; the
+    # subagent's own tools stay in its session so nothing overwrites this for the
+    # run). "Task" kept as an alias for older/other builds.
+    "Agent": "work_agent", "Task": "work_agent",
     "Skill": "work_skill",
 }
 # permission_mode values (present on every hook payload) that mean Claude is

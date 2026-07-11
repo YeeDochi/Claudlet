@@ -52,6 +52,9 @@ def test_tool_to_state_known_and_fallback():
     assert tool_to_state("Read") == "work_search"
     assert tool_to_state("Grep") == "work_search"
     assert tool_to_state("WebFetch") == "work_web"
+    # the subagent-dispatch tool reports tool_name "Agent" (verified on real
+    # Claude Code); "Task" kept too for older/other builds. Both -> work_agent.
+    assert tool_to_state("Agent") == "work_agent"
     assert tool_to_state("Task") == "work_agent"
     assert tool_to_state("Skill") == "work_skill"
     assert tool_to_state("mcp__gitlab__get_project") == "work_web"
@@ -62,6 +65,16 @@ def test_pretooluse_sets_work_state():
     e = StateEngine()
     e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Edit"}, now=0.0)
     assert e.display_state(now=0.0) == "work_computer"
+
+
+def test_agent_tool_shows_work_agent_and_persists():
+    # dispatching a subagent fires PreToolUse(tool_name="Agent"); the subagent's
+    # own tools are isolated (no parent hooks), so work_agent must show and
+    # persist for the run rather than falling back to work_computer.
+    e = StateEngine()
+    e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Agent"}, now=0.0)
+    assert e.display_state(now=0.0) == "work_agent"
+    assert e.display_state(now=30.0) == "work_agent"      # still there mid-run
 
 
 def test_no_sessions_is_sleeping():
