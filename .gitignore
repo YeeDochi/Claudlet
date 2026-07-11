@@ -16,6 +16,7 @@ __pycache__/
 docs/superpowers/
 CLAUDE.md
 FEATURES_FOR_REVIEW.md
+REVIEW-*.md
 TODO.md
 
 # Python build artifacts
