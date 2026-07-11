@@ -43,9 +43,12 @@ pipx install claudlet
 claudlet-install      # 훅 + /claudlet 스킬 등록 (idempotent)
 ```
 
-업데이트는 `pipx upgrade claudlet && claudlet-install`, 또는 Claude Code 안에서
-`/claudlet update`. 아직 릴리즈 안 된 최신 버전을 쓰려면 repo를 직접 가리켜요:
-`pipx install "git+https://github.com/YeeDochi/Claudlet@master"`.
+버전 확인은 `claudlet-version` (설치본 vs 최신 릴리즈). **릴리즈** 최신으로는
+`pipx upgrade claudlet && claudlet-install`, **master** 최신으로는
+`pipx install --force "git+https://github.com/YeeDochi/Claudlet@master" && claudlet-install`.
+어느 쪽이든 끝나면 Claude Code 세션을 다시 시작해야(`claude --continue`) 새 훅+펫
+코드가 로드돼요. 아니면 Claude Code 안에서 `/claudlet update`(릴리즈) /
+`/claudlet update latest`(master) 하고 안내 따라가면 됩니다.
 
 제거는 `claudlet-uninstall` (펫 종료 + 훅·스킬 해제; `--purge`면 설정도 삭제) 후
 `pipx uninstall claudlet`.
@@ -88,6 +91,7 @@ irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | pyth
 | `claudlet-install` | Claude Code에 훅 + `/claudlet` 스킬 등록 — 설치 후 한 번 실행. |
 | `claudlet-uninstall` | 펫 종료 + 훅·스킬 해제 + 정리 (`--purge`면 설정도 삭제). |
 | `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). |
+| `claudlet-version` | 설치된 버전 vs PyPI 최신 릴리즈 표시. |
 | `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
 | `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
 | `claudlet-install-hooks` | `claudlet-install`의 훅 부분만 (`--remove`로 취소). |
@@ -103,7 +107,7 @@ irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | pyth
 - `/claudlet standalone` — 세션에 안 붙은 장식용 펫
 - `/claudlet <모션>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (그리고 `list`, `stop`)
 - `/claudlet config` — 설정 보기, 또는 자연어로 요청("Bash 돌 때 점프하게")하면 Claude가 대신 편집
-- `/claudlet update` — 최신 버전 받아서 재등록
+- `/claudlet update` — 최신 릴리즈로 업데이트 (`update latest`면 master 최신); 버전 보여주고 단계 안내
 
 ## 문서
 

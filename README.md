@@ -41,9 +41,12 @@ pipx install claudlet
 claudlet-install      # registers the hooks + /claudlet skill (idempotent)
 ```
 
-Update later with `pipx upgrade claudlet && claudlet-install`, or from inside
-Claude Code with `/claudlet update`. To install an unreleased revision, point
-pipx at the repo instead: `pipx install "git+https://github.com/YeeDochi/Claudlet@master"`.
+Check your version with `claudlet-version` (installed vs latest release). Update
+to the newest **release** with `pipx upgrade claudlet && claudlet-install`, or to
+the tip of **master** with `pipx install --force "git+https://github.com/YeeDochi/Claudlet@master" && claudlet-install`.
+Either way, restart your Claude Code session afterward (`claude --continue`) so the
+new hooks + pet code load. Or just run `/claudlet update` (release) /
+`/claudlet update latest` (master) from inside Claude Code and follow the prompts.
 
 Remove it with `claudlet-uninstall` (stops pets, unregisters the hooks + skill;
 add `--purge` to also delete your config), then `pipx uninstall claudlet`.
@@ -89,6 +92,7 @@ or minimized.
 | `claudlet-install` | Register the hooks + `/claudlet` skill in Claude Code — run once after installing. |
 | `claudlet-uninstall` | Stop pets, unregister the hooks + skill, clean up (`--purge` also deletes your config). |
 | `claudlet-config` | Show / scaffold / open the user config (`--path`, `init`, `open`). |
+| `claudlet-version` | Show the installed version vs the latest PyPI release. |
 | `claudlet-attach` | Attach a pet to the current Claude Code session. |
 | `claudlet-motion <name>` | Play a motion on running pets (`jump`, `wave`, … ; `stop`, `list`). |
 | `claudlet-install-hooks` | Just the hooks half of `claudlet-install` (`--remove` to undo). |
@@ -104,7 +108,7 @@ drive the pet straight from a prompt:
 - `/claudlet standalone` — an unattached, decorative pet
 - `/claudlet <motion>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (plus `list`, `stop`)
 - `/claudlet config` — show the config, or just ask in plain language ("jump when I run Bash") and Claude edits it for you
-- `/claudlet update` — pull the latest version and re-register
+- `/claudlet update` — update to the latest release (`update latest` for the tip of master); shows your version and walks you through it
 
 ## Docs
 

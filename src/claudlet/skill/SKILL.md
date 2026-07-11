@@ -12,7 +12,7 @@ A frameless roaming pixel creature. By default this **attaches** a pet to the
 ## How to run a claudlet command
 
 claudlet ships console commands (`claudlet-attach`, `claudlet-motion`,
-`claudlet-config`, `claudlet-install`). Define this helper once, then use it in the sections
+`claudlet-config`, `claudlet-version`, `claudlet-install`). Define this helper once, then use it in the sections
 below — it prefers the installed command (pipx/pip put it on PATH) and falls
 back to a source checkout's `bin/` shim:
 ```bash
@@ -33,7 +33,8 @@ Look at the argument the user passed after `/claudlet`:
   → **Trigger a motion**; do NOT launch a pet.
 - `config` (or `설정`; optionally `config open` / `config init`) → **Configure**;
   do NOT launch a pet.
-- `update` (or `업데이트`) → **Update**.
+- `update` (or `업데이트`) → **Update** (release channel). `update latest`
+  (or `edge` / `master`) → **Update** to the latest branch.
 - `standalone` → **Standalone**.
 - nothing → **Attach** (default).
 
@@ -122,20 +123,43 @@ Schema (all keys optional; unknown keys / invalid values are dropped):
 
 ## Update
 
-Bring claudlet up to date, then re-register the hooks/skill:
-```bash
-if [ -d "$HOME/claudlet/.git" ]; then            # source checkout
-  git -C "$HOME/claudlet" pull --ff-only && cpet install
-elif command -v pipx >/dev/null 2>&1; then          # pipx install
-  pipx upgrade claudlet && cpet install
-else
-  echo "update with the same command you installed with (see the README)"
-fi
-```
-If `git pull` fails with local changes / divergence, report it (don't force).
-New code only takes effect on a **fresh** pet + session: close any running pet
-(right-click → 종료) and restart this Claude Code session (or run `/claudlet`
-again) so the reinstalled hooks and new pet code load.
+Two channels: **release** (`/claudlet update`, the latest PyPI release — stable)
+and **latest** (`/claudlet update latest`, the tip of `master` — newest, may be
+rough). Default to release unless the user asked for `latest`/`edge`/`master`.
+
+**Do NOT run the update yourself.** It changes the user's environment and must be
+followed by a session restart, so hand it to the user to run — and updating is
+also the one thing that shouldn't happen silently mid-session. Steps:
+
+1. **Show current vs latest** (this you may run — it's read-only):
+   ```bash
+   cpet version
+   ```
+2. **Detect install method** to pick the command: a source checkout has
+   `$HOME/claudlet/.git`; otherwise it's a pipx/pip install.
+3. **Give the user a `!`-prefixed command to run themselves** (so it runs in
+   their own shell with output visible), matching method + channel:
+
+   | | release | latest (`master`) |
+   |---|---|---|
+   | **pipx** | `! pipx install --force claudlet && claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@master" && claudlet-install` |
+   | **source checkout** | `! git -C ~/claudlet pull --ff-only && claudlet-install` | (same — a checkout already tracks its branch) |
+
+   (Use `pipx install --force` for both pipx rows, NOT `pipx upgrade`: `upgrade`
+   re-fetches from whatever source the user first installed from, so a user on
+   the git/`@master` install would get master again even when they pick
+   *release*. `install --force claudlet` always pulls the PyPI release, so the
+   two channels switch cleanly in both directions. The *latest* channel needs
+   `git` on PATH; *release* does not — if git is missing, steer them to release.)
+
+   (Tell them to type the line **including the leading `!`** — that runs it in
+   this Claude Code session's shell.)
+4. **Then reload**: the new hooks + pet code only take effect fresh. Tell them to
+   close any running pet (right-click → 종료), **exit this session, and re-enter
+   with `claude --continue`** (or start a new session). Until then the pet keeps
+   running the old code and the current session keeps the old hooks.
+
+If `git pull` fails (local changes / divergence), report it — don't force.
 
 ## Notes
 - Multiple pets are fine — each is independent. Stop one via right-click → 종료.
