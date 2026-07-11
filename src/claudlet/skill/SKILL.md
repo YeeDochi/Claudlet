@@ -159,6 +159,9 @@ also the one thing that shouldn't happen silently mid-session. Steps:
    close any running pet (right-click → 종료), **exit this session, and re-enter
    with `claude --continue`** (or start a new session). Until then the pet keeps
    running the old code and the current session keeps the old hooks.
+5. **What changed**: point them at the release notes so they see what's new —
+   <https://github.com/YeeDochi/Claudlet/releases/latest> (`claudlet-install`
+   also prints this link, labelled in their language, when it finishes).
 
 If `git pull` fails (local changes / divergence), report it — don't force.
 

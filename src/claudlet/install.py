@@ -25,6 +25,9 @@ SKILL_SRC = os.path.join(HERE, "skill")          # packaged skill data
 # renders README.md there); KO points at the Korean README explicitly.
 README_EN = "https://github.com/YeeDochi/Claudlet"
 README_KO = "https://github.com/YeeDochi/Claudlet/blob/master/README.ko.md"
+# Release notes / changelog — one bilingual page, so the same URL regardless of
+# locale; only the label follows the user's language.
+RELEASES = "https://github.com/YeeDochi/Claudlet/releases/latest"
 
 _COLOR = (sys.stdout.isatty() and os.name != "nt"
           and os.environ.get("NO_COLOR") is None)
@@ -149,28 +152,37 @@ def _already_installed(install_hooks):
     return False
 
 
-def _readme_line(url, label):
-    return "  %s %s  %s" % (_c("1;36", "\U0001F4D6"), label, _c("4", url))
+def _link_line(emoji, label, url):
+    return "  %s %s  %s" % (_c("1;36", emoji), label, _c("4", url))
+
+
+def _resolved_lang():
+    """User's effective language ("ko"/"en"). Reads config, falling back to the
+    OS locale via resolve_lang; "en" if anything goes wrong (never fails setup)."""
+    try:
+        from claudlet import petconfig
+        return petconfig.resolve_lang(petconfig.load_config().get("lang", "auto"))
+    except Exception:
+        return "en"
 
 
 def _print_readme(was_installed):
-    """Fresh install -> both README links (language unknown yet). Update -> the
-    one matching the user's resolved language (Korean locale -> KO, else EN),
-    since by now they have a config/locale we can read."""
+    """Guide + changelog links. Fresh install shows BOTH README languages (we
+    don't know the user's language yet); an update shows just the one matching
+    their resolved language. The changelog link is one bilingual page, so it's
+    always a single line with a locale-matched label."""
+    lang = _resolved_lang()
     if not was_installed:
-        print(_readme_line(README_EN, "Guide: "))
-        print(_readme_line(README_KO, "가이드:"))
-        return
-    try:
-        from claudlet import petconfig
-        cfg = petconfig.load_config()
-        lang = petconfig.resolve_lang(cfg.get("lang", "auto"))
-    except Exception:
-        lang = "en"                           # never fail setup over a link
-    if lang == "ko":
-        print(_readme_line(README_KO, "가이드:"))
+        print(_link_line("\U0001F4D6", "Guide: ", README_EN))
+        print(_link_line("\U0001F4D6", "가이드:", README_KO))
+    elif lang == "ko":
+        print(_link_line("\U0001F4D6", "가이드:", README_KO))
     else:
-        print(_readme_line(README_EN, "Guide:"))
+        print(_link_line("\U0001F4D6", "Guide:", README_EN))
+    if lang == "ko":
+        print(_link_line("\U0001F195", "변경 이력:", RELEASES))
+    else:
+        print(_link_line("\U0001F195", "What's new:", RELEASES))
 
 
 def main(argv=None):
