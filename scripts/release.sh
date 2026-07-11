@@ -16,13 +16,14 @@ VERSION_FILE="$ROOT/src/claudlet/__init__.py"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-usage() { echo "usage: scripts/release.sh <patch|minor|major|X.Y.Z> [--dry-run] [--yes]"; exit 2; }
+usage() { echo "usage: scripts/release.sh <patch|minor|major|X.Y.Z> [--dry-run] [--yes] [--notes=FILE]"; exit 2; }
 
-DRY_RUN=0; ASSUME_YES=0; BUMP=""
+DRY_RUN=0; ASSUME_YES=0; BUMP=""; NOTES_FILE=""
 for a in "$@"; do
   case "$a" in
     --dry-run)            DRY_RUN=1 ;;
     --yes|-y)             ASSUME_YES=1 ;;
+    --notes=*)            NOTES_FILE="${a#--notes=}" ;;
     patch|minor|major)    BUMP="$a" ;;
     [0-9]*.[0-9]*.[0-9]*) BUMP="$a" ;;
     *) echo "unknown arg: $a" >&2; usage ;;
@@ -76,6 +77,24 @@ fi
 say "running tests..."
 if ! python3 -m pytest -q; then die "tests failed — aborting release"; fi
 
+# ---- release notes: a hand-written bilingual file if given, else the auto
+# English draft from the commit log (so notes are never empty). This becomes
+# the annotated tag's message; publish.yml turns it into the GitHub Release. ----
+PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+if [ -n "$NOTES_FILE" ]; then
+  [ -f "$NOTES_FILE" ] || die "--notes file not found: $NOTES_FILE"
+  NOTES_SRC="$NOTES_FILE"
+  say "release notes: $NOTES_FILE (hand-written)"
+else
+  NOTES_SRC="$(mktemp)"
+  python3 "$ROOT/scripts/release_notes.py" "${PREV_TAG:-}" HEAD > "$NOTES_SRC" \
+    || die "release_notes.py failed"
+  say "release notes: auto English draft (pass --notes=FILE for bilingual 한/영)"
+fi
+printf '\033[2m----- notes (%s..%s) -----\033[0m\n' "${PREV_TAG:-<start>}" "$TAG"
+cat "$NOTES_SRC"
+printf '\033[2m--------------------------\033[0m\n'
+
 if [ "$DRY_RUN" = 1 ]; then
   say "[dry-run] would: bump __version__=$NEW on develop, ff master -> develop, tag $TAG,"
   say "[dry-run]        push origin develop + master + $TAG (CI then publishes to PyPI)"
@@ -101,7 +120,7 @@ git commit -q -m "release $TAG"
 # fast-forward master to the release commit, tag it there
 git checkout -q master
 git merge --ff-only develop
-git tag -a "$TAG" -m "claudlet $TAG"
+git tag -a "$TAG" -F "$NOTES_SRC"
 
 say "pushing develop + master + $TAG..."
 git push origin develop

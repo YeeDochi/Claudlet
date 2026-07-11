@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write            # required for Trusted Publishing (OIDC)
+      contents: write            # required to create the GitHub Release
     steps:
       - uses: actions/checkout@v4
 
@@ -35,3 +36,14 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      # Notes come from the annotated tag message, which scripts/release.sh fills
+      # (hand-written bilingual, or the auto English draft from the commit log).
+      - name: Create GitHub Release from the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "claudlet ${GITHUB_REF_NAME}" \
+            --notes-from-tag \
+            --verify-tag
