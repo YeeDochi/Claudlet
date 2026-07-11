@@ -34,14 +34,13 @@ try:
 except ImportError:                            # not built on some macOS/Windows Qt
     QDBusConnection = None
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import creature as C
-from state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
-import focus
-import hostinfo
-import petconfig
-import physics
-import windows
+from claude_pet import creature as C
+from claude_pet.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
+from claude_pet import focus
+from claude_pet import hostinfo
+from claude_pet import petconfig
+from claude_pet import physics
+from claude_pet import windows
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
@@ -560,7 +559,7 @@ class Pet(QWidget):
 
     def _setup_geom_feed_win32(self):
         try:
-            import windows_win32
+            from claude_pet import windows_win32
         except Exception:
             return
         self._win32_geom = windows_win32
@@ -585,7 +584,7 @@ class Pet(QWidget):
         see windows_macos.py's module docstring for the assumptions to verify
         (Screen Recording permission, coordinate space, z-order)."""
         try:
-            import windows_macos
+            from claude_pet import windows_macos
         except Exception:
             return
         if not windows_macos.available():       # not macOS, or pyobjc missing
@@ -782,13 +781,13 @@ class Pet(QWidget):
             return set()
         if os.name == "nt":
             try:
-                import windows_win32
+                from claude_pet import windows_win32
                 return windows_win32.proc_ancestors(cur, max_hops)
             except Exception:
                 return set()
         if sys.platform == "darwin":
             try:
-                import windows_macos
+                from claude_pet import windows_macos
                 return windows_macos.proc_ancestors(cur, max_hops)
             except Exception:
                 return set()
@@ -1356,7 +1355,7 @@ def _pid_alive(pid):
     reaper never kills the pet on a merely-undetectable parent."""
     if os.name == "nt":
         try:
-            import windows_win32
+            from claude_pet import windows_win32
             table = windows_win32.proc_table()
             return (not table) or (pid in table)
         except Exception:

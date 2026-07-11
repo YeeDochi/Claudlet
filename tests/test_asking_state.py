@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from state_engine import StateEngine
+from claude_pet.state_engine import StateEngine
 
 
 def test_ask_user_question_shows_asking():

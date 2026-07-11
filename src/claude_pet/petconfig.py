@@ -25,7 +25,7 @@ breaking the pet. Pure except for the single file read in load_config.
 import os
 import json
 
-from state_engine import MAPPABLE_STATES, DEFAULT_EVENT_STATES
+from claude_pet.state_engine import MAPPABLE_STATES, DEFAULT_EVENT_STATES
 
 
 def config_path():
@@ -61,7 +61,7 @@ def _windows_locale():
     the system's actual language. Delegates to windows_win32 (the one module
     that owns the guarded, typed ctypes handles) rather than re-opening windll."""
     try:
-        import windows_win32
+        from claude_pet import windows_win32
         return windows_win32.user_locale()
     except Exception:
         return ""

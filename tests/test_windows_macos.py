@@ -9,8 +9,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-import windows_macos
-import windows
+from claude_pet import windows_macos
+from claude_pet import windows
 
 
 def _info(layer=0, x=10, y=20, w=300, h=200, pid=555, owner="Terminal",

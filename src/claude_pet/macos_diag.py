@@ -21,9 +21,6 @@ Prints:
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(ROOT, "src"))
 
 
 def _quartz_windows():
@@ -69,8 +66,8 @@ def main():
     # 2. the filtered feed the pet actually consumes ---------------------
     print("\n--- 2. FILTERED feed (windows_macos.dump -> windows.parse_kwin_dump) ---")
     try:
-        import windows_macos
-        import windows
+        from claude_pet import windows_macos
+        from claude_pet import windows
         print("  windows_macos.available():", windows_macos.available())
         dump = windows_macos.dump(exclude_pid=os.getpid())
         print("  raw dump string:", repr(dump))

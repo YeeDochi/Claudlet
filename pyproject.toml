@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-pet"
+dynamic = ["version"]
+description = "A pixel desktop buddy that reacts to Claude Code in real time"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "CC0-1.0" }
+authors = [{ name = "YeeDochi" }]
+keywords = ["claude-code", "desktop-pet", "pyqt6", "hooks"]
+dependencies = [
+    "PyQt6",
+    "pyobjc-framework-Quartz; sys_platform == 'darwin'",
+]
+
+[project.urls]
+Homepage = "https://github.com/YeeDochi/claude-pet"
+
+[project.scripts]
+claude-pet = "claude_pet.pet:main"
+claude-pet-hook = "claude_pet.hook:_cli"
+claude-pet-motion = "claude_pet.motion:_cli"
+claude-pet-install = "claude_pet.install:main"
+claude-pet-install-hooks = "claude_pet.install_hooks:main"
+claude-pet-macos-diag = "claude_pet.macos_diag:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "claude_pet.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+claude_pet = ["skill/*"]

@@ -1,7 +1,7 @@
 import sys, os, json, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import petconfig
+from claude_pet import petconfig
 
 
 def _write(tmp, obj):

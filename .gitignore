@@ -17,3 +17,10 @@ docs/superpowers/
 CLAUDE.md
 FEATURES_FOR_REVIEW.md
 TODO.md
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc

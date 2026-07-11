@@ -3,8 +3,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QPoint
-import pet as P
-import hostinfo
+from claude_pet import pet as P
+from claude_pet import hostinfo
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -50,9 +50,10 @@ def test_pid_alive_posix_and_windows(monkeypatch):
     # Windows branch: liveness comes from a process snapshot, never os.kill
     # (which on Windows would Ctrl+C the target instead of probing it).
     monkeypatch.setattr(P.os, "name", "nt")
+    import claude_pet
     fake = types.ModuleType("windows_win32")
     fake.proc_table = lambda: {4321: ("claude.exe", 1)}
-    monkeypatch.setitem(sys.modules, "windows_win32", fake)
+    monkeypatch.setattr(claude_pet, "windows_win32", fake, raising=False)
     assert P._pid_alive(4321) is True
     assert P._pid_alive(9999) is False               # absent from snapshot -> dead
     fake.proc_table = lambda: {}                      # snapshot failed -> assume alive
@@ -141,7 +142,7 @@ def test_sessionend_quit_is_cancelled_by_later_event():
 
 
 def test_visibility_hides_with_ridden_window():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="hv")
     try:
         p._geom_active = True                      # pretend a geometry feed is active
@@ -166,7 +167,7 @@ def test_visibility_hides_with_ridden_window():
 
 
 def test_visibility_partial_cover_masks():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="hvp")
     try:
         p._geom_active = True
@@ -188,7 +189,7 @@ def test_visibility_partial_cover_masks():
 
 
 def test_visibility_perched_on_top_not_clipped_by_its_window():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="hvt")
     try:
         p._geom_active = True
@@ -210,7 +211,7 @@ def test_visibility_perched_on_top_not_clipped_by_its_window():
 
 
 def test_visibility_desktop_never_hides():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="hv2")
     try:
         p._geom_active = True
@@ -224,7 +225,7 @@ def test_visibility_desktop_never_hides():
 
 
 def test_visibility_off_without_feed():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="hv3")
     try:
         p._geom_active = False                     # no geometry feed
@@ -237,7 +238,7 @@ def test_visibility_off_without_feed():
 
 
 def test_bounds_desktop_vs_contained():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="pb")
     try:
         # desktop: with no polled windows, floor is the screen floor
@@ -359,7 +360,7 @@ def test_follow_toggle_and_tick_glides_toward_cursor():
 
 
 def test_small_window_centres_pet_instead_of_jutting():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="sm")
     try:
         # window narrower AND shorter than the pet -> centre, don't clamp to a corner
@@ -449,7 +450,7 @@ def test_floating_follow_tracks_x_and_y():
 
 
 def test_fling_inside_window_bounces_within_it():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="m8")
     try:
         p._wins = [W.Win("0x1", 0, 0, 4000, 2000, "X")]   # window under the pet
@@ -467,7 +468,7 @@ def test_fling_inside_window_bounces_within_it():
 
 
 def test_gentle_drop_on_window_perches():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="m9")
     try:
         p._wins = [W.Win("0x1", 0, 0, 4000, 2000, "X")]
@@ -485,7 +486,7 @@ def test_gentle_drop_on_window_perches():
 
 
 def test_drag_centre_out_of_window_leaves_it():
-    import windows as W
+    from claude_pet import windows as W
     p = P.Pet(session_id="m10")
     try:
         p._contain = W.Win("0x1", 0, 0, 100, 100, "X")   # was living in a window

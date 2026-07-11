@@ -1,6 +1,6 @@
 import sys, os, socket, threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-import hostinfo
+from claude_pet import hostinfo
 
 
 def test_detect_vscode_by_term_program():

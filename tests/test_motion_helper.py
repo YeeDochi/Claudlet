@@ -1,10 +1,5 @@
-import sys, os, json, types, socket
-
-MOD_PATH = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-motion")
-mod = types.ModuleType("claude_pet_motion")
-mod.__file__ = MOD_PATH
-with open(MOD_PATH, encoding="utf-8") as f:
-    exec(compile(f.read(), MOD_PATH, "exec"), mod.__dict__)
+import sys, os, json, socket
+from claude_pet import motion as mod
 
 
 def test_new_motions_present():

@@ -3,8 +3,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from PyQt6.QtWidgets import QApplication
-import creature as C
-import pet as P
+from claude_pet import creature as C
+from claude_pet import pet as P
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

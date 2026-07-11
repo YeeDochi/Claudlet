@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from PyQt6.QtGui import QImage, QPainter
 from PyQt6.QtWidgets import QApplication
-import creature as C
+from claude_pet import creature as C
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

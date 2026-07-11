@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""claude-pet-motion — trigger a motion on running claude-pet(s).
+
+Usage:
+  claude-pet-motion <name> [dur]   play a motion (dur seconds; 0 = hold)
+  claude-pet-motion stop|clear     clear any held motion
+  claude-pet-motion list           list motion names
+
+Broadcasts one JSON line to every pet found via $XDG_RUNTIME_DIR/claude-pet-*.port
+(each file holds the loopback TCP port of a running pet — not a unix socket
+path, since stock Windows Python builds lack AF_UNIX).
+Invariant: never block or raise; always exit 0 from the CLI entrypoint.
+"""
+import sys
+import os
+import json
+import glob
+import socket
+import tempfile
+
+# Share the transport definitions with the pet/hook (loopback address, runtime
+# dir, .port parse) instead of re-deriving them here — a second copy silently
+# drifts the moment the transport changes (which is exactly what the .sock->TCP
+# migration cost). Fall back to local constants only if src/ can't be imported.
+try:
+    from claude_pet import hostinfo
+except Exception:
+    hostinfo = None
+
+LOOPBACK = hostinfo.LOOPBACK if hostinfo else "127.0.0.1"
+
+# name -> default duration in seconds. 0.0 means "hold until cleared".
+MOTIONS = {
+    "jump": 2.5, "wave": 2.5, "sing": 3.0, "juggle": 3.0, "float": 0.0,
+    # existing states, exposed as triggerable (no new art):
+    "celebrate": 2.5, "thinking": 3.0, "sleeping": 4.0,
+    "error": 2.5, "attention": 3.0,
+}
+
+
+def resolve_dur(name, override=None):
+    if override is not None:
+        try:
+            return float(override)
+        except (TypeError, ValueError):
+            pass
+    return MOTIONS.get(name, 2.5)
+
+
+def build_motion_message(name, dur):
+    """One JSON line for the pet socket. name=None -> clear the override."""
+    return json.dumps({"cmd": "motion", "motion": name, "dur": dur}) + "\n"
+
+
+def _runtime_dir():
+    if hostinfo is not None:
+        return hostinfo.runtime_dir()
+    return os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+
+
+def port_files():
+    return glob.glob(os.path.join(_runtime_dir(), "claude-pet-*.port"))
+
+
+def _read_port(path):
+    if hostinfo is not None:
+        return hostinfo.read_port_file(path)
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def send(msg):
+    """Broadcast msg to every live pet; return how many accepted it.
+
+    Only a *refused* connect proves the pet is gone (nothing is listening on
+    that port) — that's when the leftover .port file is stale and we remove it.
+    A timeout or other error might just be a busy pet whose event loop is
+    momentarily blocked, so we must NOT delete the file then: doing so would
+    permanently sever a live pet, which only republishes its port at startup."""
+    n = 0
+    for path in port_files():
+        port = _read_port(path)
+        if port is None:
+            continue
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.3)
+        try:
+            s.connect((LOOPBACK, port))
+            s.sendall(msg.encode("utf-8"))
+            n += 1
+        except ConnectionRefusedError:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        except OSError:
+            pass                    # busy/foreign -> leave the file for later
+        finally:
+            s.close()
+    return n
+
+
+def main(argv):
+    arg = (argv[1] if len(argv) > 1 else "").strip().lower()
+    if arg in ("", "list"):
+        print("motions: " + ", ".join(MOTIONS))
+        return 0
+    if arg in ("stop", "clear"):
+        send(build_motion_message(None, 0))
+        print("motion cleared")
+        return 0
+    if arg not in MOTIONS:
+        print("unknown motion '%s'. try: %s" % (arg, ", ".join(MOTIONS)))
+        return 1
+    override = argv[2] if len(argv) > 2 else None
+    n = send(build_motion_message(arg, resolve_dur(arg, override)))
+    print("%s -> %d pet(s)" % (arg, n))
+    return 0
+
+
+def _cli():
+    """console-script entry point."""
+    try:
+        sys.exit(main(sys.argv))
+    except Exception:
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    _cli()

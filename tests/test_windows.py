@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-import windows
+from claude_pet import windows
 
 SAMPLE = ("{id1};plasmashell;0,0,1920,1200|"         # desktop -> filtered
           "{id2};org.kde.konsole;100.5,200.2,400,300|"  # kept (float coords)
