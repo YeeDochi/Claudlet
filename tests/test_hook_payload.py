@@ -1,10 +1,10 @@
 import sys, os, io, json
-from claude_pet import hook as mod
+from claudlet import hook as mod
 
 
 def test_pretooluse_forwards_tool_name():
     msg = json.loads(mod.build_message(
-        ["claude-pet-hook", "PreToolUse"],
+        ["claudlet-hook", "PreToolUse"],
         {"session_id": "s1", "tool_name": "Edit", "tool_input": {}}))
     assert msg["event"] == "PreToolUse"
     assert msg["session"] == "s1"
@@ -13,20 +13,20 @@ def test_pretooluse_forwards_tool_name():
 
 def test_forwards_permission_mode():
     msg = json.loads(mod.build_message(
-        ["claude-pet-hook", "PreToolUse"],
+        ["claudlet-hook", "PreToolUse"],
         {"session_id": "s1", "tool_name": "Edit", "permission_mode": "auto"}))
     assert msg["permission_mode"] == "auto"
 
 
 def test_notification_forwards_type():
     msg = json.loads(mod.build_message(
-        ["claude-pet-hook", "Notification"],
+        ["claudlet-hook", "Notification"],
         {"session_id": "s1", "notification_type": "permission_prompt"}))
     assert msg["notification_type"] == "permission_prompt"
 
 
 def test_missing_fields_omitted():
-    msg = json.loads(mod.build_message(["claude-pet-hook", "Stop"], {"session_id": "s1"}))
+    msg = json.loads(mod.build_message(["claudlet-hook", "Stop"], {"session_id": "s1"}))
     assert msg["event"] == "Stop"
     assert "tool_name" not in msg
 
@@ -34,7 +34,7 @@ def test_missing_fields_omitted():
 def test_sock_for_uses_session(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     assert mod.sock_for({"session_id": "xyz"}) is None       # no pet running yet
-    (tmp_path / "claude-pet-xyz.port").write_text("54321")
+    (tmp_path / "claudlet-xyz.port").write_text("54321")
     assert mod.sock_for({"session_id": "xyz"}) == 54321
     assert mod.sock_for({}) is None
 
@@ -45,7 +45,7 @@ def _run_main(monkeypatch, session_id, pet_alive_result, launch_calls, sent):
                          lambda *a, **k: launch_calls.append((a, k)))
     monkeypatch.setattr(mod, "_send",
                          lambda port, payload: sent.append((port, payload)))
-    monkeypatch.setattr(mod.sys, "argv", ["claude-pet-hook", "SessionStart"])
+    monkeypatch.setattr(mod.sys, "argv", ["claudlet-hook", "SessionStart"])
     monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
         {"session_id": session_id, "hook_event_name": "SessionStart"})))
     mod.main()
@@ -57,7 +57,7 @@ def test_session_start_still_sends_when_resumed_pet_times_out(tmp_path, monkeypa
     # must NOT have the triggering SessionStart event dropped: it might be
     # our own pet, alive, just briefly slow to answer the liveness ping.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    (tmp_path / "claude-pet-resumed.port").write_text("54321")
+    (tmp_path / "claudlet-resumed.port").write_text("54321")
     launch_calls, sent = [], []
     _run_main(monkeypatch, "resumed", False, launch_calls, sent)
     assert len(launch_calls) == 1          # still attempts a launch (harmless if live)
@@ -77,7 +77,7 @@ def test_session_start_skips_send_for_brand_new_session(tmp_path, monkeypatch):
 
 def test_session_start_sends_when_pet_confirmed_alive(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    (tmp_path / "claude-pet-live.port").write_text("54321")
+    (tmp_path / "claudlet-live.port").write_text("54321")
     launch_calls, sent = [], []
     _run_main(monkeypatch, "live", True, launch_calls, sent)
     assert launch_calls == []
@@ -107,13 +107,13 @@ def test_session_start_dead_pet_still_drops_this_event(tmp_path, monkeypatch):
     # mock) so a future refactor that changes this ordering doesn't silently
     # change behavior.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    port_path = tmp_path / "claude-pet-dead.port"
+    port_path = tmp_path / "claudlet-dead.port"
     port_path.write_text("54321")
     monkeypatch.setattr(mod.hostinfo.socket, "socket", lambda *a, **k: _RefusingSocket())
     launch_calls, sent = [], []
     monkeypatch.setattr(mod, "_launch_pet", lambda *a, **k: launch_calls.append((a, k)))
     monkeypatch.setattr(mod, "_send", lambda port, payload: sent.append((port, payload)))
-    monkeypatch.setattr(mod.sys, "argv", ["claude-pet-hook", "SessionStart"])
+    monkeypatch.setattr(mod.sys, "argv", ["claudlet-hook", "SessionStart"])
     monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
         {"session_id": "dead", "hook_event_name": "SessionStart"})))
     mod.main()

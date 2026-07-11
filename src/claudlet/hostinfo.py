@@ -1,6 +1,6 @@
 """Shared helpers: detect the Claude Code host app, and per-session socket paths.
 
-Pure and dependency-free so both `bin/claude-pet-hook` (runs inside the Claude
+Pure and dependency-free so both `bin/claudlet-hook` (runs inside the Claude
 Code session, sees its env) and `src/pet.py` can import it and agree.
 """
 import os
@@ -16,7 +16,7 @@ LOOPBACK = "127.0.0.1"
 # so every liveness check goes through this round-trip instead. Same on every
 # OS — the whole project speaks one loopback-TCP protocol.
 PING = b'{"cmd": "ping"}\n'
-BANNER_MARK = "claude-pet"
+BANNER_MARK = "claudlet"
 
 # host -> window-class / app-name substrings used to match/focus that host's
 # window. On Linux these match KWin resourceClass; on macOS the frontmost app
@@ -106,7 +106,7 @@ def runtime_dir():
 def session_port_file(session_id):
     """Path to the file holding the loopback TCP port for a session's pet."""
     sid = session_id or "default"
-    return os.path.join(runtime_dir(), "claude-pet-{}.port".format(sid))
+    return os.path.join(runtime_dir(), "claudlet-{}.port".format(sid))
 
 
 def read_port_file(path):
@@ -137,7 +137,7 @@ def write_session_port(session_id, port):
         _replace_retrying(tmp, path)
     except OSError:
         # replace never happened -> the temp file would otherwise linger
-        # forever (it doesn't match the claude-pet-*.port glob, so nothing
+        # forever (it doesn't match the claudlet-*.port glob, so nothing
         # else cleans it). Drop it before propagating.
         try:
             os.unlink(tmp)

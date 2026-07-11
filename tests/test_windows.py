@@ -1,10 +1,10 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from claude_pet import windows
+from claudlet import windows
 
 SAMPLE = ("{id1};plasmashell;0,0,1920,1200|"         # desktop -> filtered
           "{id2};org.kde.konsole;100.5,200.2,400,300|"  # kept (float coords)
-          "{id3};claude-pet;1356,1094,120,105|"        # pet -> filtered
+          "{id3};claudlet;1356,1094,120,105|"        # pet -> filtered
           "{id4};;0,0,32,32")                          # empty class -> filtered
 
 

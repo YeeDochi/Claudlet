@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from claude_pet.state_engine import tool_to_state, StateEngine
+from claudlet.state_engine import tool_to_state, StateEngine
 
 
 def test_tool_states_override():

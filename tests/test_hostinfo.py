@@ -1,6 +1,6 @@
 import sys, os, socket, threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from claude_pet import hostinfo
+from claudlet import hostinfo
 
 
 def test_detect_vscode_by_term_program():
@@ -64,8 +64,8 @@ def test_win_classes_unmapped_host_gets_no_fallback():
 
 def test_session_port_file_path(monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-    assert hostinfo.session_port_file("abc") == os.path.join("/run/user/1000", "claude-pet-abc.port")
-    assert hostinfo.session_port_file(None) == os.path.join("/run/user/1000", "claude-pet-default.port")
+    assert hostinfo.session_port_file("abc") == os.path.join("/run/user/1000", "claudlet-abc.port")
+    assert hostinfo.session_port_file(None) == os.path.join("/run/user/1000", "claudlet-default.port")
 
 def test_read_session_port_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
@@ -176,7 +176,7 @@ class _TimeoutSocket:
     """A socket that accepts the connect but times out answering -- a busy
     but LIVE pet. Must be treated differently from a refused connect: the
     port file is the only record of where that live pet is, so it must
-    survive (mirrors bin/claude-pet-motion's send()'s refused-vs-timeout
+    survive (mirrors bin/claudlet-motion's send()'s refused-vs-timeout
     distinction, tested in tests/test_motion_helper.py)."""
     def settimeout(self, t): pass
     def connect(self, addr): pass

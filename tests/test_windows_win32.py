@@ -2,7 +2,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from claude_pet import windows_win32
+from claudlet import windows_win32
 
 
 def test_proc_ancestors_empty_without_kernel32(monkeypatch):

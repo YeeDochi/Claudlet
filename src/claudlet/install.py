@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""claude-pet post-install setup: register the Claude Code hooks and link the
-/claude-pet skill into ~/.claude/skills/. Idempotent.
+"""claudlet post-install setup: register the Claude Code hooks and link the
+/claudlet skill into ~/.claude/skills/. Idempotent.
 
-With a pipx/pip install the `claude-pet*` commands and Python deps (PyQt6, plus
+With a pipx/pip install the `claudlet*` commands and Python deps (PyQt6, plus
 pyobjc-framework-Quartz on macOS) are already provided by the package, so this
-only wires claude-pet into Claude Code. Run after installing:
+only wires claudlet into Claude Code. Run after installing:
 
-    claude-pet-install            set up hooks + skill
-    claude-pet-install --remove   remove hooks + skill link (package stays)
+    claudlet-install            set up hooks + skill
+    claudlet-install --remove   remove hooks + skill link (package stays)
 """
 import os
 import sys
@@ -18,7 +18,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILLS_DIR = os.path.expanduser(os.path.join("~", ".claude", "skills"))
-SKILL_LINK = os.path.join(SKILLS_DIR, "claude-pet")
+SKILL_LINK = os.path.join(SKILLS_DIR, "claudlet")
 SKILL_SRC = os.path.join(HERE, "skill")          # packaged skill data
 
 _COLOR = (sys.stdout.isatty() and os.name != "nt"
@@ -129,31 +129,31 @@ def _check_deps():
 
 def main():
     remove = "--remove" in sys.argv[1:]
-    from claude_pet import install_hooks
+    from claudlet import install_hooks
 
     if remove:
-        head("uninstalling claude-pet")
+        head("uninstalling claudlet")
         install_hooks.main()          # reads --remove from sys.argv
         _unlink_skill()
         ok("hooks + skill link removed")
-        print("\nclaude-pet unhooked. (remove the package with your installer, "
-              "e.g. pipx uninstall claude-pet)")
+        print("\nclaudlet unhooked. (remove the package with your installer, "
+              "e.g. pipx uninstall claudlet)")
         return
 
-    head("setting up claude-pet")
+    head("setting up claudlet")
     ok("dependencies", _check_deps())
     install_hooks.main()
     ok("Claude Code hooks", "registered")
     skill, note = _link_skill()
     if skill:
-        ok("/claude-pet skill", skill)
+        ok("/claudlet skill", skill)
     if note:
         warn(note)
 
     head("done")
     print("Restart Claude Code sessions to pick up the hooks (new sessions")
-    print("auto-spawn a pet). Run one now with:  " + _c("1", "claude-pet"))
-    print("Update anytime from inside Claude Code with:  " + _c("1", "/claude-pet update"))
+    print("auto-spawn a pet). Run one now with:  " + _c("1", "claudlet"))
+    print("Update anytime from inside Claude Code with:  " + _c("1", "/claudlet update"))
 
 
 if __name__ == "__main__":

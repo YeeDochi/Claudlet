@@ -18,7 +18,7 @@ Win = namedtuple("Win", "wid x y w h title pid", defaults=(None,))
 # bottom-of-stack, and (Progman) titled "Program Manager", so they pass the
 # generic filters and would otherwise be treated as a perch/containment target
 # under the whole desktop (inverting "a pet on the wallpaper is always visible").
-EXCLUDE_CLASSES = {"plasmashell", "xwaylandvideobridge", "claude-pet", "",
+EXCLUDE_CLASSES = {"plasmashell", "xwaylandvideobridge", "claudlet", "",
                    "progman", "workerw"}
 
 

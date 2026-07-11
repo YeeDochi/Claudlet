@@ -1,6 +1,6 @@
 import os, types
-import claude_pet
-from claude_pet import hook as mod
+import claudlet
+from claudlet import hook as mod
 
 
 def tree(d):
@@ -49,7 +49,7 @@ def test_proc_info_windows_branch_walks_via_win32_table(monkeypatch):
     monkeypatch.setattr(mod, "_win32_proc_table", None)
     fake = types.ModuleType("windows_win32")
     fake.proc_table = lambda: {90: ("cmd.exe", 80), 80: ("claude.exe", 1)}
-    monkeypatch.setattr(claude_pet, "windows_win32", fake, raising=False)
+    monkeypatch.setattr(claudlet, "windows_win32", fake, raising=False)
     assert mod.resolve_claude_pid(90, mod._proc_info) == 80
 
 
@@ -62,7 +62,7 @@ def test_proc_info_windows_branch_caches_table_once(monkeypatch):
         calls.append(1)
         return {90: ("cmd.exe", 80), 80: ("claude.exe", 1)}
     fake.proc_table = _table
-    monkeypatch.setattr(claude_pet, "windows_win32", fake, raising=False)
+    monkeypatch.setattr(claudlet, "windows_win32", fake, raising=False)
     mod._proc_info(90)
     mod._proc_info(80)
     assert len(calls) == 1
@@ -71,5 +71,5 @@ def test_proc_info_windows_branch_caches_table_once(monkeypatch):
 def test_proc_info_windows_branch_missing_module_returns_none(monkeypatch):
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod, "_win32_proc_table", None)
-    monkeypatch.setattr(claude_pet, "windows_win32", None, raising=False)
+    monkeypatch.setattr(claudlet, "windows_win32", None, raising=False)
     assert mod._proc_info(90) is None

@@ -1,4 +1,4 @@
-"""claude-pet original creature renderer.
+"""claudlet original creature renderer.
 
 Pure-code pixel-art creature (no image assets), animated by state.
 Original artwork (CC0). Style: horizontal orange pixel loaf with 4 stubby legs,
@@ -577,8 +577,8 @@ if __name__ == "__main__":
                "float": "motion · float"},
     }
     labels = LABELS[sheet_lang]
-    TITLE = {"ko": "claude-pet — 오리지널 크리처 · 전부 코드 렌더 · CC0",
-             "en": "claude-pet — original creature · all code-rendered · CC0"}
+    TITLE = {"ko": "claudlet — 오리지널 크리처 · 전부 코드 렌더 · CC0",
+             "en": "claudlet — original creature · all code-rendered · CC0"}
     order = ["idle", "walk", "work_computer", "work_search", "work_web",
              "work_agent", "work_skill", "autopilot",
              "auto_computer", "auto_search", "auto_web", "auto_agent", "auto_skill",

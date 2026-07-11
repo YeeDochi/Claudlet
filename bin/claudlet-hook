@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Thin shim -> claude_pet.motion:main."""
+"""Thin shim -> claudlet.hook (never fails Claude; always exits 0)."""
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 try:
-    from claude_pet.motion import main
-    sys.exit(main(sys.argv))
+    from claudlet.hook import main
+    main()
 except Exception:
-    sys.exit(0)
+    pass
+sys.exit(0)

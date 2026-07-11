@@ -1,22 +1,22 @@
-"""claude-pet-attach — bring up a pet for a Claude Code session (or standalone).
+"""claudlet-attach — bring up a pet for a Claude Code session (or standalone).
 
-A console entry point so the /claude-pet skill can just run `claude-pet-attach`
+A console entry point so the /claudlet skill can just run `claudlet-attach`
 instead of shelling into `python3 -c "import hostinfo; ..."` — which breaks under
 a pipx install, where the package lives in an isolated venv the system python
 can't import. Detects the session id and host, skips if a pet is already
 attached (via the same liveness handshake the hook uses), and launches a
 detached pet bound to the session.
 
-    claude-pet-attach                 attach to this session (env/newest transcript)
-    claude-pet-attach --session <id>  attach to a specific session
-    claude-pet-attach --standalone    an unattached, decorative roaming pet
+    claudlet-attach                 attach to this session (env/newest transcript)
+    claudlet-attach --session <id>  attach to a specific session
+    claudlet-attach --standalone    an unattached, decorative roaming pet
 """
 import glob
 import os
 import subprocess
 import sys
 
-from claude_pet import hostinfo
+from claudlet import hostinfo
 
 
 def _newest_session_id():
@@ -30,17 +30,17 @@ def _newest_session_id():
 
 
 def _launch(extra_args):
-    """Launch a detached `python -m claude_pet` that outlives this call."""
+    """Launch a detached `python -m claudlet` that outlives this call."""
     kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
           "stderr": subprocess.DEVNULL}
     if os.name == "posix":
         kw["start_new_session"] = True            # own process group; survives us
-    # ensure the child interpreter can import claude_pet from a source checkout
+    # ensure the child interpreter can import claudlet from a source checkout
     # (pipx/pip installs already have it importable; the extra PYTHONPATH is harmless)
     env = dict(os.environ)
     src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
     env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
-    subprocess.Popen([sys.executable, "-m", "claude_pet"] + extra_args, env=env, **kw)
+    subprocess.Popen([sys.executable, "-m", "claudlet"] + extra_args, env=env, **kw)
 
 
 def _arg_value(argv, flag):

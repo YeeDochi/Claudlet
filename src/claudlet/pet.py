@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""claude-pet — a roaming desktop buddy that reacts to Claude Code.
+"""claudlet — a roaming desktop buddy that reacts to Claude Code.
 
 A frameless, translucent, always-on-top creature that wanders the desktop,
 can be dragged & thrown, and switches expression based on Claude Code hook
-events delivered over a loopback TCP socket by `claude-pet-hook`.
+events delivered over a loopback TCP socket by `claudlet-hook`.
 
 Runs on KDE Wayland via XWayland (forced xcb platform) so the window can
 position itself freely across the screen.
@@ -34,13 +34,13 @@ try:
 except ImportError:                            # not built on some macOS/Windows Qt
     QDBusConnection = None
 
-from claude_pet import creature as C
-from claude_pet.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
-from claude_pet import focus
-from claude_pet import hostinfo
-from claude_pet import petconfig
-from claude_pet import physics
-from claude_pet import windows
+from claudlet import creature as C
+from claudlet.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
+from claudlet import focus
+from claudlet import hostinfo
+from claudlet import petconfig
+from claudlet import physics
+from claudlet import windows
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
@@ -126,7 +126,7 @@ class Pet(QWidget):
         self.session_id = session_id
         self.host = host
         self.host_classes = hostinfo.host_classes(host)
-        self._wtitle = "claude-pet-" + str(session_id)
+        self._wtitle = "claudlet-" + str(session_id)
         self.setWindowTitle(self._wtitle)
         self.port_file = hostinfo.session_port_file(session_id)
 
@@ -559,7 +559,7 @@ class Pet(QWidget):
 
     def _setup_geom_feed_win32(self):
         try:
-            from claude_pet import windows_win32
+            from claudlet import windows_win32
         except Exception:
             return
         self._win32_geom = windows_win32
@@ -584,7 +584,7 @@ class Pet(QWidget):
         see windows_macos.py's module docstring for the assumptions to verify
         (Screen Recording permission, coordinate space, z-order)."""
         try:
-            from claude_pet import windows_macos
+            from claudlet import windows_macos
         except Exception:
             return
         if not windows_macos.available():       # not macOS, or pyobjc missing
@@ -615,13 +615,13 @@ class Pet(QWidget):
         self._debug_geom_log(dump)
 
     def _debug_geom_log(self, dump):
-        # Opt-in coordinate dump (CLAUDE_PET_DEBUG_GEOM=1) to diagnose perch/
+        # Opt-in coordinate dump (CLAUDLET_DEBUG_GEOM=1) to diagnose perch/
         # occlusion alignment on untested platforms: prints the parsed window
         # rects alongside the pet's feet and the screen geometry + devicePixelRatio
         # so a Retina/point-vs-pixel or y-offset mismatch is visible. Logs only
         # when the feed changes (anti-spam). Wrapped: debug output must never
         # break the pet.
-        if not os.environ.get("CLAUDE_PET_DEBUG_GEOM"):
+        if not os.environ.get("CLAUDLET_DEBUG_GEOM"):
             return
         if dump == getattr(self, "_dbg_last", None):
             return
@@ -631,13 +631,13 @@ class Pet(QWidget):
             g = scr.geometry()
             cal = getattr(self._windows_macos, "LAST_CAL", (1.0, 0.0, 0.0))
             sys.stderr.write(
-                "[claude-pet geom] dpr=%.2f cal_scale=%.3f cal_off=(%.1f,%.1f) "
+                "[claudlet geom] dpr=%.2f cal_scale=%.3f cal_off=(%.1f,%.1f) "
                 "screen=%d,%d,%dx%d pet=(%d,%d) feet_y=%d\n" % (
                     scr.devicePixelRatio(), cal[0], cal[1], cal[2],
                     g.x(), g.y(), g.width(), g.height(),
                     int(self.x), int(self.y), int(self.y) + FOOT_Y))
             for w in self._wins:
-                sys.stderr.write("[claude-pet geom]   win %s cls=%s  %d,%d %dx%d "
+                sys.stderr.write("[claudlet geom]   win %s cls=%s  %d,%d %dx%d "
                                  "top=%d pid=%s\n" % (
                                      w.wid, w.title, w.x, w.y, w.w, w.h, w.y, w.pid))
             sys.stderr.flush()
@@ -685,7 +685,7 @@ class Pet(QWidget):
             '  callDBus(SVC,"/","","push",o.join("|"));'
             '}'
             'function _hook(c){if(!c)return;'
-            '  if((""+(c.resourceClass||"")).toLowerCase().indexOf("claude-pet")>=0)'
+            '  if((""+(c.resourceClass||"")).toLowerCase().indexOf("claudlet")>=0)'
             '    return;'                                  # never react to our own window
             '  if(c.frameGeometryChanged)c.frameGeometryChanged.connect(_dump);'
             '  if(c.minimizedChanged)c.minimizedChanged.connect(_dump);}'  # refresh on (un)minimize
@@ -781,13 +781,13 @@ class Pet(QWidget):
             return set()
         if os.name == "nt":
             try:
-                from claude_pet import windows_win32
+                from claudlet import windows_win32
                 return windows_win32.proc_ancestors(cur, max_hops)
             except Exception:
                 return set()
         if sys.platform == "darwin":
             try:
-                from claude_pet import windows_macos
+                from claudlet import windows_macos
                 return windows_macos.proc_ancestors(cur, max_hops)
             except Exception:
                 return set()
@@ -1160,7 +1160,7 @@ class Pet(QWidget):
             return
         self._tray_state = st
         tray.setIcon(self._state_icon(st))
-        tray.setToolTip("claude-pet — " + self.labels.get(st, st))
+        tray.setToolTip("claudlet — " + self.labels.get(st, st))
 
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""
@@ -1289,7 +1289,7 @@ class Pet(QWidget):
         # EWMH via wmctrl is the reliable path on X11/XWayland. (KWin scripting
         # sets skipPager/skipSwitcher but NOT skipTaskbar — verified 2026-07-09.)
         # Match the window by its exact title so we don't hit other windows
-        # (e.g. an editor whose title merely contains "claude-pet").
+        # (e.g. an editor whose title merely contains "claudlet").
         if shutil.which("wmctrl"):
             try:
                 # sticky = show on every virtual desktop, so switching desktops
@@ -1309,7 +1309,7 @@ class Pet(QWidget):
             '  var c = cs[i];'
             '  var cap = (c.caption || "").toString().toLowerCase();'
             '  var rc = (c.resourceClass || "").toString().toLowerCase();'
-            '  if (cap.indexOf("claude-pet") >= 0 || rc.indexOf("claude-pet") >= 0) {'
+            '  if (cap.indexOf("claudlet") >= 0 || rc.indexOf("claudlet") >= 0) {'
             '    c.skipTaskbar = true; c.skipPager = true; c.skipSwitcher = true;'
             '    c.onAllDesktops = true;'
             '  }'
@@ -1355,7 +1355,7 @@ def _pid_alive(pid):
     reaper never kills the pet on a merely-undetectable parent."""
     if os.name == "nt":
         try:
-            from claude_pet import windows_win32
+            from claudlet import windows_win32
             table = windows_win32.proc_table()
             return (not table) or (pid in table)
         except Exception:
@@ -1402,8 +1402,8 @@ def main():
         return                                # another pet for this session lives
 
     app = QApplication(sys.argv[:1])          # keep our flags away from Qt
-    app.setApplicationName("claude-pet")
-    app.setDesktopFileName("claude-pet")
+    app.setApplicationName("claudlet")
+    app.setDesktopFileName("claudlet")
     app.setQuitOnLastWindowClosed(False)
     pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid)
     pet._lock_fd = lock_fd                    # keep the fd (and the lock) alive

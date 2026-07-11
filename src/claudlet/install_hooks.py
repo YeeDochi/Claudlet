@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Register (or remove) claude-pet hooks in ~/.claude/settings.json.
+"""Register (or remove) claudlet hooks in ~/.claude/settings.json.
 
 Usage:
-    claude-pet-install-hooks           # install
-    claude-pet-install-hooks --remove  # remove
+    claudlet-install-hooks           # install
+    claudlet-install-hooks --remove  # remove
 
 Backs up settings.json before writing. Idempotent.
 """
@@ -28,22 +28,22 @@ def _quote(path):
 
 def _hook_command():
     """Command string settings.json invokes per hook event. Prefer the installed
-    `claude-pet-hook` console script (pipx/pip); else the source checkout's
-    bin/claude-pet-hook shim (which puts src/ on sys.path); else `python -m
-    claude_pet.hook`. On Windows, extensionless scripts need the interpreter
+    `claudlet-hook` console script (pipx/pip); else the source checkout's
+    bin/claudlet-hook shim (which puts src/ on sys.path); else `python -m
+    claudlet.hook`. On Windows, extensionless scripts need the interpreter
     prefixed (cmd.exe ignores "#!"); a real console-script .exe from which()
     runs directly."""
-    exe = shutil.which("claude-pet-hook")
+    exe = shutil.which("claudlet-hook")
     if exe:
         return _quote(exe)
     repo_bin = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "bin", "claude-pet-hook")
+        "bin", "claudlet-hook")
     if os.path.exists(repo_bin):
         if os.name == "nt":
             return f"{_quote(sys.executable)} {_quote(repo_bin)}"
         return _quote(repo_bin)
-    return f"{_quote(sys.executable)} -m claude_pet.hook"
+    return f"{_quote(sys.executable)} -m claudlet.hook"
 
 
 HOOK_CMD = _hook_command()
@@ -72,7 +72,11 @@ def save(s):
 def is_ours(group):
     for h in group.get("hooks", []):
         cmd = h.get("command", "")
-        if "claude-pet-hook" in cmd or "claude_pet.hook" in cmd:
+        # match the current markers and the pre-rename ones ("claude-pet-hook"/
+        # "claude_pet.hook") so a migration run cleanly drops old entries instead
+        # of leaving them alongside the new claudlet ones (double-firing hooks).
+        if any(m in cmd for m in ("claudlet-hook", "claudlet.hook",
+                                  "claude-pet-hook", "claude_pet.hook")):
             return True
     return False
 
@@ -83,7 +87,7 @@ def main():
     hooks = s.get("hooks", {})
 
     for ev in ALL_EVENTS:
-        # drop any existing claude-pet groups first (idempotent)
+        # drop any existing claudlet groups first (idempotent)
         hooks[ev] = [g for g in hooks.get(ev, []) if not is_ours(g)]
         if not remove:
             cmd = {"type": "command", "command": f"{HOOK_CMD} {ev}"}
@@ -100,7 +104,7 @@ def main():
         del s["hooks"]
 
     save(s)
-    print(("removed" if remove else "installed"), "claude-pet hooks:",
+    print(("removed" if remove else "installed"), "claudlet hooks:",
           ", ".join(ALL_EVENTS))
     print("(restart Claude Code sessions for changes to take effect)")
 

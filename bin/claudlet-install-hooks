@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Thin shim -> claude_pet.pet:main (source-checkout launcher)."""
+"""Thin shim -> claudlet.install_hooks:main."""
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-from claude_pet.pet import main
+from claudlet.install_hooks import main
 main()

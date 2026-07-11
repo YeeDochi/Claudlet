@@ -3,7 +3,7 @@
 [← README](../README.md) · **English** | [한국어](configuration.ko.md)
 
 Remap which animation shows for which Claude Code activity in a JSON config at
-`~/.config/claude-pet/config.json` (all keys optional):
+`~/.config/claudlet/config.json` (all keys optional):
 
 ```json
 {

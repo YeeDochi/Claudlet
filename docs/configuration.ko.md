@@ -2,7 +2,7 @@
 
 [← README](../README.ko.md) · [English](configuration.md) | **한국어**
 
-어떤 Claude Code 활동에 어떤 애니메이션을 보일지 `~/.config/claude-pet/config.json`에서
+어떤 Claude Code 활동에 어떤 애니메이션을 보일지 `~/.config/claudlet/config.json`에서
 재매핑해요 (모든 키 선택):
 
 ```json

@@ -62,7 +62,7 @@ it, please check in roughly this order and open an issue:
    the enumeration API. The code falls back to app names (which need no
    permission), so perch/occlusion *should* still work unpermissioned — please
    test both with and without the permission and report the difference.
-2. **Launches?** `bin/claude-pet` shows the creature; it roams, and drag-and-throw works.
+2. **Launches?** `bin/claudlet` shows the creature; it roams, and drag-and-throw works.
    (`pip install pyobjc-framework-Quartz` first for the window-integration bits.)
 3. **Perches?** Drag the pet on top of another window — its feet should land on
    the window's top edge, and it should ride along when you move that window.
@@ -71,7 +71,7 @@ it, please check in roughly this order and open an issue:
 4. **Occlusion?** Raise another window over the one the pet is perched on — the
    pet should clip/hide. If this behaves *inverted*, the z-order assumption in
    `src/macos_geom.py` is wrong.
-5. **Reacts?** After `claude-pet-install`, using Claude Code changes its state
+5. **Reacts?** After `claudlet-install`, using Claude Code changes its state
    (working / thinking / celebrate).
 6. **Tray** icon appears and its menu works.
 7. **Click-to-focus:** left-click brings your terminal/IDE (Terminal / iTerm /

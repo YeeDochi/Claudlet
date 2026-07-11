@@ -1,5 +1,5 @@
 import sys, os, json, socket
-from claude_pet import motion as mod
+from claudlet import motion as mod
 
 
 def test_new_motions_present():
@@ -30,8 +30,8 @@ def test_build_message_clear():
 
 
 def test_main_list_and_unknown(capsys):
-    assert mod.main(["claude-pet-motion", "list"]) == 0
-    assert mod.main(["claude-pet-motion", "bogus"]) == 1
+    assert mod.main(["claudlet-motion", "list"]) == 0
+    assert mod.main(["claudlet-motion", "bogus"]) == 1
 
 
 class _RefusingSock:
@@ -46,7 +46,7 @@ def test_send_removes_stale_port_file(tmp_path, monkeypatch):
     # a dead pet leaves its .port file behind; nothing listens on the port
     # it names, so the connect is refused -> that's the "stale" signal. Force
     # the refused branch (real closed-port refusal isn't reliable on Windows).
-    stale = tmp_path / "claude-pet-dead.port"
+    stale = tmp_path / "claudlet-dead.port"
     stale.write_text("54321")
     monkeypatch.setattr(mod, "port_files", lambda: [str(stale)])
     monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _RefusingSock())
@@ -62,7 +62,7 @@ def test_send_keeps_live_port_file(tmp_path, monkeypatch):
     srv.bind(("127.0.0.1", 0))
     srv.listen(1)
     try:
-        live = tmp_path / "claude-pet-live.port"
+        live = tmp_path / "claudlet-live.port"
         live.write_text(str(srv.getsockname()[1]))
         monkeypatch.setattr(mod, "port_files", lambda: [str(live)])
 
@@ -90,7 +90,7 @@ class _TimeoutSock:
 def test_send_keeps_port_file_on_timeout(tmp_path, monkeypatch):
     # a busy pet whose event loop is momentarily blocked -> connect times out.
     # deleting its .port then would permanently sever a LIVE pet, so keep it.
-    slow = tmp_path / "claude-pet-slow.port"
+    slow = tmp_path / "claudlet-slow.port"
     slow.write_text("55555")
     monkeypatch.setattr(mod, "port_files", lambda: [str(slow)])
     monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _TimeoutSock())
@@ -104,7 +104,7 @@ def test_send_keeps_port_file_on_timeout(tmp_path, monkeypatch):
 def test_send_ignores_malformed_port_file(tmp_path, monkeypatch):
     # malformed content, not a refused connection -> not the dead-pet signal
     # this cleanup targets, so leave it alone rather than guessing.
-    bad = tmp_path / "claude-pet-bad.port"
+    bad = tmp_path / "claudlet-bad.port"
     bad.write_text("not-a-port")
     monkeypatch.setattr(mod, "port_files", lambda: [str(bad)])
 

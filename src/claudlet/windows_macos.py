@@ -47,7 +47,7 @@ offsets (secondary displays at negative coords) are a second thing to check.
 Coordinate diagnosis note: perch matches a window's TOP EDGE by coordinate
 (6px tolerance) while containment/occlusion match by window ID, so if the pet
 can be dropped INTO a window (works) but won't perch ON TOP of it (fails), the
-coordinates are off — run the pet with CLAUDE_PET_DEBUG_GEOM=1 (see pet.py's
+coordinates are off — run the pet with CLAUDLET_DEBUG_GEOM=1 (see pet.py's
 _debug_geom_log) to print the rects, screen box and devicePixelRatio.
 
 Why exclude-by-PID and not by window id: on Windows we exclude the pet's own

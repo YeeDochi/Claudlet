@@ -1,4 +1,4 @@
-from claude_pet import attach
+from claudlet import attach
 
 
 def test_arg_value():

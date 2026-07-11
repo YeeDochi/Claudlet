@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "claude-pet"
+name = "claudlet"
 dynamic = ["version"]
 description = "A pixel desktop buddy that reacts to Claude Code in real time"
 readme = "README.md"
@@ -17,22 +17,22 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/YeeDochi/claude-pet"
+Homepage = "https://github.com/YeeDochi/Claudlet"
 
 [project.scripts]
-claude-pet = "claude_pet.pet:main"
-claude-pet-attach = "claude_pet.attach:_cli"
-claude-pet-hook = "claude_pet.hook:_cli"
-claude-pet-motion = "claude_pet.motion:_cli"
-claude-pet-install = "claude_pet.install:main"
-claude-pet-install-hooks = "claude_pet.install_hooks:main"
-claude-pet-macos-diag = "claude_pet.macos_diag:main"
+claudlet = "claudlet.pet:main"
+claudlet-attach = "claudlet.attach:_cli"
+claudlet-hook = "claudlet.hook:_cli"
+claudlet-motion = "claudlet.motion:_cli"
+claudlet-install = "claudlet.install:main"
+claudlet-install-hooks = "claudlet.install_hooks:main"
+claudlet-macos-diag = "claudlet.macos_diag:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "claude_pet.__version__" }
+version = { attr = "claudlet.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-claude_pet = ["skill/*"]
+claudlet = ["skill/*"]

@@ -1,4 +1,4 @@
-# claude-pet 🐾
+# claudlet 🐾
 
 **English** | [한국어](README.ko.md)
 
@@ -17,7 +17,7 @@ Drawn entirely in code — no image assets — so it's self-contained and origin
 Real desktop capture. Pets perch on the terminal titlebar, roam the desktop, doze
 off (💤) between tasks, and clamber over whatever else is on screen.
 
-![claude-pet on the desktop](docs/screenshot.png)
+![claudlet on the desktop](docs/screenshot.png)
 
 ![Pets perch on the terminal and roam the desktop](docs/demo-1.gif)
 *Perching on the terminal, roaming, and dozing between tasks.*
@@ -31,32 +31,32 @@ off (💤) between tasks, and clamber over whatever else is on screen.
 ## Install
 
 Install with [pipx](https://pipx.pypa.io) (an isolated app install — pulls the
-deps, incl. `pyobjc-framework-Quartz` on macOS, and puts the `claude-pet*`
+deps, incl. `pyobjc-framework-Quartz` on macOS, and puts the `claudlet*`
 commands on your PATH), then wire it into Claude Code:
 
 ```bash
-pipx install "git+https://github.com/YeeDochi/claude-pet@v0.1.0"
-claude-pet-install      # registers the hooks + /claude-pet skill (idempotent)
+pipx install "git+https://github.com/YeeDochi/Claudlet@v0.1.0"
+claudlet-install      # registers the hooks + /claudlet skill (idempotent)
 ```
 
-Update later with `pipx upgrade claude-pet && claude-pet-install`, or from inside
-Claude Code with `/claude-pet update`.
+Update later with `pipx upgrade claudlet && claudlet-install`, or from inside
+Claude Code with `/claudlet update`.
 
 <details><summary>Without pipx — one-line source install</summary>
 
-Clones (or updates) to `~/claude-pet`, installs deps, registers hooks + skill:
+Clones (or updates) to `~/claudlet`, installs deps, registers hooks + skill:
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python3 -
+curl -fsSL https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python3 -
 ```
 ```powershell
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python -
+irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python -
 ```
 </details>
 
 New Claude Code sessions then auto-spawn a pet. Restart any already-running session
-to pick up the hooks — or launch one now with `claude-pet`.
+to pick up the hooks — or launch one now with `claudlet`.
 
 Best on **KDE Plasma**. Perching on and riding windows also works on **Windows**
 (Win32) and **macOS** (experimental — needs `pyobjc-framework-Quartz`, which the

@@ -1,8 +1,8 @@
-"""User config for claude-pet: remap which creature motion shows for which
+"""User config for claudlet: remap which creature motion shows for which
 Claude Code activity.
 
-File (JSON, all keys optional), at ``$XDG_CONFIG_HOME/claude-pet/config.json``
-(default ``~/.config/claude-pet/config.json``)::
+File (JSON, all keys optional), at ``$XDG_CONFIG_HOME/claudlet/config.json``
+(default ``~/.config/claudlet/config.json``)::
 
     {
       "tools":      { "Bash": "work_search", "Grep": "sing", "*": "work_computer" },
@@ -25,12 +25,12 @@ breaking the pet. Pure except for the single file read in load_config.
 import os
 import json
 
-from claude_pet.state_engine import MAPPABLE_STATES, DEFAULT_EVENT_STATES
+from claudlet.state_engine import MAPPABLE_STATES, DEFAULT_EVENT_STATES
 
 
 def config_path():
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "claude-pet", "config.json")
+    return os.path.join(base, "claudlet", "config.json")
 
 
 def _clean(raw):
@@ -61,7 +61,7 @@ def _windows_locale():
     the system's actual language. Delegates to windows_win32 (the one module
     that owns the guarded, typed ctypes handles) rather than re-opening windll."""
     try:
-        from claude_pet import windows_win32
+        from claudlet import windows_win32
         return windows_win32.user_locale()
     except Exception:
         return ""

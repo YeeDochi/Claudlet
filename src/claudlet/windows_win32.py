@@ -283,7 +283,7 @@ def proc_table():
     """{pid: (name, ppid)} for every running process. Used to walk up from a
     transient hook shell to the real `claude` process by name — the Windows
     counterpart of reading /proc/<pid>/stat's comm+ppid (see
-    bin/claude-pet-hook's resolve_claude_pid/_proc_info)."""
+    bin/claudlet-hook's resolve_claude_pid/_proc_info)."""
     return {pid: (name, ppid) for pid, name, ppid in _proc_snapshot()}
 
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""claude-pet-motion — trigger a motion on running claude-pet(s).
+"""claudlet-motion — trigger a motion on running claudlet(s).
 
 Usage:
-  claude-pet-motion <name> [dur]   play a motion (dur seconds; 0 = hold)
-  claude-pet-motion stop|clear     clear any held motion
-  claude-pet-motion list           list motion names
+  claudlet-motion <name> [dur]   play a motion (dur seconds; 0 = hold)
+  claudlet-motion stop|clear     clear any held motion
+  claudlet-motion list           list motion names
 
-Broadcasts one JSON line to every pet found via $XDG_RUNTIME_DIR/claude-pet-*.port
+Broadcasts one JSON line to every pet found via $XDG_RUNTIME_DIR/claudlet-*.port
 (each file holds the loopback TCP port of a running pet — not a unix socket
 path, since stock Windows Python builds lack AF_UNIX).
 Invariant: never block or raise; always exit 0 from the CLI entrypoint.
@@ -23,7 +23,7 @@ import tempfile
 # drifts the moment the transport changes (which is exactly what the .sock->TCP
 # migration cost). Fall back to local constants only if src/ can't be imported.
 try:
-    from claude_pet import hostinfo
+    from claudlet import hostinfo
 except Exception:
     hostinfo = None
 
@@ -59,7 +59,7 @@ def _runtime_dir():
 
 
 def port_files():
-    return glob.glob(os.path.join(_runtime_dir(), "claude-pet-*.port"))
+    return glob.glob(os.path.join(_runtime_dir(), "claudlet-*.port"))
 
 
 def _read_port(path):

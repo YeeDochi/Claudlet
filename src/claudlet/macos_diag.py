@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""claude-pet macOS coordinate diagnostic (standalone, read-only).
+"""claudlet macOS coordinate diagnostic (standalone, read-only).
 
 Run this ON THE MAC and paste the whole output back. It shows how the window
 feed's coordinates line up with Qt's logical coordinate space, which is what we
@@ -8,7 +8,7 @@ coordinate, so when drop-INTO-a-window works but perch-ON-TOP doesn't, the feed
 coordinates are off (Retina point-vs-pixel, or a y-offset). Nothing here changes
 any state; the pet does NOT need to be running.
 
-    python3 bin/claude-pet-macos-diag
+    python3 bin/claudlet-macos-diag
 
 Prints:
   1. every on-screen window Quartz reports (raw, unfiltered) — number, owner,
@@ -44,7 +44,7 @@ def _bounds(info):
 
 
 def main():
-    print("== claude-pet macOS geom diagnostic ==")
+    print("== claudlet macOS geom diagnostic ==")
     print("python %s | platform %s" % (sys.version.split()[0], sys.platform))
     if sys.platform != "darwin":
         print("NOTE: not macOS — the Quartz section will be empty. Run on the Mac.")
@@ -66,8 +66,8 @@ def main():
     # 2. the filtered feed the pet actually consumes ---------------------
     print("\n--- 2. FILTERED feed (windows_macos.dump -> windows.parse_kwin_dump) ---")
     try:
-        from claude_pet import windows_macos
-        from claude_pet import windows
+        from claudlet import windows_macos
+        from claudlet import windows
         print("  windows_macos.available():", windows_macos.available())
         dump = windows_macos.dump(exclude_pid=os.getpid())
         print("  raw dump string:", repr(dump))

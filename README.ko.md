@@ -1,4 +1,4 @@
-# claude-pet 🐾
+# claudlet 🐾
 
 [English](README.md) | **한국어**
 
@@ -15,7 +15,7 @@ Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝
 실제 데스크톱 화면 녹화 — 펫들이 터미널 타이틀바에 올라타고, 바탕화면을 돌아다니고,
 작업 사이엔 잠들고(💤), 화면에 뭐가 떠 있든 그 위를 타고 다녀요.
 
-![바탕화면 위의 claude-pet](docs/screenshot.png)
+![바탕화면 위의 claudlet](docs/screenshot.png)
 
 ![터미널에 올라타 로밍하는 펫들](docs/demo-1.gif)
 
@@ -33,32 +33,32 @@ Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝
 ## 설치
 
 [pipx](https://pipx.pypa.io)로 설치하고(격리 설치 — 의존성 자동 해결, macOS면
-`pyobjc-framework-Quartz`까지, `claude-pet*` 명령을 PATH에 올려줌), Claude Code에
+`pyobjc-framework-Quartz`까지, `claudlet*` 명령을 PATH에 올려줌), Claude Code에
 연결:
 
 ```bash
-pipx install "git+https://github.com/YeeDochi/claude-pet@v0.1.0"
-claude-pet-install      # 훅 + /claude-pet 스킬 등록 (idempotent)
+pipx install "git+https://github.com/YeeDochi/Claudlet@v0.1.0"
+claudlet-install      # 훅 + /claudlet 스킬 등록 (idempotent)
 ```
 
-업데이트는 `pipx upgrade claude-pet && claude-pet-install`, 또는 Claude Code 안에서
-`/claude-pet update`.
+업데이트는 `pipx upgrade claudlet && claudlet-install`, 또는 Claude Code 안에서
+`/claudlet update`.
 
 <details><summary>pipx 없이 — 소스 한 줄 설치</summary>
 
-`~/claude-pet`로 클론(또는 업데이트)·의존성·훅+스킬 등록:
+`~/claudlet`로 클론(또는 업데이트)·의존성·훅+스킬 등록:
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python3 -
+curl -fsSL https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python3 -
 ```
 ```powershell
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python -
+irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python -
 ```
 </details>
 
 이후 새 Claude Code 세션은 펫을 자동으로 띄워요. 이미 돌아가던 세션은 재시작해야 훅을
-인식해요 — 아니면 `claude-pet`로 지금 하나 띄워도 돼요.
+인식해요 — 아니면 `claudlet`로 지금 하나 띄워도 돼요.
 
 **KDE Plasma**에서 가장 잘 동작해요. 창 위에 올라타기/타고 다니기는 **Windows**(Win32)와
 **macOS**(실험적 — `pyobjc-framework-Quartz` 필요, 인스톨러가 자동 설치하고 창 좌표는

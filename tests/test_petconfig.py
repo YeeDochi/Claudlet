@@ -1,7 +1,7 @@
 import sys, os, json, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from claude_pet import petconfig
+from claudlet import petconfig
 
 
 def _write(tmp, obj):
@@ -54,7 +54,7 @@ def test_non_dict_json_yields_empty():
 
 def test_config_path_respects_xdg(monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdgtest")
-    assert petconfig.config_path() == os.path.join("/tmp/xdgtest", "claude-pet", "config.json")
+    assert petconfig.config_path() == os.path.join("/tmp/xdgtest", "claudlet", "config.json")
 
 
 def test_lang_parsed_and_defaulted(tmp_path):

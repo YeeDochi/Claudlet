@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""claude-pet-hook — per-session bridge between Claude Code and its pet.
+"""claudlet-hook — per-session bridge between Claude Code and its pet.
 
 Claude Code invokes this for each hook event (event name in argv[1], JSON
 payload on stdin). It:
   * on SessionStart, launches a pet for this session if one isn't already
     running (launched from inside the session, so it inherits host app + env);
   * forwards every event to that session's pet over a loopback TCP socket,
-    whose port is published in $XDG_RUNTIME_DIR/claude-pet-<session_id>.port.
+    whose port is published in $XDG_RUNTIME_DIR/claudlet-<session_id>.port.
 
 Must never block or fail Claude: every error is swallowed and exit is always 0.
 """
@@ -30,7 +30,7 @@ except Exception:
     pass
 
 try:
-    from claude_pet import hostinfo
+    from claudlet import hostinfo
 except Exception:
     hostinfo = None
 
@@ -93,7 +93,7 @@ def _proc_info(pid):
         global _win32_proc_table
         if _win32_proc_table is None:
             try:
-                from claude_pet import windows_win32
+                from claudlet import windows_win32
                 _win32_proc_table = windows_win32.proc_table()
             except Exception:
                 _win32_proc_table = {}
@@ -113,19 +113,19 @@ def _proc_info(pid):
 def _launch_pet(session_id, host):
     # Give the reaper the real Claude Code pid, not our transient shell parent.
     claude_pid = resolve_claude_pid(os.getppid(), _proc_info)
-    # Launch the pet as `python -m claude_pet` with THIS interpreter so it works
+    # Launch the pet as `python -m claudlet` with THIS interpreter so it works
     # cross-OS; detach so it outlives the hook. start_new_session is POSIX-only.
     kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
           "stderr": subprocess.DEVNULL}
     if os.name == "posix":
         kw["start_new_session"] = True
-    # Make sure the child can import claude_pet from a source checkout (pipx
+    # Make sure the child can import claudlet from a source checkout (pipx
     # installs already have it importable; the extra PYTHONPATH is harmless).
     env = dict(os.environ)
     src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
     env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
     subprocess.Popen(
-        [sys.executable, "-m", "claude_pet", "--session", session_id,
+        [sys.executable, "-m", "claudlet", "--session", session_id,
          "--host", host, "--claude-pid", str(claude_pid)], env=env, **kw)
 
 

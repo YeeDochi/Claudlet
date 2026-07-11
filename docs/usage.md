@@ -5,16 +5,16 @@
 ## How it works
 
 ```
-Claude Code ──hook──▶ claude-pet-hook ──loopback TCP──▶ pet (PyQt6 window)
+Claude Code ──hook──▶ claudlet-hook ──loopback TCP──▶ pet (PyQt6 window)
 ```
 
 - **`src/pet.py`** — the pet: a frameless, translucent, always-on-top window. On
   Linux it runs under XWayland (`QT_QPA_PLATFORM=xcb`) so it can position itself,
   which native Wayland forbids; on macOS/Windows it uses the native Qt platform.
 - **`src/creature.py`** — the creature renderer (pure `QPainter`, state-driven).
-- **`bin/claude-pet-hook`** — forwards each Claude Code hook event to the pet over
+- **`bin/claudlet-hook`** — forwards each Claude Code hook event to the pet over
   a per-session loopback TCP socket (port published in
-  `$XDG_RUNTIME_DIR/claude-pet-<session>.port`; stock Windows Python builds have
+  `$XDG_RUNTIME_DIR/claudlet-<session>.port`; stock Windows Python builds have
   no unix domain sockets, so TCP is used everywhere for one code path) and
   launches a pet on `SessionStart`. Never blocks Claude.
 
@@ -28,21 +28,21 @@ All `bin/*` tools are Python, so they run wherever Python does.
 - **Right-click / tray** — menu: *커서 따라오기* (follow the cursor) · *모션* submenu
   (jump / wave / sing / juggle / celebrate) · *둥둥 띄우기* (float, no-gravity toggle) ·
   *quiet (mute)* · *quit*.
-- **Motions from the CLI/skill** — `/claude-pet <motion>` (or
-  `bin/claude-pet-motion <motion>`): `jump`, `wave`, `sing`, `juggle`, `float`, plus
+- **Motions from the CLI/skill** — `/claudlet <motion>` (or
+  `bin/claudlet-motion <motion>`): `jump`, `wave`, `sing`, `juggle`, `float`, plus
   `celebrate` / `thinking` / `sleeping` / `error` / `attention`; `list`, `stop`.
 
-## The `/claude-pet` skill
+## The `/claudlet` skill
 
-`claude-pet-install` links this skill into `~/.claude/skills/` for you. In any
-session, `/claude-pet` (or "펫 띄워") launches a pet on demand — handy for a session
+`claudlet-install` links this skill into `~/.claude/skills/` for you. In any
+session, `/claudlet` (or "펫 띄워") launches a pet on demand — handy for a session
 that predates the install, or to bring a closed pet back. Per-session auto-launch
 still comes from the hooks.
 
 Manual link, if you installed hooks only:
 
 ```bash
-ln -s ~/claude-pet/skills/claude-pet ~/.claude/skills/claude-pet
+ln -s ~/claudlet/skills/claudlet ~/.claude/skills/claudlet
 ```
 
 ## Autostart
@@ -50,7 +50,7 @@ ln -s ~/claude-pet/skills/claude-pet ~/.claude/skills/claude-pet
 Copy the desktop entry so a standalone pet launches at login:
 
 ```bash
-cp ~/claude-pet/packaging/claude-pet.desktop ~/.config/autostart/
+cp ~/claudlet/packaging/claudlet.desktop ~/.config/autostart/
 ```
 
 Remove that file to disable.
@@ -58,7 +58,7 @@ Remove that file to disable.
 ## Uninstall
 
 ```bash
-~/claude-pet/bin/claude-pet-install --remove    # removes hooks + skill link
-rm ~/.config/autostart/claude-pet.desktop       # if you enabled autostart
-rm -rf ~/claude-pet
+~/claudlet/bin/claudlet-install --remove    # removes hooks + skill link
+rm ~/.config/autostart/claudlet.desktop       # if you enabled autostart
+rm -rf ~/claudlet
 ```
