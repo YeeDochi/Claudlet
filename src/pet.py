@@ -1164,9 +1164,14 @@ class Pet(QWidget):
         target = self._host_wid
         if not target:
             # No pid-pinned host window (e.g. launched without --claude-pid):
-            # fall back to the first window of the host class, mirroring the
-            # Linux path — better than silently doing nothing.
-            target = geom.find_window_by_class(self.host_classes or ["konsole"])
+            # fall back to matching a Win32 window class. self.host_classes is
+            # the Linux/KWin flavor (e.g. "code" for VS Code) which never
+            # matches a real Win32 class name (VS Code's is
+            # "chrome_widgetwin_1") — use hostinfo.win_classes instead, which
+            # also has a real fallback for native Windows terminals
+            # (cmd.exe/PowerShell/Windows Terminal all detect_host() as
+            # "unknown", unlike Linux where that meant "no guess available").
+            target = geom.find_window_by_class(hostinfo.win_classes(self.host))
         if target:
             geom.activate_hwnd(target)
 

@@ -1,4 +1,4 @@
-import sys, os, json, types
+import sys, os, io, json, types
 
 HOOK = os.path.join(os.path.dirname(__file__), "..", "bin", "claude-pet-hook")
 mod = types.ModuleType("claude_pet_hook")
@@ -42,3 +42,48 @@ def test_sock_for_uses_session(tmp_path, monkeypatch):
     (tmp_path / "claude-pet-xyz.port").write_text("54321")
     assert mod.sock_for({"session_id": "xyz"}) == 54321
     assert mod.sock_for({}) is None
+
+
+def _run_main(monkeypatch, session_id, pet_alive_result, launch_calls, sent):
+    monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: pet_alive_result)
+    monkeypatch.setattr(mod, "_launch_pet",
+                         lambda *a, **k: launch_calls.append((a, k)))
+    monkeypatch.setattr(mod, "_send",
+                         lambda port, payload: sent.append((port, payload)))
+    monkeypatch.setattr(mod.sys, "argv", ["claude-pet-hook", "SessionStart"])
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
+        {"session_id": session_id, "hook_event_name": "SessionStart"})))
+    mod.main()
+
+
+def test_session_start_still_sends_when_resumed_pet_times_out(tmp_path, monkeypatch):
+    # A resumed session (its .port file already exists) where pet_alive()
+    # returns False from a transient timeout -- not a proven-dead port --
+    # must NOT have the triggering SessionStart event dropped: it might be
+    # our own pet, alive, just briefly slow to answer the liveness ping.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    (tmp_path / "claude-pet-resumed.port").write_text("54321")
+    launch_calls, sent = [], []
+    _run_main(monkeypatch, "resumed", False, launch_calls, sent)
+    assert len(launch_calls) == 1          # still attempts a launch (harmless if live)
+    assert len(sent) == 1                  # but the event is NOT dropped
+    assert sent[0][0] == 54321
+
+
+def test_session_start_skips_send_for_brand_new_session(tmp_path, monkeypatch):
+    # No port file ever existed for this session_id -- there is provably
+    # nothing to send to yet, so skipping the send here is still correct.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    launch_calls, sent = [], []
+    _run_main(monkeypatch, "brandnew", False, launch_calls, sent)
+    assert len(launch_calls) == 1
+    assert sent == []
+
+
+def test_session_start_sends_when_pet_confirmed_alive(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    (tmp_path / "claude-pet-live.port").write_text("54321")
+    launch_calls, sent = [], []
+    _run_main(monkeypatch, "live", True, launch_calls, sent)
+    assert launch_calls == []
+    assert len(sent) == 1

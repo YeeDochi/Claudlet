@@ -39,6 +39,18 @@ def test_host_classes():
     assert hostinfo.host_classes("unknown") == []
     assert hostinfo.host_classes("nonsense") == []
 
+def test_win_classes_vscode_uses_real_win32_class():
+    # VS Code's KWin class ("code") never appears in its Win32 class
+    # ("chrome_widgetwin_1"), so win_classes needs its own mapping.
+    assert hostinfo.win_classes("vscode") == ["chrome_widgetwin_1"]
+
+def test_win_classes_falls_back_to_generic_terminal_classes():
+    # cmd.exe/PowerShell/Windows Terminal all detect_host() as "unknown" (no
+    # env-var signal), unlike Linux where "unknown" means "no guess at all".
+    assert hostinfo.win_classes("unknown") == [
+        "cascadia_hosting_window_class", "consolewindowclass"]
+    assert hostinfo.win_classes("konsole") == hostinfo.win_classes("unknown")
+
 def test_session_port_file_path(monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
     assert hostinfo.session_port_file("abc") == os.path.join("/run/user/1000", "claude-pet-abc.port")
@@ -62,6 +74,43 @@ def test_write_session_port_is_atomic_no_temp_left(tmp_path, monkeypatch):
     assert hostinfo.read_session_port("atom") == 4242
     leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
     assert leftovers == []
+
+
+def test_write_session_port_retries_through_transient_replace_failure(tmp_path, monkeypatch):
+    # os.replace() onto a destination another process has open for a brief
+    # read raises PermissionError on Windows even though nothing is actually
+    # wrong; write_session_port must retry through a transient failure rather
+    # than crash its caller (Pet.__init__).
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    real_replace = os.replace
+    calls = []
+
+    def _flaky_replace(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError("simulated sharing violation")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(hostinfo.os, "replace", _flaky_replace)
+    monkeypatch.setattr(hostinfo.time, "sleep", lambda s: None)
+    hostinfo.write_session_port("flaky", 9999)
+    assert hostinfo.read_session_port("flaky") == 9999
+    assert len(calls) == 3
+
+
+def test_write_session_port_raises_after_exhausting_retries(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+    def _always_fails(src, dst):
+        raise PermissionError("simulated persistent sharing violation")
+
+    monkeypatch.setattr(hostinfo.os, "replace", _always_fails)
+    monkeypatch.setattr(hostinfo.time, "sleep", lambda s: None)
+    try:
+        hostinfo.write_session_port("stuck", 1111)
+        assert False, "expected PermissionError to propagate"
+    except PermissionError:
+        pass
 
 
 def _banner_pet(session="sid", reply=None):

@@ -59,6 +59,36 @@ def test_pid_alive_posix_and_windows(monkeypatch):
     assert P._pid_alive(9999) is True
 
 
+def test_activate_claude_windows_fallback_uses_win32_classes():
+    # With no pid-pinned host window, the Windows click-to-focus fallback must
+    # use hostinfo.win_classes (real Win32 class names) rather than the
+    # Linux/KWin-flavored self.host_classes ("code" never matches VS Code's
+    # actual Win32 class "chrome_widgetwin_1").
+    p = P.Pet(session_id="wf1", host="vscode")
+    try:
+        p._host_wid = None
+
+        class _FakeGeom:
+            def __init__(self):
+                self.calls = []
+
+            def find_window_by_class(self, classes):
+                self.calls.append(classes)
+                return 42
+
+            def activate_hwnd(self, hwnd):
+                self.activated = hwnd
+
+        fake = _FakeGeom()
+        p._win32_geom = fake
+        p._activate_claude_windows()
+        assert fake.calls == [hostinfo.win_classes("vscode")]
+        assert fake.calls[0] == ["chrome_widgetwin_1"]
+        assert fake.activated == 42
+    finally:
+        p._cleanup()
+
+
 def test_pet_is_session_and_host_aware():
     p = P.Pet(session_id="sess-x", host="vscode")
     try:

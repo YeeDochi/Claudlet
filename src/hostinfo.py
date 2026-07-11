@@ -6,6 +6,7 @@ Code session, sees its env) and `src/pet.py` can import it and agree.
 import os
 import socket
 import tempfile
+import time
 
 LOOPBACK = "127.0.0.1"
 
@@ -36,6 +37,26 @@ MAC_APP = {
     "apple_terminal": "Terminal",
     "iterm": "iTerm",
 }
+
+# host -> Win32 window-class substrings, for the click-to-focus fallback when
+# no pid-pinned host window was found. Win32 class names are unrelated to the
+# KWin resourceClass / macOS app names above (e.g. VS Code's KWin class is
+# "code" but its Win32 class is "chrome_widgetwin_1", shared with every other
+# Electron/Chromium app), so this needs its own table rather than reusing
+# HOST_CLASSES. detect_host() has no env-var signal for native Windows
+# terminals (cmd.exe/PowerShell/Windows Terminal all come back "unknown"), so
+# "unknown" falls back to the generic Windows terminal-host classes instead of
+# an empty list.
+WIN_CLASSES = {
+    "vscode": ["chrome_widgetwin_1"],
+    "unknown": ["cascadia_hosting_window_class", "consolewindowclass"],
+}
+
+
+def win_classes(host):
+    """Win32 window-class substrings for a host (falls back to generic
+    Windows terminal classes for any host with no Windows-specific entry)."""
+    return WIN_CLASSES.get(host, WIN_CLASSES["unknown"])
 
 
 def detect_host(env=None):
@@ -105,7 +126,26 @@ def write_session_port(session_id, port):
     tmp = "{}.{}.tmp".format(path, os.getpid())
     with open(tmp, "w") as f:
         f.write(str(port))
-    os.replace(tmp, path)
+    _replace_retrying(tmp, path)
+
+
+def _replace_retrying(src, dst, attempts=10, delay=0.02):
+    """os.replace(src, dst) is atomic on POSIX even with a reader holding
+    `dst` open, but on Windows a destination opened without FILE_SHARE_DELETE
+    (the default for a plain `open()`) makes MoveFileExW raise PermissionError
+    while that reader has it open. Every reader here (`read_port_file`'s
+    `with open(path) as f: ...`) closes within microseconds, so a short retry
+    loop clears the race instead of crashing the caller — this is the only
+    caller of os.replace on the port file, so the loop belongs here rather
+    than at each call site."""
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay)
 
 
 def pet_alive(session_id, timeout=0.3):
