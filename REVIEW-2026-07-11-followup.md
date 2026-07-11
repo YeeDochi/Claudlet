@@ -80,14 +80,17 @@ Windows 네이티브 터미널은 처음부터 매칭 대상이 없었음.
 
 ## 4. 테스트 결과
 
+`96dbf08` 시점엔 Windows에서 2건 실패(`test_pet_alive_false_and_removes_stale_file_on_refused`,
+`test_send_removes_stale_port_file`) — Windows 루프백 소켓의 bind→close→connect 타이밍 특성 때문이었고
+이 커밋과 무관(수정 전 브랜치에서도 동일 실패, Linux에선 통과). 후속 `8677dcf`에서 두 테스트를
+`ConnectionRefusedError`를 강제하는 방식으로 **결정화**해 전 OS에서 통과하도록 바꿈.
+
+최종 상태(`360fdf7`):
+
 ```
 python -m pytest -q
-173 passed, 2 failed (사전부터 존재하던 무관한 flaky 테스트, 이 수정 전에도 실패 확인함)
+179 passed
 ```
-
-실패한 2건(`test_pet_alive_false_and_removes_stale_file_on_refused`,
-`test_send_removes_stale_port_file`)은 Windows 루프백 소켓의 bind→close→connect 타이밍 특성 때문으로,
-이번 수정과 무관 — 수정 전 브랜치에서도 동일하게 실패함(`git stash`로 확인).
 
 ## 5. 아직 남은 것 (표 4·6·9·10)
 
