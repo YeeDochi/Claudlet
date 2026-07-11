@@ -65,6 +65,22 @@ def _unlink_skill():
             pass
 
 
+def _pip_install(pkgs):
+    """pip-install pkgs into THIS interpreter. Try a plain install first (right
+    inside a venv); if that fails, retry with --user, which is how PyQt6 is
+    already installed on a system Python without write access (and what
+    install.py uses). In a healthy venv the plain install succeeds so --user —
+    which venvs reject — is never reached."""
+    for extra in ([], ["--user"]):
+        try:
+            if subprocess.call(
+                    [sys.executable, "-m", "pip", "install", *extra, *pkgs]) == 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def _importable(import_name):
     """True if `import <import_name>` succeeds in a FRESH interpreter. Run as a
     subprocess (not __import__ here) so the check is correct both before and
@@ -93,10 +109,7 @@ def _check_deps():
         return
     pkgs = [pip for _imp, pip in missing]
     print("installing missing package(s): %s" % ", ".join(pkgs))
-    try:
-        subprocess.call([sys.executable, "-m", "pip", "install", *pkgs])
-    except Exception:
-        pass
+    _pip_install(pkgs)
     still = [pip for imp, pip in missing if not _importable(imp)]
     if still:
         print("warning: could not install %s automatically. Install it manually "
