@@ -69,8 +69,41 @@ Either way, restart your Claude Code session afterward (`claude --continue`) so 
 new hooks + pet code load. Or just run `/claudlet update` (release) /
 `/claudlet update latest` (master) from inside Claude Code and follow the prompts.
 
-Remove it with `claudlet-uninstall` (stops pets, unregisters the hooks + skill;
-add `--purge` to also delete your config), then `pipx uninstall claudlet`.
+To uninstall, **order matters — unhook first, then remove the package.**
+`claudlet-uninstall` is the *only* step that removes the hooks from
+`~/.claude/settings.json`; if you delete the package first, those hooks linger and
+Claude Code keeps trying to run a `claudlet-hook` that no longer exists.
+
+```bash
+claudlet-uninstall        # stops pets, unregisters the hooks + /claudlet skill
+                          #   (add --purge to also delete your config)
+pipx uninstall claudlet   # only after the line above succeeds
+```
+
+<details><summary>If <code>claudlet-uninstall</code> isn't found, or you installed from source</summary>
+
+**Command not found (common on Windows).** The `claudlet*` commands live in pipx's
+bin directory; if it isn't on your PATH the shell can't find them. The fix:
+```
+pipx ensurepath        # add pipx's bin dir to PATH
+```
+Then **restart your terminal** and run `claudlet-uninstall` again. (`pipx list`
+prints the exact install location if you'd rather run the script by full path.)
+
+**Source install** (the `install.py` one-liner clones to `~/claudlet` — there's no
+pip package to remove). Run the checkout's own script, then delete the folder:
+```bash
+python ~/claudlet/bin/claudlet-uninstall
+rm -rf ~/claudlet                                   # Windows: rmdir /s "%USERPROFILE%\claudlet"
+```
+
+**Already removed the package without unhooking?** The hook entries are still in
+`~/.claude/settings.json`. Reinstall just long enough to unhook cleanly:
+```
+pipx install claudlet && claudlet-uninstall && pipx uninstall claudlet
+```
+or open `~/.claude/settings.json` and delete the `claudlet-hook` entries by hand.
+</details>
 
 <details><summary>Without pipx — one-line source install</summary>
 
