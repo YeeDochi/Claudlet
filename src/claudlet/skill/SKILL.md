@@ -1,6 +1,6 @@
 ---
 name: claudlet
-description: Launch/attach the claudlet desktop buddy, trigger a motion, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 업데이트", "update the pet", "start the pet".
+description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet".
 ---
 
 # claudlet — launch the desktop buddy
@@ -12,7 +12,7 @@ A frameless roaming pixel creature. By default this **attaches** a pet to the
 ## How to run a claudlet command
 
 claudlet ships console commands (`claudlet-attach`, `claudlet-motion`,
-`claudlet-install`). Define this helper once, then use it in the sections
+`claudlet-config`, `claudlet-install`). Define this helper once, then use it in the sections
 below — it prefers the installed command (pipx/pip put it on PATH) and falls
 back to a source checkout's `bin/` shim:
 ```bash
@@ -31,6 +31,8 @@ Look at the argument the user passed after `/claudlet`:
 - a **motion name** (`jump`, `wave`, `sing`, `juggle`, `float`, `celebrate`,
   `thinking`, `sleeping`, `error`, `attention`), or `list`, or `stop`/`clear`
   → **Trigger a motion**; do NOT launch a pet.
+- `config` (or `설정`; optionally `config open` / `config init`) → **Configure**;
+  do NOT launch a pet.
 - `update` (or `업데이트`) → **Update**.
 - `standalone` → **Standalone**.
 - nothing → **Attach** (default).
@@ -70,6 +72,53 @@ e.g. `cpet motion jump`, `cpet motion float` (holds until `cpet motion stop`),
 `cpet motion list`. It broadcasts to every running pet and prints how many
 reacted; if it says `-> 0 pet(s)`, none is running — offer to attach one with
 `/claudlet`.
+
+## Configure
+
+The user config remaps **which creature motion shows for which Claude Code
+activity**, plus **language**. After a pipx install it's buried
+(`~/.config/claudlet/config.json`, or `%USERPROFILE%\.config\claudlet\
+config.json` on Windows), so use `claudlet-config` to locate/inspect it — never
+guess the path.
+
+```bash
+cpet config          # show: absolute path, status, current values, IGNORED entries, valid values
+cpet config init     # create a starter template if none exists
+cpet config open     # open it in the OS default editor
+```
+
+`cpet config` prints the resolved absolute path and — crucially — any entries
+that are **present in the file but silently dropped** (a typo'd state or unknown
+slot) under `ignored:`. When something "doesn't work," check there first.
+
+**Editing on the user's behalf.** When the user asks for a change in natural
+language (e.g. "make it jump when I run Bash", "switch it to Korean"):
+1. run `cpet config` to get the absolute path + current values,
+2. `Read` that file (run `cpet config init` first if it's missing),
+3. edit the JSON **directly with your own Edit/Write tools** using the schema
+   below,
+4. run `cpet config` again and confirm nothing landed under `ignored:`,
+5. tell the user to **restart the pet** (right-click → 종료, then `/claudlet`)
+   for it to apply — config is read at pet startup.
+
+Schema (all keys optional; unknown keys / invalid values are dropped):
+```json
+{
+  "lang": "auto",                        // "ko" | "en" | "auto"
+  "tools":      { "Bash": "work_computer", "*": "work_computer" },
+  "events":     { "prompt": "thinking", "celebrate": "juggle" },
+  "raw_events": { "PostToolUse": "celebrate", "SubagentStop": "wave" }
+}
+```
+- `tools` — tool name → state (`"*"` = fallback for unmapped tools).
+- `events` — event slot → state. Slots: `start`, `prompt`, `done`,
+  `celebrate`, `error`, `permission`, `idle_prompt`, `asking`, `autopilot`.
+- `raw_events` — raw hook event name → state (e.g. `PostToolUse`,
+  `SubagentStop`, `PreCompact`).
+- Valid states (the `cpet config` output also lists these): `work_computer`,
+  `work_search`, `work_web`, `work_agent`, `work_skill`, `thinking`,
+  `celebrate`, `error`, `attention`, `asking`, `autopilot`, `sleeping`, `idle`,
+  `jump`, `wave`, `sing`, `juggle`.
 
 ## Update
 

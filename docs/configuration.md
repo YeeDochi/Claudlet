@@ -3,7 +3,14 @@
 [← README](../README.md) · **English** | [한국어](configuration.ko.md)
 
 Remap which animation shows for which Claude Code activity in a JSON config at
-`~/.config/claudlet/config.json` (all keys optional):
+`~/.config/claudlet/config.json` (all keys optional).
+
+> **Tip:** run `claudlet-config` (or ask Claude `/claudlet config`) to print the
+> exact path, the current effective values, and — importantly — any entries
+> that were **silently dropped** because of a typo or unknown slot. `claudlet-config
+> init` scaffolds a starter file; `claudlet-config open` opens it in your editor.
+
+Example:
 
 ```json
 {

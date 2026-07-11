@@ -3,7 +3,13 @@
 [← README](../README.ko.md) · [English](configuration.md) | **한국어**
 
 어떤 Claude Code 활동에 어떤 애니메이션을 보일지 `~/.config/claudlet/config.json`에서
-재매핑해요 (모든 키 선택):
+재매핑해요 (모든 키 선택).
+
+> **팁:** `claudlet-config`(또는 Claude에게 `/claudlet config`) 실행하면 정확한 경로,
+> 현재 적용값, 그리고 오타·잘못된 슬롯 때문에 **조용히 버려진 항목**까지 보여줘요.
+> `claudlet-config init`은 시작 템플릿 생성, `claudlet-config open`은 에디터로 열기.
+
+예시:
 
 ```json
 {
