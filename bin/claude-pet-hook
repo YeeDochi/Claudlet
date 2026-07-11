@@ -159,18 +159,19 @@ def main():
 
     # on session start, bring up this session's pet if one isn't already there
     # (verified by handshake, so a stale port file can't suppress the launch)
-    had_port = hostinfo.read_session_port(session_id) is not None
     launched_fresh = False
     if event == "SessionStart":
         try:
+            # capture BEFORE pet_alive(), which unlinks the file on a refused
+            # connect. Only a brand-new session (never had a port file) is safe
+            # to skip sending to: there's provably nothing to send to yet. If a
+            # port file DID exist, pet_alive()'s False can also mean "our own
+            # pet, alive, just slow to answer the ping" (busy Qt event loop) —
+            # not necessarily dead — so still attempt the send below rather than
+            # dropping this event on a timing coincidence.
+            had_port = hostinfo.read_session_port(session_id) is not None
             if not hostinfo.pet_alive(session_id):
                 _launch_pet(session_id, hostinfo.detect_host())
-                # Only a brand-new session (never had a port file) is safe to
-                # skip sending to: there's provably nothing to send to yet. If
-                # a port file DID exist, pet_alive()'s False can also mean "our
-                # own pet, alive, just slow to answer the ping" (busy Qt event
-                # loop) — not necessarily dead — so still attempt the send
-                # below rather than dropping this event on a timing coincidence.
                 launched_fresh = not had_port
         except Exception:
             pass

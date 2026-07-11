@@ -126,7 +126,17 @@ def write_session_port(session_id, port):
     tmp = "{}.{}.tmp".format(path, os.getpid())
     with open(tmp, "w") as f:
         f.write(str(port))
-    _replace_retrying(tmp, path)
+    try:
+        _replace_retrying(tmp, path)
+    except OSError:
+        # replace never happened -> the temp file would otherwise linger
+        # forever (it doesn't match the claude-pet-*.port glob, so nothing
+        # else cleans it). Drop it before propagating.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _replace_retrying(src, dst, attempts=10, delay=0.02):
@@ -164,6 +174,7 @@ def pet_alive(session_id, timeout=0.3):
         return False
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
+    start = time.monotonic()
     try:
         s.connect((LOOPBACK, port))
         s.sendall(PING)
@@ -171,6 +182,10 @@ def pet_alive(session_id, timeout=0.3):
             s.shutdown(socket.SHUT_WR)   # signal EOF so the pet answers now
         except OSError:
             pass
+        # settimeout applies per blocking call, so connect+recv could each wait
+        # the full `timeout` (~2x on a slow/foreign pet). Give recv only what's
+        # left of the one budget so the whole check stays ~timeout.
+        s.settimeout(max(0.05, timeout - (time.monotonic() - start)))
         reply = s.recv(256).decode("utf-8", "replace")
         return BANNER_MARK in reply
     except ConnectionRefusedError:

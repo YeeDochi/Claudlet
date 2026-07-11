@@ -111,6 +111,9 @@ def test_write_session_port_raises_after_exhausting_retries(tmp_path, monkeypatc
         assert False, "expected PermissionError to propagate"
     except PermissionError:
         pass
+    # even on persistent failure the temp file must not linger
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+    assert leftovers == []
 
 
 def _banner_pet(session="sid", reply=None):
@@ -158,16 +161,22 @@ def test_pet_alive_false_for_foreign_listener(tmp_path, monkeypatch):
         srv.close()
 
 
+class _RefusingSocket:
+    """A socket whose connect() is refused — deterministic on every OS, unlike
+    relying on the kernel to refuse a real just-closed port (Windows loopback
+    doesn't guarantee that timing)."""
+    def settimeout(self, t): pass
+    def connect(self, addr): raise ConnectionRefusedError()
+    def close(self): pass
+
+
 def test_pet_alive_false_and_removes_stale_file_on_refused(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    # a free (then-closed) port: connect is refused -> nothing is there -> stale
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("127.0.0.1", 0))
-    dead_port = s.getsockname()[1]
-    s.close()
-    hostinfo.write_session_port("sid", dead_port)
+    hostinfo.write_session_port("sid", 54321)
     path = hostinfo.session_port_file("sid")
     assert os.path.exists(path)
+    # force the refused-connect branch rather than depend on OS port timing
+    monkeypatch.setattr(hostinfo.socket, "socket", lambda *a, **k: _RefusingSocket())
     assert hostinfo.pet_alive("sid") is False
     assert not os.path.exists(path)          # stale file cleaned up
 
