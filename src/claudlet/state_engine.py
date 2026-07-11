@@ -62,6 +62,13 @@ DEFAULT_EVENT_STATES = {
 # the `attention` alert used for permission prompts.
 ASK_TOOLS = {"AskUserQuestion", "ExitPlanMode"}
 
+# tools that DISPATCH a subagent. PreToolUse with one of these opens an
+# "agent working" window that stays open until a matching SubagentStop, tracked
+# as a per-session counter (see StateEngine.agents_active) so a companion can
+# show beside the creature for the whole run — independent of the main display
+# state, which follows the parent's own tool use meanwhile (background agents).
+AGENT_TOOLS = {"Agent", "Task"}
+
 # states a user is allowed to map a tool/event to (expressive display states;
 # excludes internal/mode-only ones like walk/held/falling/float). Kept as a plain
 # set so this module stays Qt-free — mirror of the renderable creature states.
@@ -97,7 +104,7 @@ def tool_to_state(tool_name):
 
 
 class _Session:
-    __slots__ = ("state", "since", "expiry", "last_event", "pending")
+    __slots__ = ("state", "since", "expiry", "last_event", "pending", "agents")
 
     def __init__(self, now):
         self.state = "idle"
@@ -105,6 +112,7 @@ class _Session:
         self.expiry = None     # end ts for transient states (celebrate/error)
         self.last_event = now
         self.pending = None    # deferred work state (debounce)
+        self.agents = 0        # open subagent windows (PreToolUse Agent .. SubagentStop)
 
     def set_state(self, state, now):
         self.state = state
@@ -159,11 +167,17 @@ class StateEngine:
         s.last_event = now
 
         if name == "SessionStart":
+            s.agents = 0                       # fresh session -> no open agents
             s.set_state(self._events["start"], now)
         elif name == "UserPromptSubmit":
+            s.agents = 0                       # new turn -> agents from last turn done
             s.set_state(self._events["prompt"], now)
         elif name == "PreToolUse":
             tool = ev.get("tool_name", "")
+            if tool in AGENT_TOOLS:
+                # opens an agent-working window (closed by SubagentStop); the
+                # companion shows for the whole run regardless of display state.
+                s.agents += 1
             if tool in ASK_TOOLS:
                 s.set_state(self._events["asking"], now)   # waiting on the user
             else:
@@ -179,7 +193,10 @@ class StateEngine:
                 s.set_state(self._events["permission"], now)
             elif nt == "idle_prompt":
                 s.set_state(self._events["idle_prompt"], now)
+        elif name == "SubagentStop":
+            s.agents = max(0, s.agents - 1)    # one subagent finished
         elif name == "Stop":
+            s.agents = 0                       # turn ended -> all agents done
             if self.is_focused():
                 s.set_state(self._events["done"], now)
             else:
@@ -225,6 +242,12 @@ class StateEngine:
             return "sleeping"
         return max((s.state for s in self.sessions.values()),
                    key=lambda st: self._priority.get(st, 0))
+
+    def agents_active(self):
+        """Total open subagent windows across all sessions (0 = none). Drives a
+        persistent 'agent working' companion beside the creature — independent of
+        display_state, so it stays up while the main creature shows other work."""
+        return sum(s.agents for s in self.sessions.values())
 
     def auto_active(self):
         """True while the session is in an autonomous permission mode — the pet

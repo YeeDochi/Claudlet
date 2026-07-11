@@ -45,6 +45,12 @@ from claudlet import windows
 # ---- config ----
 U = 5                                   # art-pixel size in device px
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
+# Agent companion: a small second creature drawn in a transparent strip to the
+# RIGHT of the creature box while a subagent is running. The strip widens only
+# the widget — self.w/self.h stay the creature box, so physics/roam/perch are
+# untouched (see the agent-companion design spec).
+COMPANION_U = 3                         # companion art-pixel size (< U -> smaller)
+COMPANION_GAP = 3                       # device px between creature box and companion
 FPS = 20
 
 # short label per state (tray tooltip), per language
@@ -132,7 +138,11 @@ class Pet(QWidget):
 
         self.w = (C.GRID_W + 2 * PAD_X) * U
         self.h = (C.GRID_H + 2 * PAD_Y) * U
-        self.setFixedSize(self.w, self.h)
+        # widget is wider than the creature box to hold the agent companion on
+        # the right; self.w/self.h (used by ALL physics/roam/perch/mask) stay the
+        # creature box so nothing else shifts. The extra strip is transparent.
+        self._companion_w = COMPANION_GAP + C.GRID_W * COMPANION_U
+        self.setFixedSize(self.w + self._companion_w, self.h)
 
         primary = QApplication.primaryScreen().availableGeometry()
         # Roam across ALL monitors: screen_rect is the union of every screen's
@@ -952,7 +962,26 @@ class Pet(QWidget):
         # facing handled inside draw_creature (body mirrors, text upright)
         C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
                         facing=self.facing, visor=vis)
+        self._paint_agent_companion(p, state)
         p.end()
+
+    def _paint_agent_companion(self, p, state):
+        """While a subagent runs, draw a small agent creature in the right strip,
+        facing the main pet — persists regardless of `state` (background/parallel
+        agents), so it's visible even while the main creature does other work.
+        Skipped when the main creature is already the agent (avoid doubling)."""
+        try:
+            if self.engine.agents_active() <= 0:
+                return
+        except Exception:
+            return
+        if state in ("work_agent", "auto_agent"):
+            return
+        cu = COMPANION_U
+        ox = self.w + COMPANION_GAP
+        oy = (PAD_Y * U + C.GRID_H * U) - C.GRID_H * cu   # feet on the main baseline
+        cstate = "auto_agent" if getattr(self, "_auto", False) else "work_agent"
+        C.draw_creature(p, ox, oy, cu, cstate, self.frame, facing=-1)
 
     # ---------- interaction ----------
     def mousePressEvent(self, e):

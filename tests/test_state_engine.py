@@ -77,6 +77,53 @@ def test_agent_tool_shows_work_agent_and_persists():
     assert e.display_state(now=30.0) == "work_agent"      # still there mid-run
 
 
+def _ev(name, sid="a", **kw):
+    d = {"event": name, "session": sid}
+    d.update(kw)
+    return d
+
+
+def test_agents_active_counts_open_window():
+    e = StateEngine()
+    assert e.agents_active() == 0
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    assert e.agents_active() == 1
+    e.handle(_ev("SubagentStop"), now=1.0)
+    assert e.agents_active() == 0
+
+
+def test_agents_active_persists_across_other_motions():
+    # THE point: a companion must stay up while the main creature shows other
+    # work (background/parallel agent) — agents_active independent of display.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("PreToolUse", tool_name="Read"), now=1.0)   # parent keeps working
+    assert e.display_state(now=1.0) == "work_search"         # main moved on
+    assert e.agents_active() == 1                            # companion stays
+
+
+def test_agents_active_parallel_and_floor():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("PreToolUse", tool_name="Task"), now=0.1)   # alias also counts
+    assert e.agents_active() == 2
+    e.handle(_ev("SubagentStop"), now=1.0)
+    assert e.agents_active() == 1
+    e.handle(_ev("SubagentStop"), now=1.1)
+    assert e.agents_active() == 0
+    e.handle(_ev("SubagentStop"), now=1.2)                   # extra -> floor at 0
+    assert e.agents_active() == 0
+
+
+def test_agents_active_resets_on_turn_boundaries():
+    for boundary in ("Stop", "UserPromptSubmit"):
+        e = StateEngine()
+        e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+        assert e.agents_active() == 1
+        e.handle(_ev(boundary), now=2.0)
+        assert e.agents_active() == 0, boundary
+
+
 def test_no_sessions_is_sleeping():
     e = StateEngine()
     assert e.display_state(now=0.0) == "sleeping"

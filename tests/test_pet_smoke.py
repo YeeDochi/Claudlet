@@ -44,6 +44,22 @@ def test_pet_answers_liveness_ping():
         p._cleanup()
 
 
+def test_pet_paints_agent_companion_without_error(monkeypatch):
+    # while a subagent runs, paintEvent draws a companion in the right strip even
+    # when the main state is something else — must render cleanly (grab triggers
+    # paintEvent offscreen).
+    p = P.Pet(session_id="cmp")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        p._render_state = "work_computer"          # main doing other work
+        # widget is wider than the creature box to hold the companion strip
+        assert p.width() == p.w + p._companion_w
+        px = p.grab()                              # runs paintEvent
+        assert not px.isNull()
+    finally:
+        p._cleanup()
+
+
 def test_pet_quit_command_triggers_shutdown():
     # claudlet-uninstall broadcasts {"cmd":"quit"} to tear pets down. The pet
     # must treat it as a shutdown request (clean _quit), NOT feed it to the
