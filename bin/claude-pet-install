@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """claude-pet one-stop installer (cross-platform).
 
-Checks PyQt6, registers the Claude Code hooks, and links the /claude-pet skill
-into ~/.claude/skills/. Idempotent.
+Installs dependencies (PyQt6, plus pyobjc-framework-Quartz on macOS), registers
+the Claude Code hooks, links the /claude-pet skill into ~/.claude/skills/, and
+puts a `claude-pet` command on PATH (~/.local/bin). Idempotent.
 
-    claude-pet-install            install (hooks + skill)
-    claude-pet-install --remove   uninstall (hooks + skill link; source stays)
+    claude-pet-install            install
+    claude-pet-install --remove   uninstall (hooks + skill + PATH link; source stays)
 """
 import os
 import subprocess
 import sys
+
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -17,25 +22,47 @@ HOOKS = os.path.join(HERE, "claude-pet-install-hooks")
 SKILLS_DIR = os.path.expanduser(os.path.join("~", ".claude", "skills"))
 SKILL_LINK = os.path.join(SKILLS_DIR, "claude-pet")
 SKILL_SRC = os.path.join(ROOT, "skills", "claude-pet")
+LAUNCHER = os.path.join(HERE, "claude-pet")
+BIN_DIR = os.path.expanduser(os.path.join("~", ".local", "bin"))
+BIN_LINK = os.path.join(BIN_DIR, "claude-pet")
+
+# Colour only on a real TTY that isn't Windows and hasn't opted out (NO_COLOR).
+_COLOR = (sys.stdout.isatty() and os.name != "nt"
+          and os.environ.get("NO_COLOR") is None)
+
+
+def _c(code, s):
+    return "\033[%sm%s\033[0m" % (code, s) if _COLOR else s
+
+
+def head(s):
+    print("\n" + _c("1;36", s))          # bold cyan
+
+
+def ok(label, detail=""):
+    print("  %s %s%s" % (_c("32", "+"), label,
+                         ("  " + _c("2", detail)) if detail else ""))
+
+
+def warn(s):
+    print("  %s %s" % (_c("33", "!"), s), file=sys.stderr)
 
 
 def _link_skill():
+    """Link the /claude-pet skill; return a short status string for the summary."""
     os.makedirs(SKILLS_DIR, exist_ok=True)
     if os.path.exists(SKILL_LINK) and not os.path.islink(SKILL_LINK):
-        print("note:", SKILL_LINK, "exists and isn't a symlink — leaving it.",
-              file=sys.stderr)
-        return
+        return None, "%s exists and isn't a symlink - left as-is" % SKILL_LINK
     try:
         if os.path.islink(SKILL_LINK):
             os.unlink(SKILL_LINK)
         os.symlink(SKILL_SRC, SKILL_LINK, target_is_directory=True)
-        print("linked /claude-pet skill ->", SKILL_LINK)
-        return
-    except OSError as e:                      # e.g. Windows without symlink priv
+        return SKILL_LINK, None
+    except OSError as e:
         if os.name == "nt" and _link_skill_junction():
-            return
-        print("could not link skill (%s). Link it manually:\n  %s -> %s"
-              % (e, SKILL_LINK, SKILL_SRC), file=sys.stderr)
+            return SKILL_LINK, None
+        return None, "could not link skill (%s); link it manually: %s -> %s" % (
+            e, SKILL_LINK, SKILL_SRC)
 
 
 def _link_skill_junction():
@@ -44,7 +71,6 @@ def _link_skill_junction():
         subprocess.check_call(
             ["cmd", "/c", "mklink", "/J", SKILL_LINK, SKILL_SRC],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("linked /claude-pet skill (junction) ->", SKILL_LINK)
         return True
     except (OSError, subprocess.CalledProcessError):
         return False
@@ -53,16 +79,47 @@ def _link_skill_junction():
 def _unlink_skill():
     if os.path.islink(SKILL_LINK):
         os.unlink(SKILL_LINK)
-        print("unlinked /claude-pet skill")
     elif os.name == "nt" and os.path.isdir(SKILL_LINK):
         # os.path.islink() doesn't recognize Windows junctions; rmdir on a
-        # junction removes just the link (leaves SKILL_SRC's contents intact),
-        # but raises if this is actually a real, non-empty directory.
+        # junction removes just the link (leaves SKILL_SRC intact) but raises if
+        # this is actually a real, non-empty directory.
         try:
             os.rmdir(SKILL_LINK)
-            print("unlinked /claude-pet skill")
         except OSError:
             pass
+
+
+def _link_path():
+    """Symlink the launcher into ~/.local/bin so `claude-pet` works anywhere.
+    Returns (linked_path_or_None, note). POSIX only — Windows PATH editing needs
+    setx and elevation, so there we just skip (the launcher still runs by path)."""
+    if os.name == "nt":
+        return None, None
+    try:
+        os.makedirs(BIN_DIR, exist_ok=True)
+        if os.path.exists(BIN_LINK) and not os.path.islink(BIN_LINK):
+            return None, "%s exists and isn't a symlink - left as-is" % BIN_LINK
+        if os.path.islink(BIN_LINK):
+            os.unlink(BIN_LINK)
+        os.symlink(LAUNCHER, BIN_LINK)
+        on_path = any(os.path.abspath(p) == os.path.abspath(BIN_DIR)
+                      for p in os.environ.get("PATH", "").split(os.pathsep) if p)
+        hint = None if on_path else (
+            "%s isn't on your PATH - add it:\n"
+            "      echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.zshrc  "
+            "# or ~/.bashrc" % BIN_DIR)
+        return BIN_LINK, hint
+    except OSError as e:
+        return None, "could not add claude-pet to PATH (%s)" % e
+
+
+def _unlink_path():
+    try:
+        if os.path.islink(BIN_LINK) and os.path.realpath(BIN_LINK) == \
+                os.path.realpath(LAUNCHER):
+            os.unlink(BIN_LINK)
+    except OSError:
+        pass
 
 
 def _pip_install(pkgs):
@@ -95,43 +152,65 @@ def _importable(import_name):
 
 
 def _check_deps():
-    """Make sure required Python deps are present: PyQt6 everywhere, plus
-    pyobjc-framework-Quartz (import `Quartz`) on macOS for the window-perch
-    backend (src/windows_macos.py). Try to `pip install` whatever's missing;
-    if that fails (no pip, externally-managed/PEP-668 env, offline, wrong venv)
-    fall back to a clear manual command. A missing Quartz only disables macOS
-    perch/occlusion — the pet still runs."""
+    """Ensure required deps: PyQt6 everywhere, plus pyobjc-framework-Quartz
+    (import `Quartz`) on macOS for the window-perch backend. pip-install what's
+    missing; on failure fall back to a manual hint. Returns a summary string.
+    A missing Quartz only disables macOS perch/occlusion — the pet still runs."""
     deps = [("PyQt6", "PyQt6")]
     if sys.platform == "darwin":
         deps.append(("Quartz", "pyobjc-framework-Quartz"))
+    names = ", ".join(pip for _imp, pip in deps)
     missing = [(imp, pip) for imp, pip in deps if not _importable(imp)]
     if not missing:
-        return
+        return "%s already present" % names
     pkgs = [pip for _imp, pip in missing]
-    print("installing missing package(s): %s" % ", ".join(pkgs))
+    print("  installing %s ..." % ", ".join(pkgs))
     _pip_install(pkgs)
     still = [pip for imp, pip in missing if not _importable(imp)]
     if still:
-        print("warning: could not install %s automatically. Install it manually "
-              "with:\n  %s -m pip install %s" % (
-                  ", ".join(still), os.path.basename(sys.executable),
-                  " ".join(still)),
-              file=sys.stderr)
+        warn("could not install %s automatically - install it with:\n"
+             "      %s -m pip install %s" % (
+                 ", ".join(still), os.path.basename(sys.executable), " ".join(still)))
+        return "%s (%s still missing)" % (names, ", ".join(still))
+    return "%s installed" % ", ".join(pkgs)
 
 
 def main():
-    remove = "--remove" in sys.argv[1:]
-    if remove:
+    if "--remove" in sys.argv[1:]:
+        head("uninstalling claude-pet")
         subprocess.call([sys.executable, HOOKS, "--remove"])
         _unlink_skill()
-        print("claude-pet uninstalled. (source stays at %s)" % ROOT)
+        _unlink_path()
+        ok("hooks + skill + PATH link removed")
+        print("\nclaude-pet uninstalled. (source stays at %s)" % ROOT)
         return
-    _check_deps()
-    subprocess.call([sys.executable, HOOKS])
-    _link_skill()
-    print("\nDone. Restart Claude Code sessions to pick up the hooks.")
-    print("New sessions auto-spawn a pet; or run it now:")
-    print("  %s %s" % (sys.executable, os.path.join(ROOT, "src", "pet.py")))
+
+    head("installing claude-pet")
+
+    ok("dependencies", _check_deps())
+
+    rc = subprocess.call([sys.executable, HOOKS])
+    ok("Claude Code hooks", "registered" if rc == 0 else "see output above")
+
+    skill, note = _link_skill()
+    if skill:
+        ok("/claude-pet skill", skill)
+    if note:
+        warn(note)
+
+    link, hint = _link_path()
+    if link:
+        ok("claude-pet command", link)
+    elif os.name == "nt":
+        ok("claude-pet command", "run via %s" % LAUNCHER)
+
+    head("done")
+    print("Restart Claude Code sessions to pick up the hooks (new sessions")
+    print("auto-spawn a pet). Run one now with:  " + _c("1", "claude-pet"))
+    print("Update anytime from inside Claude Code with:  " + _c("1", "/claude-pet update"))
+    if hint:
+        print()
+        warn(hint)
 
 
 if __name__ == "__main__":

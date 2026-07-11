@@ -1,6 +1,6 @@
 ---
 name: claude-pet
-description: Launch/attach the claude-pet desktop buddy, or trigger a motion on it. "/claude-pet" attaches a pet to the CURRENT session; "/claude-pet standalone" launches an unattached roaming pet; "/claude-pet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claude-pet list" lists motions; "/claude-pet stop" clears a held motion. Use when the user types "/claude-pet", "펫 띄워", "펫 붙여", "펫 점프", "start the pet".
+description: Launch/attach the claude-pet desktop buddy, trigger a motion, or update it. "/claude-pet" attaches a pet to the CURRENT session; "/claude-pet standalone" launches an unattached roaming pet; "/claude-pet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claude-pet list" lists motions; "/claude-pet stop" clears a held motion; "/claude-pet update" pulls the latest version and reinstalls. Use when the user types "/claude-pet", "펫 띄워", "펫 붙여", "펫 점프", "펫 업데이트", "update the pet", "start the pet".
 ---
 
 # claude-pet — launch the desktop buddy
@@ -16,6 +16,7 @@ Look at the argument the user passed after `/claude-pet`:
 - a **motion name** (`jump`, `wave`, `sing`, `juggle`, `float`, `celebrate`,
   `thinking`, `sleeping`, `error`, `attention`), or `list`, or `stop`/`clear`
   → run the motion helper (below); do NOT launch a pet.
+- `update` (or `업데이트`) → the update section.
 - `standalone` → the standalone section.
 - nothing → the attach section.
 
@@ -32,6 +33,21 @@ e.g. `"$PY" "$MOTION" jump`, `"$PY" "$MOTION" float` (holds until
 `"$PY" "$MOTION" stop`), `"$PY" "$MOTION" list`.
 The helper broadcasts to every running pet and prints how many reacted; if it
 says `-> 0 pet(s)`, no pet is running — offer to attach one with `/claude-pet`.
+
+## `update` — pull the latest version & reinstall
+
+Pull the repo and re-run the installer (installs any new deps, re-registers
+hooks/skill, refreshes the `claude-pet` PATH link). Use native paths + a probed
+interpreter, same as everywhere else:
+```bash
+PY=python3; "$PY" -c "" >/dev/null 2>&1 || PY=python
+DIR=$("$PY" -c "import os; print(os.path.expanduser('~/claude-pet'))")
+git -C "$DIR" pull --ff-only && "$PY" "$DIR/bin/claude-pet-install"
+```
+If `git pull` fails with local changes / divergence, report that (don't force).
+New code only takes effect on a **fresh** pet + session: tell the user to close
+any running pet (right-click → 종료) and restart this Claude Code session (or
+run `/claude-pet` again) so the reinstalled hooks and new pet code load.
 
 ## Default: attach to THIS session
 

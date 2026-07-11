@@ -37,23 +37,12 @@ def main():
         print("==> cloning into", DEST)
         subprocess.check_call(["git", "clone", "--depth", "1", REPO, DEST])
 
-    # 2) ensure PyQt6 (best-effort; tell the user if we can't)
-    try:
-        __import__("PyQt6")
-    except ImportError:
-        print("==> installing PyQt6")
-        if subprocess.call([sys.executable, "-m", "pip", "install",
-                            "--user", "PyQt6"]) != 0:
-            print("   couldn't auto-install PyQt6 — install it yourself: "
-                  "pip install PyQt6", file=sys.stderr)
-
-    # 3) hooks + /claude-pet skill (same interpreter -> cross-OS)
+    # 2) deps (PyQt6 + macOS Quartz), hooks, skill, PATH link, pretty summary —
+    #    all handled by claude-pet-install with the same interpreter (cross-OS).
     subprocess.check_call([sys.executable,
                            os.path.join(DEST, "bin", "claude-pet-install")])
 
-    print("\nclaude-pet installed at", DEST, "\N{PAW PRINTS}")
-    print("Restart Claude Code sessions, or run now:")
-    print("  %s %s" % (sys.executable, os.path.join(DEST, "src", "pet.py")))
+    print("\nsource at", DEST)
 
 
 if __name__ == "__main__":
