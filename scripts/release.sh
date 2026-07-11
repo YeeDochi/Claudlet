@@ -120,7 +120,10 @@ git commit -q -m "release $TAG"
 # fast-forward master to the release commit, tag it there
 git checkout -q master
 git merge --ff-only develop
-git tag -a "$TAG" -F "$NOTES_SRC"
+# --cleanup=whitespace: keep the '## ' section headers. The default strips lines
+# starting with '#' as comments (commit-message convention), which would eat the
+# Markdown headers in our notes.
+git tag -a "$TAG" --cleanup=whitespace -F "$NOTES_SRC"
 
 say "pushing develop + master + $TAG..."
 git push origin develop
