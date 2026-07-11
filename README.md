@@ -21,14 +21,20 @@ off (💤) between tasks, and clamber over whatever else is on screen.
 
 ![claudlet on the desktop](docs/screenshot.png)
 
-![Pets perch on the terminal and roam the desktop](docs/demo-1.gif)
-*Perching on the terminal, roaming, and dozing between tasks.*
-
-![Dragging a pet while the others nap](docs/demo-2.gif)
-*Grab and drag them around; the rest keep roaming and napping.*
-
 ![Pets roaming over the wallpaper](docs/demo-3.gif)
-*They wander over whatever else is on your screen.*
+*Real desktop capture — they wander over whatever else is on your screen.*
+
+### Agent companions
+
+When Claude spawns **subagents**, a little hard-hatted sidekick trails your pet
+for each one — a duckling chain that follows it around, mirrors what the
+subagent is doing, and waves goodbye when its agent finishes.
+
+![Agent companions trailing the pet](docs/companion.gif)
+
+Each companion wears a random hat so you can tell them apart:
+
+![Companion hats](docs/companion_hats.png)
 
 ## Install
 
@@ -76,11 +82,15 @@ roams. See **[Platform support](docs/platform.md)**.
 ## What it shows
 
 The creature's pose tracks what Claude is doing — editing, reading, calling MCP,
-spawning subagents, thinking, waiting on your input, celebrating (see the sheet
-above). In **auto / bypass mode** it puts on a VR visor and cruises, with a per-tool
-variant for each activity. It also **perches on and rides your windows** — walking
-along the top or living inside — and clips/hides when the window it's on is covered
-or minimized.
+thinking, waiting on your input, celebrating (see the sheet above). In **auto /
+bypass mode** it puts on a VR visor and cruises, with a per-tool variant for each
+activity. It also **perches on and rides your windows** — walking along the top or
+living inside — and clips/hides when the window it's on is covered or minimized.
+
+When Claude runs **subagents**, a hatted **companion** appears for each one (up to
+three) and trails the pet in a duckling chain, mirroring the subagent's activity
+and leaving with a little celebration when it finishes — so you can see agent work
+happening at a glance.
 
 ## Commands
 
