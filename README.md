@@ -12,17 +12,23 @@ back to the front.
 Drawn entirely in code — no image assets — so it's self-contained and original
 (CC0 artwork).
 
-![states](docs/creature_sheet.en.png)
+<p align="center">
+  <img src="docs/creature_sheet.en.png" width="520" alt="states">
+</p>
 
 ## See it in action
 
 Real desktop capture. Pets perch on the terminal titlebar, roam the desktop, doze
 off (💤) between tasks, and clamber over whatever else is on screen.
 
-![claudlet on the desktop](docs/screenshot.png)
+<p align="center">
+  <img src="docs/screenshot.png" width="720" alt="claudlet on the desktop">
+</p>
 
-![Pets roaming over the wallpaper](docs/demo-3.gif)
-*Real desktop capture — they wander over whatever else is on your screen.*
+<p align="center">
+  <img src="docs/demo-3.gif" width="720" alt="Pets roaming over the wallpaper"><br>
+  <em>Real desktop capture — they wander over whatever else is on your screen.</em>
+</p>
 
 ### Agent companions
 
@@ -30,14 +36,20 @@ When Claude spawns **subagents**, a little hard-hatted sidekick trails your pet
 for each one — a duckling chain that follows it around, mirrors what the
 subagent is doing, and waves goodbye when its agent finishes.
 
-![Agent companions on the desktop](docs/companion_demo.gif)
-*Real desktop capture — two subagents, two hatted companions trailing the session's pet.*
+<p align="center">
+  <img src="docs/companion_demo.gif" width="720" alt="Agent companions on the desktop"><br>
+  <em>Real desktop capture — two subagents, two hatted companions trailing the session's pet.</em>
+</p>
 
-![Agent companions strolling](docs/companion.gif)
+<p align="center">
+  <img src="docs/companion.gif" width="720" alt="Agent companions strolling">
+</p>
 
 Each companion wears a random hat so you can tell them apart:
 
-![Companion hats](docs/companion_hats.png)
+<p align="center">
+  <img src="docs/companion_hats.png" width="720" alt="Companion hats">
+</p>
 
 ## Install
 
