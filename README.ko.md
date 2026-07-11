@@ -78,6 +78,33 @@ irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | pyth
 변형이 있어요. 또 **창에 올라타고 함께 다녀요** — 상단을 걷거나 안에서 지내고, 올라탄 창이
 가려지거나 최소화되면 같이 잘리거나 숨어요.
 
+## 명령어
+
+`pipx install claudlet` 하면 아래 명령들이 PATH에 깔려요:
+
+| 명령어 | 하는 일 |
+|---|---|
+| `claudlet` | 펫 바로 실행 (standalone). |
+| `claudlet-install` | Claude Code에 훅 + `/claudlet` 스킬 등록 — 설치 후 한 번 실행. |
+| `claudlet-uninstall` | 펫 종료 + 훅·스킬 해제 + 정리 (`--purge`면 설정도 삭제). |
+| `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). |
+| `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
+| `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
+| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만 (`--remove`로 취소). |
+| `claudlet-macos-diag` | macOS 창 좌표 원본 출력 (perch 문제 진단). |
+| `claudlet-hook` | 내부용 — Claude Code 훅이 호출, 직접 쓰는 게 아님. |
+
+### `/claudlet` 스킬
+
+`claudlet-install`이 `/claudlet` 스킬도 Claude Code에 링크해줘서, 프롬프트에서
+바로 펫을 조종할 수 있어요:
+
+- `/claudlet` — **이** 세션에 펫 붙이기 (세션 활동에 반응)
+- `/claudlet standalone` — 세션에 안 붙은 장식용 펫
+- `/claudlet <모션>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (그리고 `list`, `stop`)
+- `/claudlet config` — 설정 보기, 또는 자연어로 요청("Bash 돌 때 점프하게")하면 Claude가 대신 편집
+- `/claudlet update` — 최신 버전 받아서 재등록
+
 ## 문서
 
 - **[사용법 & 인터랙션](docs/usage.ko.md)** — 드래그/던지기, 클릭-포커스, 트레이 메뉴, 모션, 자동시작, 제거

@@ -79,6 +79,33 @@ variant for each activity. It also **perches on and rides your windows** — wal
 along the top or living inside — and clips/hides when the window it's on is covered
 or minimized.
 
+## Commands
+
+`pipx install claudlet` puts these on your PATH:
+
+| Command | What it does |
+|---|---|
+| `claudlet` | Launch a pet right now (standalone). |
+| `claudlet-install` | Register the hooks + `/claudlet` skill in Claude Code — run once after installing. |
+| `claudlet-uninstall` | Stop pets, unregister the hooks + skill, clean up (`--purge` also deletes your config). |
+| `claudlet-config` | Show / scaffold / open the user config (`--path`, `init`, `open`). |
+| `claudlet-attach` | Attach a pet to the current Claude Code session. |
+| `claudlet-motion <name>` | Play a motion on running pets (`jump`, `wave`, … ; `stop`, `list`). |
+| `claudlet-install-hooks` | Just the hooks half of `claudlet-install` (`--remove` to undo). |
+| `claudlet-macos-diag` | Print raw macOS window coordinates (perch troubleshooting). |
+| `claudlet-hook` | Internal — invoked by Claude Code's hooks, not by you. |
+
+### The `/claudlet` skill
+
+`claudlet-install` also links a `/claudlet` skill into Claude Code, so you can
+drive the pet straight from a prompt:
+
+- `/claudlet` — attach a pet to **this** session (so it reacts to the session's activity)
+- `/claudlet standalone` — an unattached, decorative pet
+- `/claudlet <motion>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (plus `list`, `stop`)
+- `/claudlet config` — show the config, or just ask in plain language ("jump when I run Bash") and Claude edits it for you
+- `/claudlet update` — pull the latest version and re-register
+
 ## Docs
 
 - **[Usage & interaction](docs/usage.md)** — drag & throw, click-to-focus, tray menu, motions, autostart, uninstall
