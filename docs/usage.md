@@ -58,7 +58,16 @@ Remove that file to disable.
 ## Uninstall
 
 ```bash
-~/claudlet/bin/claudlet-install --remove    # removes hooks + skill link
-rm ~/.config/autostart/claudlet.desktop       # if you enabled autostart
-rm -rf ~/claudlet
+claudlet-uninstall          # stop pets, remove hooks + skill link, clean up
+claudlet-uninstall --purge  # the above + delete ~/.config/claudlet
 ```
+
+`claudlet-uninstall` stops any running pets, removes the hooks from
+`settings.json`, unlinks the `/claudlet` skill, and clears stray port files.
+`--purge` additionally deletes your config. It does **not** remove the package
+itself — it prints the command to do that (`pipx uninstall claudlet` or
+`pip uninstall claudlet`). `claudlet-install --remove` is a synonym.
+
+From a source checkout use the shim: `~/claudlet/bin/claudlet-uninstall`
+(add `rm ~/.config/autostart/claudlet.desktop` if you enabled autostart, and
+`rm -rf ~/claudlet` to drop the checkout).

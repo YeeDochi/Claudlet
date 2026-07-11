@@ -55,7 +55,16 @@ cp ~/claudlet/packaging/claudlet.desktop ~/.config/autostart/
 ## 제거
 
 ```bash
-~/claudlet/bin/claudlet-install --remove    # 훅 + 스킬 링크 제거
-rm ~/.config/autostart/claudlet.desktop       # 자동시작 켰다면
-rm -rf ~/claudlet
+claudlet-uninstall          # 펫 종료 + 훅/스킬 링크 제거 + 포트파일 정리
+claudlet-uninstall --purge  # 위 전부 + ~/.config/claudlet 삭제
 ```
+
+`claudlet-uninstall`은 실행 중인 펫을 종료하고, `settings.json`의 훅을 제거하고,
+`/claudlet` 스킬 링크를 풀고, 남은 포트파일을 정리해요. `--purge`를 주면 설정
+디렉터리까지 지워요. 패키지 본체는 지우지 **않고** 지우는 명령만 안내해요
+(`pipx uninstall claudlet` 또는 `pip uninstall claudlet`).
+`claudlet-install --remove`도 같은 동작이에요.
+
+소스 체크아웃이면 shim 사용: `~/claudlet/bin/claudlet-uninstall`
+(자동시작을 켰다면 `rm ~/.config/autostart/claudlet.desktop`, 체크아웃 폴더까지
+지우려면 `rm -rf ~/claudlet`).

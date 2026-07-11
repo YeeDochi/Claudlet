@@ -81,8 +81,8 @@ def is_ours(group):
     return False
 
 
-def main():
-    remove = "--remove" in sys.argv
+def main(argv=None):
+    remove = "--remove" in (sys.argv if argv is None else argv)
     s = load()
     hooks = s.get("hooks", {})
 

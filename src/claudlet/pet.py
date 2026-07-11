@@ -279,6 +279,11 @@ class Pet(QWidget):
             self._handle_event(ev)
 
     def _handle_event(self, ev):
+        # A quit command (claudlet-uninstall teardown) is a shutdown request,
+        # not a Claude event: shut down cleanly and stop processing.
+        if ev.get("cmd") == "quit":
+            self._quit()
+            return
         # A motion command is a user override, NOT a Claude event: it must not
         # touch the engine or the SessionEnd quit timer.
         if ev.get("cmd") == "motion":

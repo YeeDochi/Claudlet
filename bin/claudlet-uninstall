@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Thin shim -> claudlet.uninstall:_cli (source-checkout uninstall helper)."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from claudlet.uninstall import _cli
+_cli()

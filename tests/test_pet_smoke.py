@@ -44,6 +44,18 @@ def test_pet_answers_liveness_ping():
         p._cleanup()
 
 
+def test_pet_quit_command_triggers_shutdown():
+    # claudlet-uninstall broadcasts {"cmd":"quit"} to tear pets down. The pet
+    # must treat it as a shutdown request (clean _quit), NOT feed it to the
+    # state engine like a Claude event.
+    p = P.Pet(session_id="quitcmd")
+    called = []
+    p._quit = lambda: called.append(True)
+    p._handle_event({"cmd": "quit"})
+    assert called == [True]
+    p._cleanup()
+
+
 def test_pid_alive_posix_and_windows(monkeypatch):
     if os.name != "nt":
         assert P._pid_alive(os.getpid()) is True     # this test process is alive

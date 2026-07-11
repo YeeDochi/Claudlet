@@ -127,22 +127,19 @@ def _check_deps():
     return "%s installed" % ", ".join(pkgs)
 
 
-def main():
-    remove = "--remove" in sys.argv[1:]
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
     from claudlet import install_hooks
 
-    if remove:
-        head("uninstalling claudlet")
-        install_hooks.main()          # reads --remove from sys.argv
-        _unlink_skill()
-        ok("hooks + skill link removed")
-        print("\nclaudlet unhooked. (remove the package with your installer, "
-              "e.g. pipx uninstall claudlet)")
-        return
+    if "--remove" in argv:
+        # single teardown implementation lives in uninstall; delegate so
+        # `claudlet-install --remove` and `claudlet-uninstall` never diverge.
+        from claudlet import uninstall
+        return uninstall.main(argv)
 
     head("setting up claudlet")
     ok("dependencies", _check_deps())
-    install_hooks.main()
+    install_hooks.main([])
     ok("Claude Code hooks", "registered")
     skill, note = _link_skill()
     if skill:
