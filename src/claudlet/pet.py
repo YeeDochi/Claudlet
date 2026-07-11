@@ -50,10 +50,20 @@ PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for p
 # the pet once the gap exceeds FOLLOW_START, and stops once within FOLLOW_STOP
 # (hysteresis), like a real sidekick trailing along; no facing-based side pick
 # (that made it teleport across when the pet turned).
-COMPANION_U = 3                         # companion art-pixel size (< U -> smaller)
-COMPANION_SPEED = 3.0                   # px/tick it walks toward the pet
-COMPANION_FOLLOW_START = 130            # center-gap (px) that makes it start following
-COMPANION_FOLLOW_STOP = 78              # center-gap (px) it settles at / stops
+COMPANION_U = 2.5                       # companion art-pixel size (half the pet's U=5)
+# Follow feel: sets off soon after the pet leaves (short START gap), dawdles at a
+# slow amble while close behind, but SPRINTS when left far behind — the "어?
+# 늦었다!" scramble: speed*(1+gap/FACTOR), capped at speed*CAP.
+COMPANION_SPEED = 1.8                   # base amble px/tick (pet walks 1.8-2.8)
+COMPANION_RUN_FACTOR = 90.0             # gap that roughly doubles the speed
+COMPANION_RUN_CAP = 8.0                 # sprint ceiling (~14 px/tick when far)
+COMPANION_FOLLOW_START = 90             # center-gap (px) that makes it start following
+COMPANION_FOLLOW_STOP = 60              # center-gap (px) it settles at / stops
+COMPANION_BLINK_DY = 140                # feet-line y-gap that teleports it to the pet
+                                        #   (landed on a different level after a throw)
+COMPANION_MAX = 3                       # companion cap: one per running agent, up to
+                                        #   this many trailing in a duckling chain
+COMPANION_BYE_DUR = 1.6                 # departing celebrate ("다 됐다!") before closing
 FPS = 20
 
 # short label per state (tray tooltip), per language
@@ -141,8 +151,9 @@ class Companion(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         # purely decorative: never take clicks/focus.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.w = (C.GRID_W + 2 * PAD_X) * COMPANION_U
-        self.h = (C.GRID_H + 2 * PAD_Y) * COMPANION_U
+        # COMPANION_U may be fractional (half the pet's U) — window dims are ints
+        self.w = int((C.GRID_W + 2 * PAD_X) * COMPANION_U)
+        self.h = int((C.GRID_H + 2 * PAD_Y) * COMPANION_U)
         self.setFixedSize(self.w, self.h)
         self.x = 0.0
         self.y = 0.0
@@ -150,6 +161,39 @@ class Companion(QWidget):
         self.facing = -1
         self._moving = False           # follow hysteresis: are we currently chasing?
         self._state = "idle"           # walk while chasing, idle when settled
+        self._masked = False           # occlusion mask state (same trick as the pet)
+        self._last_mask = None
+        self.vx = 0.0                  # own physics while flung (see fling/fly)
+        self.vy = 0.0
+        self._air = False              # True while flying/bouncing on its own
+        self._depart_until = None      # monotonic deadline of the goodbye wave
+        self.hat = random.choice(C.HAT_KINDS)   # each sidekick gets its own hat
+
+    def depart_tick(self):
+        """One tick of the goodbye: stand and celebrate ('다 됐다!' bubble) until
+        the deadline — the pet then closes this window. Announces the finish
+        instead of blinking out of existence."""
+        self._state = "celebrate"
+        self.frame = (self.frame + 1) % 100000
+        self.update()
+
+    def apply_mask(self, region):
+        """Mask-only visibility, mirroring Pet._apply_mask: full region drops the
+        clip; an EMPTY region must become a 1px off-widget mask because Qt treats
+        setMask(<empty>) as 'no mask' (would show everything)."""
+        full = QRegion(QRect(0, 0, self.w, self.h))
+        if region == full:
+            if self._masked:
+                self.clearMask()
+                self._masked = False
+                self._last_mask = None
+            return
+        if region.isEmpty():
+            region = QRegion(QRect(-1, -1, 1, 1))
+        if not self._masked or region != self._last_mask:
+            self.setMask(region)
+            self._masked = True
+            self._last_mask = region
 
     def advance(self, target_x, ground_y, rest_state="idle"):
         """Follow the pet like a real sidekick: only START walking once the gap to
@@ -168,7 +212,11 @@ class Companion(QWidget):
             self._moving = False
         if self._moving:
             self.facing = 1 if dx > 0 else -1
-            move = min(dist - COMPANION_FOLLOW_STOP, COMPANION_SPEED)
+            # hurry when far behind: speed grows with the gap, capped, then
+            # settles back to a walk.
+            speed = min(COMPANION_SPEED * (1.0 + dist / COMPANION_RUN_FACTOR),
+                        COMPANION_SPEED * COMPANION_RUN_CAP)
+            move = min(dist - COMPANION_FOLLOW_STOP, speed)
             if move > 0:
                 self.x += self.facing * move
             self._state = "walk"
@@ -177,19 +225,70 @@ class Companion(QWidget):
         self.y = ground_y
         self.frame = (self.frame + 1) % 100000
         self.move(int(self.x), int(self.y))
+        self.update()      # repaint EVERY tick — without this the walk cycle/bob
+                           # never animates (move() alone doesn't trigger a paint)
+
+    def hover_to(self, tx, ty, ease=0.22):
+        """While the pet is HELD: hurry to the cursor and get 'picked up' too —
+        ease toward a spot beside the held pet (both axes), dangling once there.
+        So a throw launches the two from side by side, not screen-widths apart."""
+        dx, dy = tx - self.x, ty - self.y
+        if abs(dx) > 0.5:
+            self.facing = 1 if dx > 0 else -1
+        self.x += dx * ease
+        self.y += dy * ease
+        near = abs(dx) < 8 and abs(dy) < 8
+        self._state = "held" if near else "walk"    # dangle once it arrives
+        self._moving = True
+        self._air = False                           # a grab cancels any flight
+        self.frame = (self.frame + 1) % 100000
+        self.move(int(self.x), int(self.y))
+        self.update()
+
+    def fling(self, vx, vy):
+        """Launch with the SAME velocity as the pet's throw: the companion traces
+        its own parallel arc and BOUNCES off the floor itself (breakout-style),
+        instead of lerping after the pet — a lerp smears the bounce into a slow
+        drift, which read wrong."""
+        self.vx, self.vy = float(vx), float(vy)
+        self._air = True
+
+    def fly(self, left, right, top, floor):
+        """One tick of its own physics while flung (same engine as the pet).
+        Settles -> back to ground-following."""
+        self.x, self.y, self.vx, self.vy, settled = physics.advance(
+            self.x, self.y, self.vx, self.vy, left, right, top, floor)
+        if settled:
+            self._air = False
+            self._moving = True             # walk the remaining gap to the pet
+        if abs(self.vx) > 0.2:
+            self.facing = 1 if self.vx > 0 else -1
+        self._state = "walk"                # legs flailing mid-air
+        self.frame = (self.frame + 1) % 100000
+        self.move(int(self.x), int(self.y))
+        self.update()
 
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         C.draw_creature(p, PAD_X * COMPANION_U, PAD_Y * COMPANION_U,
                         COMPANION_U, self._state, self.frame, facing=self.facing,
-                        cap="agent")
+                        cap=self.hat)
         p.end()
 
 
 class Pet(QWidget):
     def __init__(self, session_id="default", host="unknown", claude_pid=0):
         super().__init__()
+        # The KWin geom feed and windows.EXCLUDE_CLASSES filter our own windows
+        # out by resourceClass "claudlet", which Qt derives from the application
+        # name — main() sets it, but a Pet constructed directly (demo/embedding)
+        # would otherwise see ITSELF and its companion as perchable windows and
+        # perch on / get contained in its own companion (wall-sticking, popping
+        # out elsewhere, being masked hidden). Enforce it here.
+        app = QApplication.instance()
+        if app is not None and "claudlet" not in app.applicationName().lower():
+            app.setApplicationName("claudlet")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -247,7 +346,9 @@ class Pet(QWidget):
         # host window is the one whose pid is an ancestor of our Claude process.
         self._ancestor_pids = self._proc_ancestors(claude_pid)
         self._host_wid = None                # internalId of our host window (focus)
-        self._companion = None               # lazy agent-follower window (see Companion)
+        self._companions = []                # agent followers, one per running agent
+        self._departing = []                 # finished agents' companions waving goodbye
+        self._comp_flung = False             # this throw already launched the companions
         self._hidden_for_win = False         # hidden because our perch/host went away
         self._masked = False                 # pet clipped to a window's exposed part
         self._last_mask = None               # last applied QRegion (skip redundant sets)
@@ -527,28 +628,116 @@ class Pet(QWidget):
         self.update()
         self._sync_companion()
 
+    @property
+    def _companion(self):
+        """First companion or None (accessor for tests/back-compat)."""
+        return self._companions[0] if self._companions else None
+
     def _sync_companion(self):
-        """Show/hide + walk the agent follower toward the pet. Independent little
-        creature: it chases the pet's centre only when the gap grows, and rests
-        on the screen floor otherwise (see Companion.advance)."""
+        """Show/hide + drive the agent followers: one companion per running
+        agent (capped at COMPANION_MAX), trailing in a duckling chain — #1
+        follows the pet, #2 follows #1, and so on."""
         try:
-            active = self.engine.agents_active() > 0
+            n = min(self.engine.agents_active(), COMPANION_MAX)
         except Exception:
-            active = False
-        if not active:
-            if self._companion is not None and self._companion.isVisible():
-                self._companion.hide()
+            n = 0
+        now = time.monotonic()
+        while len(self._companions) > max(n, 0):     # an agent finished:
+            c = self._companions.pop()               # announce, then vanish
+            c._depart_until = now + COMPANION_BYE_DUR
+            self._departing.append(c)
+        for c in self._departing[:]:                 # goodbye celebrate, then close
+            if now >= c._depart_until:
+                self._departing.remove(c)
+                c.close()
+            else:
+                c.depart_tick()
+        if n <= 0:
             return
-        c = self._companion
-        if c is None:
-            c = self._companion = Companion()
-            c.x, c.y = float(self.x), float(self.y)   # spawn near the pet
-        target_x = self.x + self.w / 2.0              # chase the pet's centre
-        ccx = c.x + c.w / 2.0
-        ground_y = self._screen_bottom_at(ccx) - c.h  # stay on the screen floor
-        c.advance(target_x, ground_y, self.engine.agent_state())
-        if not c.isVisible():
-            c.show()
+        while len(self._companions) < n:             # a new agent started
+            c = Companion()
+            prev = self._companions[-1] if self._companions else self
+            c.x, c.y = float(prev.x), float(prev.y)  # spawn at the chain's tail
+            self._companions.append(c)
+
+        if self.mode == "held":
+            # the pet is lifted: the whole chain scurries to the cursor and
+            # dangles UNDER the held pet, so a throw launches everyone together.
+            self._comp_flung = False
+            for i, c in enumerate(self._companions):
+                c.hover_to(self.x + (self.w - c.w) / 2.0,
+                           self.y + self.h + 2 + i * int(c.h * 0.75))
+                self._occlude_companion(c)
+                if not c.isVisible():
+                    c.show()
+            return
+        if self.mode == "thrown" and not self._comp_flung:
+            # the pet just got thrown: launch every companion with the same
+            # velocity — parallel arcs bouncing off the floor (breakout-style).
+            for c in self._companions:
+                c.fling(self.vx, self.vy)
+            self._comp_flung = True
+        if self.mode != "thrown":
+            self._comp_flung = False
+
+        ratio = COMPANION_U / float(U)
+        # ground = the PET's current feet line, wherever it stands (screen
+        # floor, window perch, contained interior) — the chain shares its level.
+        ground_y = self.y + FOOT_Y * (1.0 - ratio)
+        leader = self
+        for c in self._companions:
+            if c._air:
+                if self._contain is not None:
+                    # flung INSIDE a window: bounce within its interior like the
+                    # pet does, instead of sailing out to the screen edges.
+                    win = self._contain
+                    fly_l, fly_r = win.x, win.x + win.w - c.w
+                    fly_t = win.y
+                    fly_floor = (win.y + win.h - self.h
+                                 + FOOT_Y * (1.0 - ratio))
+                else:
+                    # physical bounce floor: the screen floor under the
+                    # companion, feet-aligned with a pet standing there.
+                    ccx = c.x + c.w / 2.0
+                    fly_l = self.screen_rect.left()
+                    fly_r = self.screen_rect.right() - c.w
+                    fly_t = self.screen_rect.top()
+                    fly_floor = (self._screen_bottom_at(ccx) - self.h
+                                 + FOOT_Y * (1.0 - ratio))
+                c.fly(fly_l, fly_r, fly_t, fly_floor)
+            else:
+                # a level away (landed a throw somewhere else)? BLINK to the pet
+                # instead of walking a floating line across the screen.
+                if abs(c.y - ground_y) > COMPANION_BLINK_DY:
+                    c.x = self.x + (self.w - c.w) / 2.0
+                # duckling chain: chase your LEADER's centre (pet for the first)
+                target_x = leader.x + leader.w / 2.0
+                c.advance(target_x, ground_y, self.engine.agent_state())
+            self._occlude_companion(c)
+            if not c.isVisible():
+                c.show()
+            leader = c
+
+    def _occlude_companion(self, c):
+        """Clip the companion the way the pet clips itself: when it followed the
+        pet INSIDE a window, windows stacked above that window cover it too. On
+        the desktop (or without a geom feed) it stays fully visible."""
+        if not getattr(self, "_geom_active", False) or self._contain is None:
+            c.apply_mask(QRegion(QRect(0, 0, c.w, c.h)))
+            return
+        cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
+        if cur is None:                        # ridden window minimized/closed
+            c.apply_mask(QRegion())
+            return
+        try:
+            i = self._wins.index(cur)
+        except ValueError:
+            i = len(self._wins)
+        shown = QRegion(QRect(int(c.x), int(c.y), c.w, c.h))
+        for w in self._wins[i + 1:]:
+            shown = shown.subtracted(QRegion(QRect(w.x, w.y, w.w, w.h)))
+        shown.translate(-int(c.x), -int(c.y))
+        c.apply_mask(shown)
 
     def _roam(self):
         left, right, top, floor = self._bounds()
@@ -1429,9 +1618,10 @@ class Pet(QWidget):
         # past QApplication.quit() on Windows; hiding it is a no-op elsewhere.
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
-        if getattr(self, "_companion", None) is not None:
-            self._companion.close()
-            self._companion = None
+        for c in getattr(self, "_companions", []) + getattr(self, "_departing", []):
+            c.close()
+        self._companions = []
+        self._departing = []
         self._stop_cursor_feed()
         for plugin in (getattr(self, "_activate_plugin", None),):
             if plugin:

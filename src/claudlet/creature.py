@@ -77,10 +77,22 @@ VISOR      = QColor("#C2C8D2")   # silver housing
 VISOR_HI   = QColor("#E9EDF3")   # top highlight
 VISOR_D    = QColor("#8A90A0")   # bottom shade
 VISOR_GLASS = QColor("#1E2230")  # dark screen inset
-# yellow kindergarten cap worn by agent companions (marks them as sidekicks)
+# hats worn by agent companions (marks them as sidekicks; picked at random)
 CAP      = QColor("#F4C430")   # kindergarten yellow
 CAP_HI   = QColor("#FFE07A")   # top highlight
 CAP_D    = QColor("#C9960F")   # brim / shade
+HARD     = QColor("#FF8C1A")   # construction hard hat
+HARD_HI  = QColor("#FFD9A8")
+BERET    = QColor("#B03A48")   # artist beret (wine red)
+BERET_D  = QColor("#7E2833")
+INK      = QColor("#26232B")   # top hat
+INK_BAND = QColor("#C0392B")
+PROP     = QColor("#3E7BD6")   # propeller beanie base (blue)
+PROP_BLADE = QColor("#E14848")
+BEANIE   = QColor("#2FA893")   # knitted beanie (teal)
+BEANIE_D = QColor("#1F7A6A")
+# every kind a companion can be assigned (random per companion)
+HAT_KINDS = ("cap", "hardhat", "beret", "tophat", "propeller", "beanie")
 
 GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props/bounce)
 
@@ -357,13 +369,41 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None):
             headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
 
     if cap:
-        # yellow kindergarten cap sitting on the crown (agent companions).
-        # drawn in head space so it bobs/tilts/mirrors with the body.
-        px(4.2, 3.6, 13.6, 1.0, CAP_D)         # brim across the head, front shade
-        px(5.8, 2.0, 10.4, 2.0, CAP)           # rounded crown of the cap
-        px(7.4, 1.1, 7.2, 1.2, CAP)            # dome top
-        px(7.4, 1.1, 7.2, 0.4, CAP_HI)         # highlight rim
-        px(10.0, 0.4, 1.6, 1.0, CAP_D)         # little top button
+        # a hat on the crown (agent companions) — drawn in head space so it
+        # bobs/tilts/mirrors with the body. pieces are centred on the body
+        # centre col 10.5 (an off-centre hat reads as tilted at small u).
+        if cap in ("agent", "cap"):            # yellow kindergarten cap
+            px(3.7, 3.6, 13.6, 1.0, CAP_D)     # brim across the head, front shade
+            px(5.3, 2.0, 10.4, 2.0, CAP)       # rounded crown of the cap
+            px(6.9, 1.1, 7.2, 1.2, CAP)        # dome top
+            px(6.9, 1.1, 7.2, 0.4, CAP_HI)     # highlight rim
+            px(9.7, 0.4, 1.6, 1.0, CAP_D)      # little top button
+        elif cap == "hardhat":                 # construction helmet
+            px(3.2, 3.7, 14.6, 1.0, HARD)      # wide brim
+            px(5.3, 1.5, 10.4, 2.4, HARD)      # dome
+            px(6.9, 0.8, 7.2, 1.0, HARD)       # dome top
+            px(9.6, 0.5, 1.8, 3.2, HARD_HI)    # white centre ridge
+        elif cap == "beret":                   # artist beret
+            px(4.6, 2.9, 11.8, 1.5, BERET)     # flat blob
+            px(6.0, 2.1, 9.0, 1.0, BERET)      # upper puff
+            px(9.9, 1.2, 1.2, 1.1, BERET_D)    # stem
+        elif cap == "tophat":                  # tiny top hat
+            px(4.4, 3.9, 12.2, 0.8, INK)       # brim
+            px(6.6, 0.3, 7.8, 3.8, INK)        # cylinder
+            px(6.6, 2.9, 7.8, 0.9, INK_BAND)   # band
+        elif cap == "propeller":               # propeller beanie (spinning!)
+            px(5.6, 2.9, 9.8, 1.6, PROP)       # cap base
+            px(7.2, 2.0, 6.6, 1.1, PROP)       # dome
+            px(9.9, 1.0, 1.2, 1.2, PROP)       # stick
+            if (frame // 4) % 2 == 0:          # blades: wide <-> narrow = spin
+                px(6.6, 0.3, 7.8, 0.8, PROP_BLADE)
+            else:
+                px(8.9, 0.3, 3.2, 0.8, PROP_BLADE)
+        elif cap == "beanie":                  # knitted beanie + pompom
+            px(4.8, 3.3, 11.4, 1.2, BEANIE_D)  # folded band
+            px(5.3, 1.6, 10.4, 2.0, BEANIE)    # knit dome
+            px(6.9, 0.9, 7.2, 1.0, BEANIE)
+            px(9.6, 0.0, 1.8, 1.2, WHITE)      # pompom
 
     p.restore()
 

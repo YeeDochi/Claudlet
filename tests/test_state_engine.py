@@ -112,13 +112,25 @@ def test_agents_active_parallel_and_floor():
     assert e.agents_active() == 0
 
 
-def test_agents_active_resets_on_turn_boundaries():
-    for boundary in ("Stop", "UserPromptSubmit"):
-        e = StateEngine()
-        e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
-        assert e.agents_active() == 1
-        e.handle(_ev(boundary), now=2.0)
-        assert e.agents_active() == 0, boundary
+def test_agents_survive_turn_boundaries():
+    # BACKGROUND subagents outlive the turn: the user chats (UserPromptSubmit)
+    # and the main turn ends (Stop) while they still run — the companion must
+    # NOT vanish then. Only their real SubagentStop closes the window.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("Stop"), now=1.0)
+    assert e.agents_active() == 1
+    e.handle(_ev("UserPromptSubmit"), now=2.0)
+    assert e.agents_active() == 1
+    e.handle(_ev("SubagentStop"), now=3.0)
+    assert e.agents_active() == 0
+
+
+def test_agents_reset_on_session_boundaries():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SessionStart"), now=1.0)     # fresh session -> nothing carried
+    assert e.agents_active() == 0
 
 
 def test_agent_state_mirrors_subagent_tools_during_window():

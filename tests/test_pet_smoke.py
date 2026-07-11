@@ -68,6 +68,101 @@ def test_companion_follows_when_far_and_stops_when_near():
         c.close()
 
 
+def test_companion_fling_bounces_with_own_physics():
+    # thrown: the companion gets the pet's launch velocity and flies its own arc
+    # with the real physics engine — it hits the floor and BOUNCES (breakout
+    # style) rather than lerp-trailing, and eventually settles back to following.
+    c = P.Companion()
+    try:
+        c.x, c.y = 100.0, 100.0
+        c.fling(6.0, 0.0)
+        assert c._air
+        floor = 400.0
+        bounced = False
+        prev_vy = 0.0
+        for _ in range(2000):
+            c.fly(0.0, 2000.0, 0.0, floor)
+            if prev_vy > 0 and c.vy < 0:
+                bounced = True                   # downward -> upward = floor bounce
+            prev_vy = c.vy
+            if not c._air:
+                break
+        assert bounced
+        assert not c._air                        # settled back to ground mode
+        assert abs(c.y - floor) < 2.0
+    finally:
+        c.close()
+
+
+def test_companion_stands_on_pets_feet_line(monkeypatch):
+    # the companion's ground is the PET's current feet line wherever it stands
+    # (screen floor, window perch, contained interior) — so it follows the pet
+    # into windows and onto perches by construction.
+    p = P.Pet(session_id="cmpwin")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        p.mode = "roam"
+        p.y = 337.0                              # pet standing somewhere specific
+        p._sync_companion()
+        c = p._companion
+        expected = p.y + P.FOOT_Y * (1.0 - P.COMPANION_U / float(P.U))
+        assert abs(c.y - expected) < 1.0         # feet on the pet's feet line
+    finally:
+        p._cleanup()
+
+
+def test_companion_blinks_over_when_a_level_apart(monkeypatch):
+    # landed a throw on a different level: instead of walking a floating line
+    # across the screen, the companion teleports beside the pet.
+    p = P.Pet(session_id="cmpblink")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        p.mode = "roam"
+        p._sync_companion()
+        c = p._companion
+        c.x, c.y = p.x + 500, p.y + P.COMPANION_BLINK_DY + 200   # far + a level below
+        p._sync_companion()
+        assert abs((c.x + c.w / 2.0) - (p.x + p.w / 2.0)) < c.w  # blinked to the pet
+    finally:
+        p._cleanup()
+
+
+def test_companion_gathers_beside_held_pet(monkeypatch):
+    # lifting the pet makes the companion hurry to the cursor and dangle beside
+    # it, so a subsequent throw launches the two side by side.
+    p = P.Pet(session_id="cmpheld")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        p._sync_companion()
+        c = p._companion
+        c.x, c.y = p.x - 600, p.y + 300          # far away on the ground
+        p.mode = "held"
+        d0 = abs((c.x + c.w / 2) - (p.x + p.w / 2)) + abs(c.y - p.y)
+        for _ in range(200):
+            p._sync_companion()
+        d1 = abs((c.x + c.w / 2) - (p.x + p.w / 2)) + abs(c.y - p.y)
+        assert d1 < d0                            # closed in on the held pet
+        assert c._state == "held"                 # dangling beside it
+    finally:
+        p._cleanup()
+
+
+def test_pet_throw_flings_companion_once(monkeypatch):
+    p = P.Pet(session_id="cmpfling")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        p._sync_companion()                      # create companion (roam)
+        p.mode = "thrown"
+        p.vx, p.vy = 9.0, -4.0
+        p._sync_companion()
+        c = p._companion
+        # launched with the pet's velocity (one physics tick may already have
+        # applied drag/gravity — direction is what matters)
+        assert c._air and c.vx > 0 and c.vy < 0
+    finally:
+        p._cleanup()
+
+
 def test_companion_shows_rest_state_when_settled():
     # when not walking, the companion mirrors the subagent's activity (rest_state)
     c = P.Companion()
@@ -95,13 +190,75 @@ def test_pet_shows_companion_only_while_agents_active(monkeypatch):
         active = {"n": 0}
         monkeypatch.setattr(p.engine, "agents_active", lambda: active["n"])
         p._sync_companion()
-        assert p._companion is None or not p._companion.isVisible()
+        assert p._companion is None
         active["n"] = 1
         p._sync_companion()
         assert p._companion is not None and p._companion.isVisible()
         active["n"] = 0
         p._sync_companion()
-        assert not p._companion.isVisible()
+        assert p._companion is None            # closed and removed
+    finally:
+        p._cleanup()
+
+
+def test_companion_waves_goodbye_then_closes(monkeypatch):
+    # an agent finishing doesn't blink its companion away: it celebrates
+    # ("다 됐다!") for BYE_DUR, then the window closes.
+    p = P.Pet(session_id="cmpbye")
+    try:
+        active = {"n": 1}
+        monkeypatch.setattr(p.engine, "agents_active", lambda: active["n"])
+        p._sync_companion()
+        c = p._companion
+        active["n"] = 0
+        p._sync_companion()
+        assert p._companions == [] and p._departing == [c]
+        assert c._state == "celebrate" and c.isVisible()   # announcing the finish
+        monkeypatch.setattr(P, "COMPANION_BYE_DUR", 0.0)   # not for the deadline set above
+        c._depart_until = 0.0                              # force the deadline past
+        p._sync_companion()
+        assert p._departing == []                          # closed and removed
+    finally:
+        p._cleanup()
+
+
+def test_companion_flung_inside_window_stays_inside(monkeypatch):
+    # flung while the pet lives in a window: the companion bounces within that
+    # window's interior instead of sailing out to the screen edges.
+    from claudlet import windows as W
+    p = P.Pet(session_id="cmpbounce")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        win = W.Win("w1", 400, 300, 500, 400, "konsole", 1)
+        p._contain = win
+        p.x, p.y = 500.0, 400.0
+        p._sync_companion()                     # create companion near the pet
+        c = p._companion
+        p.mode = "thrown"
+        p.vx, p.vy = 25.0, -10.0                # a hard fling
+        for _ in range(300):
+            p._sync_companion()
+            assert win.x - 1 <= c.x <= win.x + win.w - c.w + 1
+            if not c._air:
+                break
+    finally:
+        p._cleanup()
+
+
+def test_companion_chain_grows_with_agents_and_caps(monkeypatch):
+    # one companion per running agent, trailing as a chain, capped at MAX.
+    p = P.Pet(session_id="cmpchain")
+    try:
+        active = {"n": 2}
+        monkeypatch.setattr(p.engine, "agents_active", lambda: active["n"])
+        p._sync_companion()
+        assert len(p._companions) == 2
+        active["n"] = 7                        # more agents than the cap
+        p._sync_companion()
+        assert len(p._companions) == P.COMPANION_MAX
+        active["n"] = 1                        # agents finished -> chain shrinks
+        p._sync_companion()
+        assert len(p._companions) == 1
     finally:
         p._cleanup()
 

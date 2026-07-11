@@ -171,8 +171,9 @@ class StateEngine:
             s.agent_state = None
             s.set_state(self._events["start"], now)
         elif name == "UserPromptSubmit":
-            s.agents = 0                       # new turn -> agents from last turn done
-            s.agent_state = None
+            # NOTE: deliberately does NOT reset s.agents — BACKGROUND subagents
+            # outlive turn boundaries (the user chats while they run), and their
+            # SubagentStop arrives whenever they actually finish.
             s.set_state(self._events["prompt"], now)
         elif name == "PreToolUse":
             tool = ev.get("tool_name", "")
@@ -208,8 +209,10 @@ class StateEngine:
             if s.agents == 0:
                 s.agent_state = None
         elif name == "Stop":
-            s.agents = 0                       # turn ended -> all agents done
-            s.agent_state = None
+            # Do NOT reset s.agents here either: Stop ends the MAIN turn, but
+            # background subagents keep running past it (their SubagentStop is
+            # the real close). Worst case a lost SubagentStop leaves a stuck
+            # companion until SessionEnd — preferable to killing live ones.
             if self.is_focused():
                 s.set_state(self._events["done"], now)
             else:
