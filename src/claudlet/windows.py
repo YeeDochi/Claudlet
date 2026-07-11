@@ -55,14 +55,27 @@ def parse_kwin_dump(text, min_size=40):
     return wins
 
 
+# Window classes that share a pid with a legit ancestor yet are never the host.
+# On Windows, Windows Terminal launches via COM / DelegateExecute, so a Claude
+# process's ancestor chain runs up through explorer.exe — and explorer owns a
+# visible File Explorer window ("CabinetWClass") plus the taskbar
+# ("Shell_TrayWnd"). Without this guard find_host adopts the File Explorer window
+# as the host and every click-to-focus raises Explorer instead of the terminal.
+NON_HOST_CLASSES = EXCLUDE_CLASSES | {"cabinetwclass", "shell_traywnd",
+                                      "shell_secondarytraywnd"}
+
+
 def find_host(wins, ancestor_pids):
     """The window owned by this session's host app: the first whose pid is in
     `ancestor_pids` (the pet's Claude process and its parents — the terminal/IDE
-    that owns the window is one of them). None if no pid matches."""
+    that owns the window is one of them), skipping shell-chrome windows that
+    merely share a pid with a fake ancestor (see NON_HOST_CLASSES). None if no
+    such window matches (the caller then falls back to a class match)."""
     if not ancestor_pids:
         return None
     for w in wins:
-        if w.pid is not None and w.pid in ancestor_pids:
+        if (w.pid is not None and w.pid in ancestor_pids
+                and (w.title or "").lower() not in NON_HOST_CLASSES):
             return w
     return None
 

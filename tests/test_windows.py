@@ -75,6 +75,26 @@ def test_find_host_none_when_no_pid_match():
     assert windows.find_host(wins, {111, 222}) is None
 
 
+def test_find_host_skips_explorer_shell_window():
+    # Windows Terminal launches via COM/DelegateExecute, so claude.exe's ancestor
+    # chain runs up through explorer.exe (pid 27704). explorer owns a visible File
+    # Explorer window (CabinetWClass) whose pid is therefore an "ancestor" — but
+    # it is NOT the host. find_host must skip it (else clicks focus File Explorer).
+    # WindowsTerminal.exe's own pid is not in the chain, so there's no real host
+    # window here -> None, and the caller falls back to a class match.
+    wins = [windows.Win("expl", 0, 0, 800, 600, "cabinetwclass", 27704)]
+    assert windows.find_host(wins, {999, 27704}) is None
+
+
+def test_find_host_skips_explorer_and_picks_real_terminal():
+    # explorer is a fake-ancestor precedes the real terminal in the list; the
+    # terminal's pid is genuinely in the chain -> skip explorer, adopt the terminal.
+    wins = [windows.Win("expl", 0, 0, 800, 600, "cabinetwclass", 27704),
+            windows.Win("term", 0, 0, 900, 500, "consolewindowclass", 3333)]
+    h = windows.find_host(wins, {3333, 27704})
+    assert h is not None and h.wid == "term"
+
+
 def test_covered_by_higher_full_cover():
     host = windows.Win("h", 100, 100, 400, 300, "konsole", 1)
     top = windows.Win("t", 0, 0, 1920, 1080, "code", 2)     # maximized above
