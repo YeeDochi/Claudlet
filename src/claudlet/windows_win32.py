@@ -205,8 +205,12 @@ def _to_logical(left, top, w, h, scale):
     return (int(left), int(top), int(w), int(h))
 
 
-def _enum_windows(exclude_hwnd=None):
-    """Visible, non-minimized top-level windows, topmost-first (raw Win32 order)."""
+def _enum_windows(exclude_hwnd=None, include_iconic=False):
+    """Visible top-level windows, topmost-first (raw Win32 order). Minimized
+    (iconic) windows are excluded by default — the perch/occlusion feed never
+    targets them — but `include_iconic=True` keeps them (with placeholder 0
+    geometry, since a minimized window's rect is meaningless) for the
+    click-to-focus lookup, which must be able to restore a minimized host."""
     out = []
 
     def _cb(hwnd, _lparam):
@@ -216,7 +220,10 @@ def _enum_windows(exclude_hwnd=None):
         # into dwm.exe, and every top-level window on the system (including
         # dozens of invisible/helper ones) reaches this callback each poll,
         # so paying for DWM only after the free filters narrows it down a lot.
-        if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        iconic = bool(user32.IsIconic(hwnd))
+        if iconic and not include_iconic:
             return True
         if user32.GetWindowTextLengthW(hwnd) == 0:
             return True                  # no title -> background/helper window
@@ -224,6 +231,15 @@ def _enum_windows(exclude_hwnd=None):
         if ex_style & WS_EX_TOOLWINDOW:
             return True
         if _is_cloaked(hwnd):
+            return True
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buf, 256)
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        cls = buf.value.lower()
+        if iconic:
+            # minimized: no meaningful geometry; kept only for focus lookups.
+            out.append((hwnd, cls, 0, 0, 0, 0, pid.value))
             return True
         rect = _visible_rect(hwnd)
         if rect is None:
@@ -234,11 +250,7 @@ def _enum_windows(exclude_hwnd=None):
         # convert physical -> Qt logical so the feed shares the pet's coordinate
         # space at display scales other than 100% (see _to_logical).
         lx, ly, lw, lh = _to_logical(rect.left, rect.top, w, h, _dpi_scale(hwnd))
-        buf = ctypes.create_unicode_buffer(256)
-        user32.GetClassNameW(hwnd, buf, 256)
-        pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        out.append((hwnd, buf.value.lower(), lx, ly, lw, lh, pid.value))
+        out.append((hwnd, cls, lx, ly, lw, lh, pid.value))
         return True
 
     user32.EnumWindows(_WNDENUMPROC(_cb), 0)
@@ -324,6 +336,19 @@ def find_window_by_class(substrings):
         if any(sub in cls for sub in subs):
             return hwnd
     return None
+
+
+def find_focus_target(ancestor_pids, class_subs):
+    """hwnd of this session's host window for click-to-focus, or None. Enumerates
+    INCLUDING minimized windows (so a minimized host can be restored) and lets
+    windows.pick_focus_target choose: pid-ancestor match (skipping shell chrome)
+    first, then a native-terminal class-substring fallback."""
+    if user32 is None:
+        return None
+    from claudlet import windows as _w
+    wins = [_w.Win(hwnd, x, y, w, h, cls, pid)
+            for (hwnd, cls, x, y, w, h, pid) in _enum_windows(include_iconic=True)]
+    return _w.pick_focus_target(wins, ancestor_pids, class_subs)
 
 
 def activate_hwnd(hwnd):

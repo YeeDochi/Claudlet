@@ -72,23 +72,20 @@ def test_pid_alive_posix_and_windows(monkeypatch):
     assert P._pid_alive(9999) is True
 
 
-def test_activate_claude_windows_fallback_uses_win32_classes():
-    # With no pid-pinned host window, the Windows click-to-focus fallback must
-    # use hostinfo.win_classes (real Win32 class names) rather than the
-    # Linux/KWin-flavored self.host_classes ("code" never matches any real
-    # Win32 class). "unknown" (native terminals: cmd.exe/PowerShell/Windows
-    # Terminal) is the one host with a distinctive-enough Win32 class to
-    # trust a fallback guess.
+def test_activate_claude_windows_passes_win32_classes():
+    # Windows click-to-focus hands find_focus_target the host's real Win32 class
+    # substrings (hostinfo.win_classes), NOT the Linux/KWin-flavored
+    # self.host_classes ("code" never matches a Win32 class). "unknown" (native
+    # terminals: cmd.exe/PowerShell/Windows Terminal) is the host with a
+    # distinctive-enough class to trust; the returned hwnd is activated.
     p = P.Pet(session_id="wf1", host="unknown")
     try:
-        p._host_wid = None
-
         class _FakeGeom:
             def __init__(self):
                 self.calls = []
 
-            def find_window_by_class(self, classes):
-                self.calls.append(classes)
+            def find_focus_target(self, ancestor_pids, class_subs):
+                self.calls.append(class_subs)
                 return 42
 
             def activate_hwnd(self, hwnd):
@@ -104,20 +101,21 @@ def test_activate_claude_windows_fallback_uses_win32_classes():
         p._cleanup()
 
 
-def test_activate_claude_windows_no_guess_for_ambiguous_host():
+def test_activate_claude_windows_no_class_guess_for_ambiguous_host():
     # VS Code's Win32 class ("chrome_widgetwin_1") is shared by every other
-    # Electron/Chromium app -- win_classes("vscode") is [] on purpose, and
-    # the fallback must pass that through rather than substituting a guess.
+    # Electron/Chromium app -- win_classes("vscode") is [] on purpose, so no
+    # blind class guess is passed. With nothing to match, no window is activated
+    # (a real pid-ancestry match is find_focus_target's own concern, covered by
+    # windows.pick_focus_target tests).
     p = P.Pet(session_id="wf2", host="vscode")
     try:
-        p._host_wid = None
-
         class _FakeGeom:
             def __init__(self):
                 self.calls = []
+                self.activated = None
 
-            def find_window_by_class(self, classes):
-                self.calls.append(classes)
+            def find_focus_target(self, ancestor_pids, class_subs):
+                self.calls.append(class_subs)
                 return None
 
             def activate_hwnd(self, hwnd):
@@ -127,7 +125,7 @@ def test_activate_claude_windows_no_guess_for_ambiguous_host():
         p._win32_geom = fake
         p._activate_claude_windows()
         assert fake.calls == [[]]
-        assert not hasattr(fake, "activated")
+        assert fake.activated is None
     finally:
         p._cleanup()
 

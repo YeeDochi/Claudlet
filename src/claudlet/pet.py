@@ -1250,24 +1250,22 @@ class Pet(QWidget):
 
     def _activate_claude_windows(self):
         """Bring this session's host terminal/IDE window to the foreground
-        (Win32). Uses the same pid-matched `_host_wid` the perch/occlusion
-        feed already tracks, so with multiple consoles the click focuses the
-        right one."""
+        (Win32), restoring it if minimized.
+
+        Uses a MINIMIZED-INCLUSIVE lookup (find_focus_target) rather than the
+        perch feed's `_host_wid`: the perch/occlusion feed drops minimized
+        windows (you can't perch on them), so relying on it left a minimized
+        host un-findable — click focused nothing. find_focus_target enumerates
+        minimized windows too and picks by pid-ancestry (skipping shell chrome
+        like explorer's File Explorer) then native-terminal class; activate_hwnd
+        then SW_RESTOREs it. `win_classes` returns [] for Electron IDEs (their
+        class is shared with every Electron app), so those fall through to the
+        pid match or safely no-op rather than raising the wrong window."""
         geom = getattr(self, "_win32_geom", None)
         if geom is None:
             return
-        target = self._host_wid
-        if not target:
-            # No pid-pinned host window (e.g. launched without --claude-pid):
-            # fall back to matching a Win32 window class. self.host_classes is
-            # the Linux/KWin flavor (e.g. "code" for VS Code), which never
-            # matches a real Win32 class name — use hostinfo.win_classes
-            # instead, which only guesses for hosts with a distinctive-enough
-            # class (native Windows terminals) and returns [] for anything
-            # else (e.g. "vscode", whose real class "chrome_widgetwin_1" is
-            # shared by every other Electron app) so find_window_by_class
-            # safely no-ops rather than raising the wrong window.
-            target = geom.find_window_by_class(hostinfo.win_classes(self.host))
+        target = geom.find_focus_target(self._ancestor_pids,
+                                        hostinfo.win_classes(self.host))
         if target:
             geom.activate_hwnd(target)
 

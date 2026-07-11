@@ -80,6 +80,26 @@ def find_host(wins, ancestor_pids):
     return None
 
 
+def pick_focus_target(wins, ancestor_pids, class_subs):
+    """Choose the click-to-focus target from `wins` and return its wid, or None.
+
+    Differs from find_host: the caller passes a MINIMIZED-INCLUSIVE window list
+    (so a minimized host can be restored, since activate handles SW_RESTORE).
+    Prefers a window whose pid is an ancestor of the Claude process (skipping
+    shell chrome like explorer's File Explorer), then falls back to a window
+    whose class contains one of `class_subs` (native-terminal classes)."""
+    for w in wins:
+        if (w.pid is not None and w.pid in (ancestor_pids or set())
+                and (w.title or "").lower() not in NON_HOST_CLASSES):
+            return w.wid
+    subs = [s.lower() for s in (class_subs or []) if s]
+    for w in wins:
+        t = (w.title or "").lower()
+        if any(s in t for s in subs):
+            return w.wid
+    return None
+
+
 def window_under_feet(cx, feet_y, wins, tol=6):
     """The window a creature at column cx with feet at feet_y is resting ON — its
     top edge at or just below the feet (within tol). Highest such top wins. None

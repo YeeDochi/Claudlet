@@ -95,6 +95,36 @@ def test_find_host_skips_explorer_and_picks_real_terminal():
     assert h is not None and h.wid == "term"
 
 
+# pick_focus_target — click-to-focus target selection. Unlike find_host it runs
+# over a MINIMIZED-INCLUSIVE window list (so a minimized host can be restored):
+# pid-pin first (skipping shell chrome), then a class-substring fallback.
+CASCADIA = ["cascadia_hosting_window_class", "consolewindowclass"]
+
+
+def test_pick_focus_target_pid_match_skips_shell():
+    wins = [windows.Win("expl", 0, 0, 0, 0, "cabinetwclass", 27704),
+            windows.Win("term", 0, 0, 0, 0, "consolewindowclass", 3333)]
+    assert windows.pick_focus_target(wins, {3333, 27704}, CASCADIA) == "term"
+
+
+def test_pick_focus_target_class_fallback_when_no_pid():
+    # WT's window pid isn't in the chain (COM launch) -> fall back to class match
+    wins = [windows.Win("term", 0, 0, 0, 0, "cascadia_hosting_window_class", 5555)]
+    assert windows.pick_focus_target(wins, {999}, CASCADIA) == "term"
+
+
+def test_pick_focus_target_finds_minimized_host():
+    # the caller includes minimized windows; a minimized terminal (ancestor pid)
+    # must still be selected so click-to-focus can restore it.
+    wins = [windows.Win("min", 0, 0, 0, 0, "consolewindowclass", 3333)]
+    assert windows.pick_focus_target(wins, {3333}, CASCADIA) == "min"
+
+
+def test_pick_focus_target_none_when_nothing_matches():
+    wins = [windows.Win("x", 0, 0, 0, 0, "notepadclass", 42)]
+    assert windows.pick_focus_target(wins, {1}, CASCADIA) is None
+
+
 def test_covered_by_higher_full_cover():
     host = windows.Win("h", 100, 100, 400, 300, "konsole", 1)
     top = windows.Win("t", 0, 0, 1920, 1080, "code", 2)     # maximized above
