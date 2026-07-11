@@ -17,6 +17,9 @@ jobs:
       contents: write            # required to create the GitHub Release
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # fetch full history + annotated tag objects,
+          fetch-tags: true        # so the tag's notes message is readable below
 
       - uses: actions/setup-python@v5
         with:
@@ -39,11 +42,18 @@ jobs:
 
       # Notes come from the annotated tag message, which scripts/release.sh fills
       # (hand-written bilingual, or the auto English draft from the commit log).
+      # Read the annotation explicitly with for-each-ref and pass it via --notes:
+      # gh's --notes-from-tag silently fell back to the *commit* message when the
+      # tag object wasn't fully present, so we don't rely on it.
       - name: Create GitHub Release from the tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          NOTES="$(git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(contents)')"
+          [ -n "$NOTES" ] || NOTES="See the commit history for changes."
+          printf '%s\n' "$NOTES" > /tmp/relnotes.md
           gh release create "${GITHUB_REF_NAME}" \
             --title "claudlet ${GITHUB_REF_NAME}" \
-            --notes-from-tag \
+            --notes-file /tmp/relnotes.md \
             --verify-tag
