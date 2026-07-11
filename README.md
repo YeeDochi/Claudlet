@@ -30,8 +30,21 @@ off (💤) between tasks, and clamber over whatever else is on screen.
 
 ## Install
 
-One line — clones (or updates), installs dependencies (PyQt6, plus pyobjc on macOS), and registers the hooks + skill (needs Python & git). Re-run it anytime to update:
+Install with [pipx](https://pipx.pypa.io) (an isolated app install — pulls the
+deps, incl. `pyobjc-framework-Quartz` on macOS, and puts the `claude-pet*`
+commands on your PATH), then wire it into Claude Code:
 
+```bash
+pipx install "git+https://github.com/YeeDochi/claude-pet@v0.1.0"
+claude-pet-install      # registers the hooks + /claude-pet skill (idempotent)
+```
+
+Update later with `pipx upgrade claude-pet && claude-pet-install`, or from inside
+Claude Code with `/claude-pet update`.
+
+<details><summary>Without pipx — one-line source install</summary>
+
+Clones (or updates) to `~/claude-pet`, installs deps, registers hooks + skill:
 ```bash
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python3 -
@@ -40,17 +53,10 @@ curl -fsSL https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python -
 ```
-
-<details><summary>Prefer to do it by hand</summary>
-
-```bash
-git clone https://github.com/YeeDochi/claude-pet ~/claude-pet
-~/claude-pet/bin/claude-pet-install     # installs deps (PyQt6, +Quartz on macOS) + hooks + /claude-pet skill (idempotent)
-```
 </details>
 
 New Claude Code sessions then auto-spawn a pet. Restart any already-running session
-to pick up the hooks — or launch one now with `~/claude-pet/bin/claude-pet`.
+to pick up the hooks — or launch one now with `claude-pet`.
 
 Best on **KDE Plasma**. Perching on and riding windows also works on **Windows**
 (Win32) and **macOS** (experimental — needs `pyobjc-framework-Quartz`, which the

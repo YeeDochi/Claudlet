@@ -32,8 +32,21 @@ Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝
 
 ## 설치
 
-한 줄 — 클론(또는 업데이트)·의존성 설치(PyQt6, macOS면 pyobjc까지)·훅+스킬 등록까지 한 번에 (Python·git 필요). 업데이트도 이 한 줄 다시 실행:
+[pipx](https://pipx.pypa.io)로 설치하고(격리 설치 — 의존성 자동 해결, macOS면
+`pyobjc-framework-Quartz`까지, `claude-pet*` 명령을 PATH에 올려줌), Claude Code에
+연결:
 
+```bash
+pipx install "git+https://github.com/YeeDochi/claude-pet@v0.1.0"
+claude-pet-install      # 훅 + /claude-pet 스킬 등록 (idempotent)
+```
+
+업데이트는 `pipx upgrade claude-pet && claude-pet-install`, 또는 Claude Code 안에서
+`/claude-pet update`.
+
+<details><summary>pipx 없이 — 소스 한 줄 설치</summary>
+
+`~/claude-pet`로 클론(또는 업데이트)·의존성·훅+스킬 등록:
 ```bash
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python3 -
@@ -42,17 +55,10 @@ curl -fsSL https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/YeeDochi/claude-pet/master/install.py | python -
 ```
-
-<details><summary>직접 단계별로</summary>
-
-```bash
-git clone https://github.com/YeeDochi/claude-pet ~/claude-pet
-~/claude-pet/bin/claude-pet-install     # 의존성(PyQt6, macOS면 Quartz) + 훅 + /claude-pet 스킬 (idempotent)
-```
 </details>
 
 이후 새 Claude Code 세션은 펫을 자동으로 띄워요. 이미 돌아가던 세션은 재시작해야 훅을
-인식해요 — 아니면 `~/claude-pet/bin/claude-pet`로 지금 하나 띄워도 돼요.
+인식해요 — 아니면 `claude-pet`로 지금 하나 띄워도 돼요.
 
 **KDE Plasma**에서 가장 잘 동작해요. 창 위에 올라타기/타고 다니기는 **Windows**(Win32)와
 **macOS**(실험적 — `pyobjc-framework-Quartz` 필요, 인스톨러가 자동 설치하고 창 좌표는
