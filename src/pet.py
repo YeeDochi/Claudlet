@@ -529,7 +529,7 @@ class Pet(QWidget):
         persistent KWin script that pushes on change. Windows: no equivalent
         push API, so poll Win32's window list on a timer instead. macOS: same
         polled shape via Quartz (SPECULATIVE, unverified on real hardware —
-        see macos_geom.py). Either way, any failure -> feature just off
+        see windows_macos.py). Either way, any failure -> feature just off
         (self._wins stays empty, pre-perch behaviour). self._geom_active is
         the generic (backend-agnostic) flag; self._dbus_name stays
         KDE-specific, used only by the KDE code paths."""
@@ -582,29 +582,29 @@ class Pet(QWidget):
         the Win32 one (no usable push-on-change API there either).
 
         SPECULATIVE — written without macOS hardware, never executed on a Mac;
-        see macos_geom.py's module docstring for the assumptions to verify
+        see windows_macos.py's module docstring for the assumptions to verify
         (Screen Recording permission, coordinate space, z-order)."""
         try:
-            import macos_geom
+            import windows_macos
         except Exception:
             return
-        if not macos_geom.available():       # not macOS, or pyobjc missing
+        if not windows_macos.available():       # not macOS, or pyobjc missing
             return
-        self._macos_geom = macos_geom
+        self._windows_macos = windows_macos
         self._macos_timer = QTimer(self)
-        self._macos_timer.timeout.connect(self._poll_macos_geom)
+        self._macos_timer.timeout.connect(self._poll_windows_macos)
         # 220ms copied from the Win32 branch — an arbitrary guess here, pending
         # real profiling on a Mac (CGWindowListCopyWindowInfo is documented as
         # "relatively expensive"; bump this up if it burns CPU).
         self._macos_timer.start(220)
         self._geom_active = True
-        self._poll_macos_geom()
+        self._poll_windows_macos()
 
-    def _poll_macos_geom(self):
+    def _poll_windows_macos(self):
         # exclude by pid, not window id: Qt's winId() on macOS is an NSView
-        # pointer, not a CGWindowID — see macos_geom.py's docstring.
+        # pointer, not a CGWindowID — see windows_macos.py's docstring.
         try:
-            dump = self._macos_geom.dump(exclude_pid=os.getpid())
+            dump = self._windows_macos.dump(exclude_pid=os.getpid())
         except Exception:
             return
         self._on_geom(dump)
@@ -781,8 +781,8 @@ class Pet(QWidget):
                 return set()
         if sys.platform == "darwin":
             try:
-                import macos_geom
-                return macos_geom.proc_ancestors(cur, max_hops)
+                import windows_macos
+                return windows_macos.proc_ancestors(cur, max_hops)
             except Exception:
                 return set()
         acc = set()
