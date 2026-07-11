@@ -18,11 +18,11 @@
 | 2 | `src/pet.py:1169` | Windows 클릭포커스 fallback이 `"konsole"`/`host_classes`(KWin 클래스명)를 써서 Windows에서 항상 매칭 실패 (dead code) | **수정함** |
 | 3 | `bin/claude-pet-hook:165` | `pet_alive()`의 timeout(살아있지만 바쁨)과 확정된 죽음을 구분 못 해서, 이미 살아있는 펫에 발생한 이벤트를 조용히 drop | **수정함** |
 | 4 | `src/pet.py:1260` | `_pid_alive()` Windows 분기: `proc_table()`이 계속 빈 값이면(AV/EDR 정책 등) orphan reaper가 영원히 작동 안 함 | 미수정 (엣지케이스) |
-| 5 | `src/hostinfo.py:105` | 원자적 쓰기의 `.tmp` sibling 파일이 크래시/replace 실패 시 청소 안 되고 영구 잔존 | 미수정 (경미) |
+| 5 | `src/hostinfo.py:105` | 원자적 쓰기의 `.tmp` sibling 파일이 크래시/replace 실패 시 청소 안 되고 영구 잔존 | **수정함 (`8677dcf`)** |
 | 6 | `src/windows_win32.py:202` | `_to_logical()`이 모니터별 논리 원점 보정 없이 스케일로만 나눔 — mixed-DPI 멀티모니터에서 좌표 부정확 | 미수정 (`docs/platform.md`에 이미 known-limit로 명시됨) |
-| 7 | `src/hostinfo.py:126` | `pet_alive()`의 connect+recv 타임아웃이 각각 적용되어 최악 ~0.6s 지연 | 미수정 (경미) |
-| 8 | `docs/platform.ko.md` | 새 "Known limits" 섹션이 한국어 카운터파트에 반영 안 됨 (CLAUDE.md의 `.ko.md` parity 규칙 위반) | 미수정 |
-| 9 | `bin/claude-pet-install-hooks:39` | POSIX 분기가 `sys.executable` 없이 shebang에만 의존 — CLAUDE.md의 "always re-exec with sys.executable" 규칙과 상충 (의도적 트레이드오프) | 미수정 (의도적) |
+| 7 | `src/hostinfo.py:126` | `pet_alive()`의 connect+recv 타임아웃이 각각 적용되어 최악 ~0.6s 지연 | **수정함 (`8677dcf`)** |
+| 8 | `docs/platform.ko.md` | 새 "Known limits" 섹션이 한국어 카운터파트에 반영 안 됨 (`.ko.md` 짝맞추기 — CLAUDE.md 명문 규칙은 아니고 사실상 관례) | **수정함 (`8677dcf`)** |
+| 9 | `bin/claude-pet-install-hooks:39` | POSIX 분기가 `sys.executable` 없이 shebang에만 의존 (의도적 트레이드오프; CLAUDE.md에 "always re-exec" 규칙은 실제로 없음 — grep 확인) | 미수정 (의도적) |
 | 10 | `bin/claude-pet-motion:70` | `_read_port()`의 fallback이 `hostinfo.read_port_file()`을 그대로 복붙 | 미수정 (경미, 정리성) |
 
 ## 3. 이번에 고친 3건
@@ -85,10 +85,11 @@ python -m pytest -q
 
 ## 5. 아직 남은 것 (표 4~10)
 
-우선순위가 낮거나(엣지케이스, 경미한 지연/누수) 이미 문서화된 한계(#6)라서 이번엔 넘어감. 필요하면
-후속으로 처리 가능:
-- `_pid_alive` Windows 분기의 "빈 snapshot → 항상 alive" 로직을 좀 더 보수적으로.
-- `.tmp` sibling 파일 청소(`claude-pet-motion`의 glob 확장).
-- `docs/platform.ko.md`에 새 "Known limits" 섹션 반영.
-- `bin/claude-pet-install-hooks`의 POSIX 분기 vs CLAUDE.md 규칙 문구 정리(또는 CLAUDE.md 갱신).
-- `bin/claude-pet-motion`의 `_read_port` fallback 중복 제거.
+후속 커밋 `8677dcf`에서 #5·#7·#8을 처리함(+ 훅 hot-path의 불필요한 포트파일 읽기 제거,
+Windows에서 비결정이던 refused-connect 테스트 2건을 결정화). 남은 항목:
+- **#4** `_pid_alive` Windows 분기의 "빈 snapshot → 항상 alive" 로직을 좀 더 보수적으로.
+  (엣지케이스: 신뢰할 Windows 생존 API가 없어 안전 기본값으로 둠.)
+- **#6** `_to_logical` 혼합-DPI 멀티모니터 — 실기기 보정 필요(문서화된 한계).
+- **#9** `install-hooks` POSIX shebang — CLAUDE.md에 상충 규칙이 없어 의도대로 둠.
+- **#10** `bin/claude-pet-motion`의 `_read_port` fallback 중복 — hostinfo import 실패 대비
+  의도적 방어라 유지.
