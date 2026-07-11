@@ -604,7 +604,12 @@ class Pet(QWidget):
         # exclude by pid, not window id: Qt's winId() on macOS is an NSView
         # pointer, not a CGWindowID — see windows_macos.py's docstring.
         try:
-            dump = self._windows_macos.dump(exclude_pid=os.getpid())
+            # ref = our own window as Qt knows it (logical points). dump() finds
+            # that same window in CoreGraphics and self-calibrates the CG->Qt
+            # coordinate scale from it, so perch lines up regardless of Retina
+            # point-vs-pixel differences. exclude_pid drops our window from the feed.
+            dump = self._windows_macos.dump(
+                exclude_pid=os.getpid(), ref=(self.w, self.h, self.x, self.y))
         except Exception:
             return
         self._on_geom(dump)
@@ -625,10 +630,12 @@ class Pet(QWidget):
         try:
             scr = self.screen() or QApplication.primaryScreen()
             g = scr.geometry()
+            cal = getattr(self._windows_macos, "LAST_CAL", (1.0, 0.0, 0.0))
             sys.stderr.write(
-                "[claude-pet geom] dpr=%.2f screen=%d,%d,%dx%d "
-                "pet=(%d,%d) feet_y=%d\n" % (
-                    scr.devicePixelRatio(), g.x(), g.y(), g.width(), g.height(),
+                "[claude-pet geom] dpr=%.2f cal_scale=%.3f cal_off=(%.1f,%.1f) "
+                "screen=%d,%d,%dx%d pet=(%d,%d) feet_y=%d\n" % (
+                    scr.devicePixelRatio(), cal[0], cal[1], cal[2],
+                    g.x(), g.y(), g.width(), g.height(),
                     int(self.x), int(self.y), int(self.y) + FOOT_Y))
             for w in self._wins:
                 sys.stderr.write("[claude-pet geom]   win %s cls=%s  %d,%d %dx%d "

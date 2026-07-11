@@ -178,3 +178,56 @@ def test_proc_ancestors_walks_real_process_tree():
     acc = windows_macos.proc_ancestors(os.getpid())
     assert os.getpid() in acc
     assert len(acc) >= 1
+
+
+# --- self-calibration (CG coords -> Qt logical, from the pet's own window) -----
+
+def test_calibration_noop_without_own_or_ref():
+    assert windows_macos._calibration(None, (150, 200, 0, 0)) == (1.0, 0.0, 0.0)
+    assert windows_macos._calibration((0, 0, 300, 400), None) == (1.0, 0.0, 0.0)
+
+
+def test_calibration_detects_2x_pixels():
+    # CG reports our 150x200-pt window as 300x400 px -> scale 2.0 (Retina)
+    scale, ox, oy = windows_macos._calibration((0, 0, 300, 400), (150, 200, 0, 0))
+    assert scale == 2.0 and (ox, oy) == (0.0, 0.0)
+
+
+def test_calibration_recovers_origin_offset():
+    # window at CG (100,200) size 300x400; Qt says it's at (10,20) size 150x200
+    scale, ox, oy = windows_macos._calibration((100, 200, 300, 400), (150, 200, 10, 20))
+    assert scale == 2.0
+    assert ox == 100 / 2.0 - 10 and oy == 200 / 2.0 - 20    # 40, 80
+
+
+def test_calibration_refuses_implausible_scale():
+    # a bogus tiny/huge ratio must NOT be trusted (feature stays unscaled)
+    assert windows_macos._calibration((0, 0, 3000, 4000), (150, 200, 0, 0)) == (1.0, 0.0, 0.0)
+
+
+def test_own_bounds_finds_largest_any_layer():
+    # our window is a Tool/always-on-top window (layer != 0); _own_bounds must
+    # still find it (unlike the layer-0-only feed filter), and pick the largest.
+    infos = [
+        _info(number=1, pid=42, layer=25, x=0, y=0, w=300, h=400),   # ours (big)
+        _info(number=2, pid=42, layer=25, x=5, y=5, w=20, h=20),     # ours (tiny popup)
+        _info(number=3, pid=99, layer=0, x=0, y=0, w=999, h=999),    # someone else
+    ]
+    assert windows_macos._own_bounds(infos, 42) == (0.0, 0.0, 300.0, 400.0)
+    assert windows_macos._own_bounds(infos, 12345) is None
+
+
+def test_dump_with_ref_scales_other_windows(monkeypatch):
+    SELF = 42
+    fake = _FakeQuartz([
+        _info(number=1, pid=SELF, layer=25, x=0, y=0, w=300, h=400),   # pet window (ruler)
+        _info(number=2, pid=200, layer=0, x=100, y=120, w=640, h=480),  # a real window
+    ])
+    monkeypatch.setattr(windows_macos, "Quartz", fake)
+    dump = windows_macos.dump(exclude_pid=SELF, ref=(150, 200, 0, 0))   # -> scale 2.0
+    # the other window's coords are halved into Qt points; our own window (the
+    # ruler) is excluded from the feed. _info's default owner is "Terminal".
+    assert dump == "2;terminal;50,60,320,240;200"
+    assert windows_macos.LAST_CAL[0] == 2.0
+    # one CGWindowListCopyWindowInfo call serves both the feed and calibration
+    assert fake.calls == [(17, 0)]

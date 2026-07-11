@@ -174,14 +174,95 @@ def _enum_windows(exclude_pid=None):
     return rows
 
 
-def dump(exclude_pid=None):
+# Last calibration applied by dump(): (scale, off_x, off_y). Exposed only so the
+# pet's opt-in debug logger can report it; scale 1.0 == "no scaling / uncalibrated".
+LAST_CAL = (1.0, 0.0, 0.0)
+
+
+def _own_bounds(infos, pid):
+    """Raw CG bounds (x, y, w, h) of the LARGEST on-screen window owned by `pid`,
+    on ANY layer — used to self-calibrate the CG->Qt coordinate scale from the
+    pet's own window (whose Qt logical rect we already know). The pet window is
+    an always-on-top Tool window, so it is NOT on layer 0 and _row_from_info
+    (which filters to layer 0) would drop it; hence this separate, filter-free
+    scan. None if the pet window isn't in the list yet."""
+    best = None
+    for info in (infos or []):
+        try:
+            if int(info.get(K_OWNER_PID, -1)) != int(pid):
+                continue
+            b = info.get(K_BOUNDS)
+            if not b:
+                continue
+            w = float(b.get("Width", 0))
+            h = float(b.get("Height", 0))
+            if w <= 0 or h <= 0:
+                continue
+            if best is None or w * h > best[2] * best[3]:
+                best = (float(b.get("X", 0)), float(b.get("Y", 0)), w, h)
+        except Exception:
+            continue
+    return best
+
+
+def _calibration(own, ref):
+    """(scale, off_x, off_y) mapping raw CG coords -> Qt logical coords, derived
+    from the pet's own window: `own`=(x,y,w,h) as CG reports it, `ref`=(qw,qh,
+    qx,qy) as Qt knows it. If CG already reports Qt points, scale≈1 and this is a
+    no-op; if it reports backing-store PIXELS on a Retina display, scale≈dpr and
+    every window shrinks into Qt's space (the macOS analogue of the Win32
+    _to_logical /scale fix). Returns (1,0,0) — no scaling — when the pet window
+    wasn't found or the numbers are implausible, so perch can't get worse than
+    the current unscaled behaviour."""
+    if not own or not ref:
+        return (1.0, 0.0, 0.0)
+    bx, by, bw, bh = own
+    qw, qh, qx, qy = ref
+    if bw <= 0 or bh <= 0 or qw <= 0 or qh <= 0:
+        return (1.0, 0.0, 0.0)
+    scale = ((bw / qw) + (bh / qh)) / 2.0
+    if not (0.4 < scale < 4.0):          # implausible -> refuse to scale
+        return (1.0, 0.0, 0.0)
+    return (scale, bx / scale - qx, by / scale - qy)
+
+
+def _scaled(row, scale, off_x, off_y):
+    """Apply the CG->Qt (scale, offset) to one raw row tuple."""
+    if scale == 1.0 and off_x == 0.0 and off_y == 0.0:
+        return row
+    wid, cls, x, y, w, h, pid = row
+    return (wid, cls,
+            int(round(x / scale - off_x)), int(round(y / scale - off_y)),
+            int(round(w / scale)), int(round(h / scale)), pid)
+
+
+def dump(exclude_pid=None, ref=None):
     """Current windows as a KWin-feed-format string (bottom-to-top stacking).
     "" when the backend is unavailable or anything goes wrong — callers treat
-    an empty feed as "feature off", never as an error."""
+    an empty feed as "feature off", never as an error.
+
+    `ref`=(qt_w, qt_h, qt_x, qt_y): the pet's OWN window as Qt knows it. When
+    given, the window owned by `exclude_pid` is measured in the same CG snapshot
+    and used to self-calibrate the CG->Qt coordinate scale (see _calibration),
+    which is then applied to every other window. `ref=None` -> raw CG coords
+    (old behaviour). One CGWindowListCopyWindowInfo call serves both."""
+    global LAST_CAL
     if Quartz is None:
         return ""
     try:
-        return _format_dump(_enum_windows(exclude_pid))
+        opts = (Quartz.kCGWindowListOptionOnScreenOnly
+                | Quartz.kCGWindowListExcludeDesktopElements)
+        infos = Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID)
+        rows = []
+        for info in (infos or []):
+            row = _row_from_info(info, exclude_pid)
+            if row is not None:
+                rows.append(row)
+        cal = _calibration(_own_bounds(infos, exclude_pid), ref) \
+            if (ref and exclude_pid is not None) else (1.0, 0.0, 0.0)
+        LAST_CAL = cal
+        rows = [_scaled(r, *cal) for r in rows]
+        return _format_dump(rows)
     except Exception:
         return ""
 
