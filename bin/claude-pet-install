@@ -65,6 +65,47 @@ def _unlink_skill():
             pass
 
 
+def _importable(import_name):
+    """True if `import <import_name>` succeeds in a FRESH interpreter. Run as a
+    subprocess (not __import__ here) so the check is correct both before and
+    right after a pip install — the running process's import cache / sys.path
+    wouldn't reliably see a package installed moments ago."""
+    try:
+        return subprocess.call(
+            [sys.executable, "-c", "import %s" % import_name],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+    except Exception:
+        return False
+
+
+def _check_deps():
+    """Make sure required Python deps are present: PyQt6 everywhere, plus
+    pyobjc-framework-Quartz (import `Quartz`) on macOS for the window-perch
+    backend (src/windows_macos.py). Try to `pip install` whatever's missing;
+    if that fails (no pip, externally-managed/PEP-668 env, offline, wrong venv)
+    fall back to a clear manual command. A missing Quartz only disables macOS
+    perch/occlusion — the pet still runs."""
+    deps = [("PyQt6", "PyQt6")]
+    if sys.platform == "darwin":
+        deps.append(("Quartz", "pyobjc-framework-Quartz"))
+    missing = [(imp, pip) for imp, pip in deps if not _importable(imp)]
+    if not missing:
+        return
+    pkgs = [pip for _imp, pip in missing]
+    print("installing missing package(s): %s" % ", ".join(pkgs))
+    try:
+        subprocess.call([sys.executable, "-m", "pip", "install", *pkgs])
+    except Exception:
+        pass
+    still = [pip for imp, pip in missing if not _importable(imp)]
+    if still:
+        print("warning: could not install %s automatically. Install it manually "
+              "with:\n  %s -m pip install %s" % (
+                  ", ".join(still), os.path.basename(sys.executable),
+                  " ".join(still)),
+              file=sys.stderr)
+
+
 def main():
     remove = "--remove" in sys.argv[1:]
     if remove:
@@ -72,11 +113,7 @@ def main():
         _unlink_skill()
         print("claude-pet uninstalled. (source stays at %s)" % ROOT)
         return
-    try:
-        __import__("PyQt6")
-    except ImportError:
-        print("warning: PyQt6 not found. Install it with:  pip install PyQt6",
-              file=sys.stderr)
+    _check_deps()
     subprocess.call([sys.executable, HOOKS])
     _link_skill()
     print("\nDone. Restart Claude Code sessions to pick up the hooks.")
