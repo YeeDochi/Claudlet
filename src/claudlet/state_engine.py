@@ -10,11 +10,9 @@ TOOL_STATES = {
     "NotebookEdit": "work_computer", "Bash": "work_computer",
     "Read": "work_search", "Grep": "work_search", "Glob": "work_search",
     "WebFetch": "work_web", "WebSearch": "work_web",
-    # the subagent-dispatch tool reports tool_name "Agent" on current Claude Code
-    # (verified live: PreToolUse fires with tool_name="Agent", NOT "Task"; the
-    # subagent's own tools stay in its session so nothing overwrites this for the
-    # run). "Task" kept as an alias for older/other builds.
-    "Agent": "work_agent", "Task": "work_agent",
+    # NOTE: subagent dispatch (tool_name "Agent"/"Task", see AGENT_TOOLS) is NOT
+    # mapped to a main state — it's represented by the follower companion only,
+    # so the main creature keeps showing the parent's own activity meanwhile.
     "Skill": "work_skill",
 }
 # permission_mode values (present on every hook payload) that mean Claude is
@@ -104,7 +102,8 @@ def tool_to_state(tool_name):
 
 
 class _Session:
-    __slots__ = ("state", "since", "expiry", "last_event", "pending", "agents")
+    __slots__ = ("state", "since", "expiry", "last_event", "pending", "agents",
+                 "agent_state")
 
     def __init__(self, now):
         self.state = "idle"
@@ -113,6 +112,7 @@ class _Session:
         self.last_event = now
         self.pending = None    # deferred work state (debounce)
         self.agents = 0        # open subagent windows (PreToolUse Agent .. SubagentStop)
+        self.agent_state = None  # subagent's current activity, for the companion
 
     def set_state(self, state, now):
         self.state = state
@@ -168,19 +168,29 @@ class StateEngine:
 
         if name == "SessionStart":
             s.agents = 0                       # fresh session -> no open agents
+            s.agent_state = None
             s.set_state(self._events["start"], now)
         elif name == "UserPromptSubmit":
             s.agents = 0                       # new turn -> agents from last turn done
+            s.agent_state = None
             s.set_state(self._events["prompt"], now)
         elif name == "PreToolUse":
             tool = ev.get("tool_name", "")
             if tool in AGENT_TOOLS:
-                # opens an agent-working window (closed by SubagentStop); the
-                # companion shows for the whole run regardless of display state.
+                # opens an agent-working window (closed by SubagentStop); shown by
+                # the follower companion, whose activity mirrors the subagent's own
+                # tool events (which arrive on THIS session between here and the
+                # SubagentStop). The main creature is left as-is.
                 s.agents += 1
-            if tool in ASK_TOOLS:
+                if not s.agent_state:
+                    s.agent_state = "thinking"   # agent spinning up
+            elif tool in ASK_TOOLS:
                 s.set_state(self._events["asking"], now)   # waiting on the user
             else:
+                if s.agents > 0:
+                    # a subagent is running: this tool is (most likely) its work,
+                    # so drive the companion's animation with it.
+                    s.agent_state = self._tool_state(tool)
                 st = self._tool_state(tool)
                 if ev.get("permission_mode") in AUTO_MODES:
                     # visor on, wandering while it works: each work type keeps its
@@ -195,8 +205,11 @@ class StateEngine:
                 s.set_state(self._events["idle_prompt"], now)
         elif name == "SubagentStop":
             s.agents = max(0, s.agents - 1)    # one subagent finished
+            if s.agents == 0:
+                s.agent_state = None
         elif name == "Stop":
             s.agents = 0                       # turn ended -> all agents done
+            s.agent_state = None
             if self.is_focused():
                 s.set_state(self._events["done"], now)
             else:
@@ -248,6 +261,14 @@ class StateEngine:
         persistent 'agent working' companion beside the creature — independent of
         display_state, so it stays up while the main creature shows other work."""
         return sum(s.agents for s in self.sessions.values())
+
+    def agent_state(self):
+        """The running subagent's current activity (a work_* state, or 'thinking'
+        while it spins up), for the companion to mirror; None if no agent runs."""
+        for s in self.sessions.values():
+            if s.agents > 0 and s.agent_state:
+                return s.agent_state
+        return None
 
     def auto_active(self):
         """True while the session is in an autonomous permission mode — the pet

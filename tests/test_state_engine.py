@@ -52,10 +52,6 @@ def test_tool_to_state_known_and_fallback():
     assert tool_to_state("Read") == "work_search"
     assert tool_to_state("Grep") == "work_search"
     assert tool_to_state("WebFetch") == "work_web"
-    # the subagent-dispatch tool reports tool_name "Agent" (verified on real
-    # Claude Code); "Task" kept too for older/other builds. Both -> work_agent.
-    assert tool_to_state("Agent") == "work_agent"
-    assert tool_to_state("Task") == "work_agent"
     assert tool_to_state("Skill") == "work_skill"
     assert tool_to_state("mcp__gitlab__get_project") == "work_web"
     assert tool_to_state("SomethingNew") == "work_computer"   # fallback
@@ -67,14 +63,15 @@ def test_pretooluse_sets_work_state():
     assert e.display_state(now=0.0) == "work_computer"
 
 
-def test_agent_tool_shows_work_agent_and_persists():
-    # dispatching a subagent fires PreToolUse(tool_name="Agent"); the subagent's
-    # own tools are isolated (no parent hooks), so work_agent must show and
-    # persist for the run rather than falling back to work_computer.
+def test_agent_dispatch_does_not_change_main_state():
+    # subagent dispatch (PreToolUse tool_name "Agent") is companion-only: it must
+    # NOT turn the main creature into an agent state — it just opens the counter,
+    # leaving the main state as-is (here: still idle) so the main pet keeps
+    # reflecting the parent's own activity.
     e = StateEngine()
     e.handle({"event": "PreToolUse", "session": "a", "tool_name": "Agent"}, now=0.0)
-    assert e.display_state(now=0.0) == "work_agent"
-    assert e.display_state(now=30.0) == "work_agent"      # still there mid-run
+    assert e.display_state(now=0.0) == "idle"
+    assert e.agents_active() == 1
 
 
 def _ev(name, sid="a", **kw):
@@ -122,6 +119,20 @@ def test_agents_active_resets_on_turn_boundaries():
         assert e.agents_active() == 1
         e.handle(_ev(boundary), now=2.0)
         assert e.agents_active() == 0, boundary
+
+
+def test_agent_state_mirrors_subagent_tools_during_window():
+    # the subagent's own tool events arrive on this session between PreToolUse
+    # (Agent) and SubagentStop; the companion mirrors them via agent_state.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    assert e.agent_state() == "thinking"          # spinning up
+    e.handle(_ev("PreToolUse", tool_name="Bash"), now=0.1)
+    assert e.agent_state() == "work_computer"     # subagent is coding
+    e.handle(_ev("PreToolUse", tool_name="Read"), now=0.2)
+    assert e.agent_state() == "work_search"       # ...now reading
+    e.handle(_ev("SubagentStop"), now=0.3)
+    assert e.agent_state() is None                # window closed
 
 
 def test_no_sessions_is_sleeping():

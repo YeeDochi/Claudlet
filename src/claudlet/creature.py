@@ -77,6 +77,10 @@ VISOR      = QColor("#C2C8D2")   # silver housing
 VISOR_HI   = QColor("#E9EDF3")   # top highlight
 VISOR_D    = QColor("#8A90A0")   # bottom shade
 VISOR_GLASS = QColor("#1E2230")  # dark screen inset
+# yellow kindergarten cap worn by agent companions (marks them as sidekicks)
+CAP      = QColor("#F4C430")   # kindergarten yellow
+CAP_HI   = QColor("#FFE07A")   # top highlight
+CAP_D    = QColor("#C9960F")   # brim / shade
 
 GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props/bounce)
 
@@ -85,7 +89,7 @@ def _sin(frame, period, amp, phase=0.0):
     return math.sin((frame / period + phase) * 2 * math.pi) * amp
 
 
-def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None):
+def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None):
     """Draw the creature. All coordinates are in art pixels * u.
 
     visor="up" pushes a VR-headset up onto the head (auto mode while not actively
@@ -351,6 +355,15 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None):
         eye(e1, eyes); eye(e2, eyes)
         if visor == "up":
             headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
+
+    if cap:
+        # yellow kindergarten cap sitting on the crown (agent companions).
+        # drawn in head space so it bobs/tilts/mirrors with the body.
+        px(4.2, 3.6, 13.6, 1.0, CAP_D)         # brim across the head, front shade
+        px(5.8, 2.0, 10.4, 2.0, CAP)           # rounded crown of the cap
+        px(7.4, 1.1, 7.2, 1.2, CAP)            # dome top
+        px(7.4, 1.1, 7.2, 0.4, CAP_HI)         # highlight rim
+        px(10.0, 0.4, 1.6, 1.0, CAP_D)         # little top button
 
     p.restore()
 

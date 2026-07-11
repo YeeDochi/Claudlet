@@ -44,18 +44,64 @@ def test_pet_answers_liveness_ping():
         p._cleanup()
 
 
-def test_pet_paints_agent_companion_without_error(monkeypatch):
-    # while a subagent runs, paintEvent draws a companion in the right strip even
-    # when the main state is something else — must render cleanly (grab triggers
-    # paintEvent offscreen).
+def test_companion_follows_when_far_and_stops_when_near():
+    # only walks toward the pet once the gap exceeds FOLLOW_START, converges to
+    # within FOLLOW_STOP, then stays put (hysteresis) — no jitter, and crucially
+    # no facing-based side jump when the pet turns.
+    c = P.Companion()
+    try:
+        c.x, c.y = 0.0, 0.0
+        far = 1000.0                         # pet centre far to the right
+        c.advance(far, 0.0)
+        assert c.x > 0 and c._state == "walk"      # started walking toward it
+        for _ in range(600):
+            c.advance(far, 0.0)
+        gap = abs(far - (c.x + c.w / 2.0))
+        assert gap <= P.COMPANION_FOLLOW_STOP + P.COMPANION_SPEED   # settled at the stop gap
+        assert c._state != "walk"                  # stopped
+        # a target just inside FOLLOW_START must NOT restart the walk (hysteresis)
+        settled = c.x
+        near = (c.x + c.w / 2.0) + P.COMPANION_FOLLOW_STOP + 5
+        c.advance(near, 0.0)
+        assert c.x == settled
+    finally:
+        c.close()
+
+
+def test_companion_shows_rest_state_when_settled():
+    # when not walking, the companion mirrors the subagent's activity (rest_state)
+    c = P.Companion()
+    try:
+        c.x = c.y = 0.0
+        c.advance(c.x + c.w / 2.0, 0.0, rest_state="work_computer")   # target on top -> settled
+        assert c._state == "work_computer"
+    finally:
+        c.close()
+
+
+def test_companion_paints_without_error():
+    c = P.Companion()
+    try:
+        c.x = c.y = 5.0
+        px = c.grab()                       # runs its paintEvent offscreen
+        assert not px.isNull()
+    finally:
+        c.close()
+
+
+def test_pet_shows_companion_only_while_agents_active(monkeypatch):
     p = P.Pet(session_id="cmp")
     try:
-        monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
-        p._render_state = "work_computer"          # main doing other work
-        # widget is wider than the creature box to hold the companion strip
-        assert p.width() == p.w + p._companion_w
-        px = p.grab()                              # runs paintEvent
-        assert not px.isNull()
+        active = {"n": 0}
+        monkeypatch.setattr(p.engine, "agents_active", lambda: active["n"])
+        p._sync_companion()
+        assert p._companion is None or not p._companion.isVisible()
+        active["n"] = 1
+        p._sync_companion()
+        assert p._companion is not None and p._companion.isVisible()
+        active["n"] = 0
+        p._sync_companion()
+        assert not p._companion.isVisible()
     finally:
         p._cleanup()
 

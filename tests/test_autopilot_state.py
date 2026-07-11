@@ -30,10 +30,14 @@ def test_auto_web_variant():
     assert e.display_state(0.0) == "auto_web"
 
 
-def test_auto_agent_variant():
+def test_agent_dispatch_is_companion_only_even_in_auto():
+    # subagent dispatch is represented by the follower companion, not a main
+    # state — so even in auto mode it does NOT become auto_agent; the main
+    # creature is left as-is (idle here) and only the agent counter opens.
     e = StateEngine()
     e.handle(_pre("Task", pm="auto"), 0.0)
-    assert e.display_state(0.0) == "auto_agent"
+    assert e.display_state(0.0) == "idle"
+    assert e.agents_active() == 1
 
 
 def test_auto_skill_variant():

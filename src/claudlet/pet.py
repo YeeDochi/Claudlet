@@ -45,12 +45,15 @@ from claudlet import windows
 # ---- config ----
 U = 5                                   # art-pixel size in device px
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
-# Agent companion: a small second creature drawn in a transparent strip to the
-# RIGHT of the creature box while a subagent is running. The strip widens only
-# the widget — self.w/self.h stay the creature box, so physics/roam/perch are
-# untouched (see the agent-companion design spec).
+# Agent companion: an INDEPENDENT little creature in its own window that FOLLOWS
+# the pet while a subagent runs — see the Companion class. It only walks toward
+# the pet once the gap exceeds FOLLOW_START, and stops once within FOLLOW_STOP
+# (hysteresis), like a real sidekick trailing along; no facing-based side pick
+# (that made it teleport across when the pet turned).
 COMPANION_U = 3                         # companion art-pixel size (< U -> smaller)
-COMPANION_GAP = 3                       # device px between creature box and companion
+COMPANION_SPEED = 3.0                   # px/tick it walks toward the pet
+COMPANION_FOLLOW_START = 130            # center-gap (px) that makes it start following
+COMPANION_FOLLOW_STOP = 78              # center-gap (px) it settles at / stops
 FPS = 20
 
 # short label per state (tray tooltip), per language
@@ -117,6 +120,73 @@ class _GeomReceiver(QObject):
         self._pet._on_cursor(xy)
 
 
+class Companion(QWidget):
+    """An independent little creature in its own window that loosely FOLLOWS the
+    pet while a subagent runs. Eased motion (COMPANION_EASE) so it trails behind
+    rather than staying pinned — a sidekick scurrying after the pet. No perch/
+    physics; it just chases a target the pet feeds it each tick."""
+
+    def __init__(self):
+        super().__init__()
+        # BypassWindowManagerHint = X11 override-redirect: the WM doesn't manage,
+        # stack, or focus this window at all, so it can't fight the pet's
+        # interactive-move (drag) the way a second managed always-on-top window
+        # did — that fight made the dragged pet jitter. We position it by hand.
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.BypassWindowManagerHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        # purely decorative: never take clicks/focus.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.w = (C.GRID_W + 2 * PAD_X) * COMPANION_U
+        self.h = (C.GRID_H + 2 * PAD_Y) * COMPANION_U
+        self.setFixedSize(self.w, self.h)
+        self.x = 0.0
+        self.y = 0.0
+        self.frame = 0
+        self.facing = -1
+        self._moving = False           # follow hysteresis: are we currently chasing?
+        self._state = "idle"           # walk while chasing, idle when settled
+
+    def advance(self, target_x, ground_y, rest_state="idle"):
+        """Follow the pet like a real sidekick: only START walking once the gap to
+        the pet exceeds FOLLOW_START, and STOP once within FOLLOW_STOP (hysteresis
+        so it doesn't jitter at the boundary). No facing-based side pick — it
+        simply walks toward the pet from whichever side it's on, so the pet
+        turning around never makes it teleport across. Stays on `ground_y`. When
+        settled it shows `rest_state` — the subagent's current activity — so the
+        companion mirrors what the agent is doing; while catching up it walks."""
+        cx = self.x + self.w / 2.0
+        dx = target_x - cx
+        dist = abs(dx)
+        if not self._moving and dist > COMPANION_FOLLOW_START:
+            self._moving = True
+        elif self._moving and dist <= COMPANION_FOLLOW_STOP:
+            self._moving = False
+        if self._moving:
+            self.facing = 1 if dx > 0 else -1
+            move = min(dist - COMPANION_FOLLOW_STOP, COMPANION_SPEED)
+            if move > 0:
+                self.x += self.facing * move
+            self._state = "walk"
+        else:
+            self._state = rest_state or "idle"
+        self.y = ground_y
+        self.frame = (self.frame + 1) % 100000
+        self.move(int(self.x), int(self.y))
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        C.draw_creature(p, PAD_X * COMPANION_U, PAD_Y * COMPANION_U,
+                        COMPANION_U, self._state, self.frame, facing=self.facing,
+                        cap="agent")
+        p.end()
+
+
 class Pet(QWidget):
     def __init__(self, session_id="default", host="unknown", claude_pid=0):
         super().__init__()
@@ -138,11 +208,7 @@ class Pet(QWidget):
 
         self.w = (C.GRID_W + 2 * PAD_X) * U
         self.h = (C.GRID_H + 2 * PAD_Y) * U
-        # widget is wider than the creature box to hold the agent companion on
-        # the right; self.w/self.h (used by ALL physics/roam/perch/mask) stay the
-        # creature box so nothing else shifts. The extra strip is transparent.
-        self._companion_w = COMPANION_GAP + C.GRID_W * COMPANION_U
-        self.setFixedSize(self.w + self._companion_w, self.h)
+        self.setFixedSize(self.w, self.h)
 
         primary = QApplication.primaryScreen().availableGeometry()
         # Roam across ALL monitors: screen_rect is the union of every screen's
@@ -181,6 +247,7 @@ class Pet(QWidget):
         # host window is the one whose pid is an ancestor of our Claude process.
         self._ancestor_pids = self._proc_ancestors(claude_pid)
         self._host_wid = None                # internalId of our host window (focus)
+        self._companion = None               # lazy agent-follower window (see Companion)
         self._hidden_for_win = False         # hidden because our perch/host went away
         self._masked = False                 # pet clipped to a window's exposed part
         self._last_mask = None               # last applied QRegion (skip redundant sets)
@@ -458,6 +525,30 @@ class Pet(QWidget):
         # hide/show with the window we're riding (perched-on / contained-in)
         self._update_visibility()
         self.update()
+        self._sync_companion()
+
+    def _sync_companion(self):
+        """Show/hide + walk the agent follower toward the pet. Independent little
+        creature: it chases the pet's centre only when the gap grows, and rests
+        on the screen floor otherwise (see Companion.advance)."""
+        try:
+            active = self.engine.agents_active() > 0
+        except Exception:
+            active = False
+        if not active:
+            if self._companion is not None and self._companion.isVisible():
+                self._companion.hide()
+            return
+        c = self._companion
+        if c is None:
+            c = self._companion = Companion()
+            c.x, c.y = float(self.x), float(self.y)   # spawn near the pet
+        target_x = self.x + self.w / 2.0              # chase the pet's centre
+        ccx = c.x + c.w / 2.0
+        ground_y = self._screen_bottom_at(ccx) - c.h  # stay on the screen floor
+        c.advance(target_x, ground_y, self.engine.agent_state())
+        if not c.isVisible():
+            c.show()
 
     def _roam(self):
         left, right, top, floor = self._bounds()
@@ -962,32 +1053,17 @@ class Pet(QWidget):
         # facing handled inside draw_creature (body mirrors, text upright)
         C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
                         facing=self.facing, visor=vis)
-        self._paint_agent_companion(p, state)
         p.end()
-
-    def _paint_agent_companion(self, p, state):
-        """While a subagent runs, draw a small agent creature in the right strip,
-        facing the main pet — persists regardless of `state` (background/parallel
-        agents), so it's visible even while the main creature does other work.
-        Skipped when the main creature is already the agent (avoid doubling)."""
-        try:
-            if self.engine.agents_active() <= 0:
-                return
-        except Exception:
-            return
-        if state in ("work_agent", "auto_agent"):
-            return
-        cu = COMPANION_U
-        ox = self.w + COMPANION_GAP
-        oy = (PAD_Y * U + C.GRID_H * U) - C.GRID_H * cu   # feet on the main baseline
-        cstate = "auto_agent" if getattr(self, "_auto", False) else "work_agent"
-        C.draw_creature(p, ox, oy, cu, cstate, self.frame, facing=-1)
 
     # ---------- interaction ----------
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self._press_global = e.globalPosition().toPoint()
-            self._press_winpos = self.frameGeometry().topLeft()
+            # Anchor the drag to our OWN tracked position, not frameGeometry():
+            # on XWayland a frameless window's frameGeometry can report ~(0,0)
+            # instead of where we moved it, which flung the pet to the top-left
+            # corner on grab. self.x/self.y is the source of truth move() uses.
+            self._press_winpos = QPoint(int(self.x), int(self.y))
             self._moved = False
             self._vel_samples = [(time.monotonic(), self._press_global)]
             self.mode = "held"
@@ -1353,6 +1429,9 @@ class Pet(QWidget):
         # past QApplication.quit() on Windows; hiding it is a no-op elsewhere.
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
+        if getattr(self, "_companion", None) is not None:
+            self._companion.close()
+            self._companion = None
         self._stop_cursor_feed()
         for plugin in (getattr(self, "_activate_plugin", None),):
             if plugin:
