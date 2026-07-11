@@ -35,12 +35,13 @@ deps, incl. `pyobjc-framework-Quartz` on macOS, and puts the `claudlet*`
 commands on your PATH), then wire it into Claude Code:
 
 ```bash
-pipx install "git+https://github.com/YeeDochi/Claudlet@v0.1.0"
+pipx install claudlet
 claudlet-install      # registers the hooks + /claudlet skill (idempotent)
 ```
 
 Update later with `pipx upgrade claudlet && claudlet-install`, or from inside
-Claude Code with `/claudlet update`.
+Claude Code with `/claudlet update`. To install an unreleased revision, point
+pipx at the repo instead: `pipx install "git+https://github.com/YeeDochi/Claudlet@master"`.
 
 <details><summary>Without pipx — one-line source install</summary>
 

@@ -37,12 +37,13 @@ Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝
 연결:
 
 ```bash
-pipx install "git+https://github.com/YeeDochi/Claudlet@v0.1.0"
+pipx install claudlet
 claudlet-install      # 훅 + /claudlet 스킬 등록 (idempotent)
 ```
 
 업데이트는 `pipx upgrade claudlet && claudlet-install`, 또는 Claude Code 안에서
-`/claudlet update`.
+`/claudlet update`. 아직 릴리즈 안 된 최신 버전을 쓰려면 repo를 직접 가리켜요:
+`pipx install "git+https://github.com/YeeDochi/Claudlet@master"`.
 
 <details><summary>pipx 없이 — 소스 한 줄 설치</summary>
 
