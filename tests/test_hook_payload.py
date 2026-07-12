@@ -158,3 +158,17 @@ def test_build_message_omits_bg_counts_when_no_background_tasks():
         {"session_id": "s1", "tool_name": "Agent", "tool_input": {}}))
     assert "bg_agents" not in msg
     assert "bg_tasks" not in msg
+
+
+def test_build_message_counts_only_known_task_types():
+    # Only shell/subagent entries are real per-run work. An unknown persistent
+    # entry type (whatever Claude Code may list as always-running) must not
+    # keep bg_tasks pinned above zero -- that held the companion up forever.
+    bt = [
+        {"id": "w1", "type": "watcher", "status": "running"},
+        {"id": "c1", "type": "cron", "status": "running"},
+    ]
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "Stop"], {"session_id": "s1", "background_tasks": bt}))
+    assert msg["bg_tasks"] == 0
+    assert msg["bg_agents"] == 0

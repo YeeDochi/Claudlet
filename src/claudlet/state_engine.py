@@ -184,10 +184,15 @@ class StateEngine:
         elif name == "PreToolUse":
             tool = ev.get("tool_name", "")
             if tool in AGENT_TOOLS:
-                # opens an agent-working window (closed by SubagentStop); shown by
-                # the follower companion, whose activity mirrors the subagent's own
-                # tool events (which arrive on THIS session between here and the
-                # SubagentStop). The main creature is left as-is.
+                # opens an agent-working window (closed when the background_tasks
+                # snapshot no longer lists running work). Shown by the follower
+                # companion; the main creature is left as-is. NOTE: the
+                # companion's state is deliberately NOT driven by this session's
+                # other tool events — subagent tools are isolated from parent
+                # hooks (verified live), so those events are the PARENT's own
+                # work; mirroring them just made the companion copy the main
+                # creature. It shows its own life instead: thinking while
+                # active, idle while waiting on background work.
                 s.agents += 1
                 s.agent_gone_since = None        # a fresh dispatch is active work
                 if not s.agent_state:
@@ -195,10 +200,6 @@ class StateEngine:
             elif tool in ASK_TOOLS:
                 s.set_state(self._events["asking"], now)   # waiting on the user
             else:
-                if s.agents > 0:
-                    # a subagent is running: this tool is (most likely) its work,
-                    # so drive the companion's animation with it.
-                    s.agent_state = self._tool_state(tool)
                 st = self._tool_state(tool)
                 if ev.get("permission_mode") in AUTO_MODES:
                     # visor on, wandering while it works: each work type keeps its

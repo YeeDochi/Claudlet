@@ -133,18 +133,17 @@ def test_agents_reset_on_session_boundaries():
     assert e.agents_active() == 0
 
 
-def test_agent_state_mirrors_subagent_tools_during_window():
-    # the subagent's own tool events arrive on this session between PreToolUse
-    # (Agent) and SubagentStop; the companion mirrors them via agent_state.
+def test_agent_state_is_thinking_while_active_and_closes_with_window():
+    # the companion shows its OWN life: thinking while the agent runs (subagent
+    # tool events never reach parent hooks — session tools are the PARENT's and
+    # must not repaint the companion), gone when the window closes.
     e = StateEngine()
     e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
     assert e.agent_state() == "thinking"          # spinning up
     e.handle(_ev("PreToolUse", tool_name="Bash"), now=0.1)
-    assert e.agent_state() == "work_computer"     # subagent is coding
-    e.handle(_ev("PreToolUse", tool_name="Read"), now=0.2)
-    assert e.agent_state() == "work_search"       # ...now reading
+    assert e.agent_state() == "thinking"          # parent tool: companion unmoved
     e.handle(_ev("SubagentStop"), now=0.3)
-    assert e.agent_state() is None                # window closed
+    assert e.agent_state() is None                # window closed (legacy path)
 
 
 def test_no_sessions_is_sleeping():
@@ -415,3 +414,29 @@ def test_final_stop_departs_without_any_later_event():
     assert e.agents_active() == 1                 # grace: still here for a beat
     e.display_state(now=10.0)                     # ...but departs unaided
     assert e.agents_active() == 0
+
+
+def test_parent_tools_do_not_drive_companion_state():
+    # Subagent tool events are ISOLATED from parent hooks (verified live), so
+    # any PreToolUse arriving while an agent window is open is the PARENT's own
+    # work -- mirroring it made the companion copy the main creature. The
+    # companion's state must stay its own (thinking while active, idle while
+    # waiting), whatever the parent does.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    assert e.agent_state() == "thinking"
+    e.handle(_ev("PreToolUse", tool_name="Bash"), now=1.0)    # parent's own tool
+    assert e.agent_state() == "thinking"                      # NOT work_computer
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=2.0)  # yielded
+    e.handle(_ev("PreToolUse", tool_name="Read"), now=3.0)    # parent keeps going
+    assert e.agent_state() == "idle"                          # still its own state
+
+
+def test_parent_activity_during_grace_does_not_block_departure():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=0), now=1.0)   # grace starts
+    e.handle(_ev("PreToolUse", tool_name="Bash"), now=2.0)    # parent working
+    e.handle(_ev("PreToolUse", tool_name="Edit"), now=2.5)
+    e.display_state(now=10.0)
+    assert e.agents_active() == 0                             # departed on schedule

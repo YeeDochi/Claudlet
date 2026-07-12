@@ -58,8 +58,12 @@ def build_message(argv, data):
     bt = data.get("background_tasks")
     if isinstance(bt, list):
         self_id = data.get("agent_id")
+        # Only shell/subagent entries are real per-run work; an unknown
+        # always-running entry type would otherwise pin bg_tasks above zero and
+        # hold the companion up forever.
         running = [b for b in bt if isinstance(b, dict)
-                   and b.get("status") == "running" and b.get("id") != self_id]
+                   and b.get("status") == "running" and b.get("id") != self_id
+                   and b.get("type") in ("shell", "subagent")]
         msg["bg_tasks"] = len(running)                                  # any bg work
         msg["bg_agents"] = sum(1 for b in running
                                if b.get("type") == "subagent")          # other agents
@@ -174,6 +178,26 @@ def main():
 
     event = (sys.argv[1] if len(sys.argv) > 1 else "") or data.get("hook_event_name", "")
     session_id = data.get("session_id") or "default"
+
+    # Opt-in companion-lifetime diagnostic (CLAUDLET_DEBUG_BG=1), same spirit as
+    # CLAUDLET_DEBUG_GEOM: append each Stop/SubagentStop's raw background_tasks
+    # to <tmp>/claudlet-bgdebug.jsonl so "the companion won't leave" can be
+    # diagnosed from what Claude Code actually reported on that machine,
+    # instead of guessed at. Never raises (hooks must not fail Claude).
+    if os.environ.get("CLAUDLET_DEBUG_BG") and event in ("Stop", "SubagentStop",
+                                                         "StopFailure"):
+        try:
+            import time as _time
+            import tempfile as _tempfile
+            with open(os.path.join(_tempfile.gettempdir(),
+                                   "claudlet-bgdebug.jsonl"), "a") as f:
+                f.write(json.dumps({
+                    "t": _time.time(), "event": event,
+                    "agent_id": data.get("agent_id"),
+                    "background_tasks": data.get("background_tasks"),
+                }) + "\n")
+        except Exception:
+            pass
 
     # on session start, bring up this session's pet if one isn't already there
     # (verified by handshake, so a stale port file can't suppress the launch)
