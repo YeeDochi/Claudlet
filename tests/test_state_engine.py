@@ -340,45 +340,18 @@ def test_no_companion_from_unrelated_background_shell():
     assert e.agents_active() == 0
 
 
-# --- issue #2: match Claude Code's UI, which drops an agent idle for 30s ------
+# NOTE: there was a COMPANION_IDLE_TIMEOUT (30s idle drop) here, added on the
+# assumption that Claude Code's bottom UI drops an idle agent at 30s. Issue #3
+# measured that assumption to be false (the UI holds the line until the
+# background work actually finishes), so the timeout is gone — see
+# test_idle_companion_outlives_any_fixed_timeout_while_work_runs below.
 
-def test_companion_departs_after_30s_idle():
+def test_active_agent_not_dropped_by_time_passing():
     e = StateEngine()
     e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
-    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)   # idle, work pending
-    e.display_state(now=10.0)
-    assert e.agents_active() == 1                 # still there before 30s idle
-    e.display_state(now=33.0)                     # >30s idle -> UI drops it, so do we
-    assert e.agents_active() == 0
-
-
-def test_idle_timer_resets_when_agent_active_again():
-    e = StateEngine()
-    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
-    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)    # idle at 1s
-    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=20.0)   # active again -> reset
-    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=25.0)   # idle again at 25s
-    e.display_state(now=45.0)                     # 20s since latest idle, not 44s
-    assert e.agents_active() == 1
-
-
-def test_active_agent_not_dropped_by_idle_timeout():
-    e = StateEngine()
-    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
-    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=1.0)    # active, not idle
+    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=1.0)    # active
     e.display_state(now=40.0)
     assert e.agents_active() == 1
-
-
-def test_fresh_dispatch_clears_stale_idle_timer():
-    # a subagent dispatched after a previous one had gone idle must NOT be
-    # dropped by the old idle timer.
-    e = StateEngine()
-    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
-    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)   # idle at 1s
-    e.handle(_ev("PreToolUse", tool_name="Agent"), now=50.0)          # NEW dispatch
-    e.display_state(now=51.0)                                         # 50s since old idle
-    assert e.agents_active() >= 1                                     # not dropped
 
 
 # --- issue #2 follow-up: don't LEAD the UI -- linger a beat after the snapshot
@@ -402,3 +375,23 @@ def test_work_reappearing_within_grace_cancels_departure():
     e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=2.0)   # it's back!
     e.display_state(now=20.0)
     assert e.agents_active() == 1                 # departure cancelled
+
+
+# --- issue #3: the 30s idle-drop assumption was WRONG. Measured on hardware:
+# Claude Code's bottom line keeps showing the background work until it actually
+# finishes (~46s in the repro), while the idle timeout force-dropped the
+# companion at ~34s. While the snapshot still lists running work, the idle
+# companion must stay -- however long that takes.
+
+def test_idle_companion_outlives_any_fixed_timeout_while_work_runs():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=4.4)   # yielded, work runs
+    e.display_state(now=40.0)                    # issue #3: dropped here (~34s). Wrong.
+    assert e.agents_active() == 1
+    e.display_state(now=300.0)                   # even minutes later: work still listed
+    assert e.agents_active() == 1
+    # the work actually finishing (empty snapshot) is what ends it, grace later
+    e.handle(_ev("Stop", bg_agents=0, bg_tasks=0), now=301.0)
+    e.display_state(now=310.0)
+    assert e.agents_active() == 0
