@@ -123,9 +123,8 @@ def test_session_start_dead_pet_still_drops_this_event(tmp_path, monkeypatch):
 
 
 def test_build_message_forwards_background_task_counts():
-    # Forward counts of RUNNING background tasks -- no exclusions. The counts
-    # mirror Claude Code's own UI indicator, so the companion is present exactly
-    # while the UI shows background work.
+    # Forward counts of RUNNING background tasks, excluding the stopping
+    # agent's own entry (it lists itself as running even at its final stop).
     bt = [
         {"id": "self", "type": "subagent", "status": "running"},
         {"id": "shell1", "type": "shell", "status": "running"},
@@ -135,20 +134,22 @@ def test_build_message_forwards_background_task_counts():
     msg = json.loads(mod.build_message(
         ["claudlet-hook", "SubagentStop"],
         {"session_id": "s1", "agent_id": "self", "background_tasks": bt}))
-    assert msg["bg_agents"] == 2      # self + other (both running subagents)
-    assert msg["bg_tasks"] == 3       # self + shell1 + other (doneshell not running)
+    assert msg["bg_agents"] == 1      # other (self excluded)
+    assert msg["bg_tasks"] == 2       # shell1 + other (self excluded, done not running)
 
 
-def test_build_message_counts_the_stopping_agent_itself():
-    # The critical fix: at an agent's OWN final SubagentStop it still lists
-    # itself as running in background_tasks (the UI still shows it). It MUST be
-    # counted -- excluding it made the companion vanish before the UI cleared.
+def test_build_message_excludes_the_stopping_agent_itself():
+    # At an agent's OWN final SubagentStop it still lists itself as running.
+    # If that stop is the session's last hook event (background agent finishing
+    # while the user is away), counting self would leave the companion up
+    # forever -- so self is excluded, and the engine's depart grace (not
+    # instant departure) is what keeps the companion trailing the UI.
     bt = [{"id": "me", "type": "subagent", "status": "running"}]
     msg = json.loads(mod.build_message(
         ["claudlet-hook", "SubagentStop"],
         {"session_id": "s1", "agent_id": "me", "background_tasks": bt}))
-    assert msg["bg_agents"] == 1
-    assert msg["bg_tasks"] == 1
+    assert msg["bg_agents"] == 0
+    assert msg["bg_tasks"] == 0
 
 
 def test_build_message_omits_bg_counts_when_no_background_tasks():

@@ -48,17 +48,21 @@ def build_message(argv, data):
     # background_tasks snapshot -- Claude Code's own view of what is still
     # running, i.e. exactly what its UI shows. Forward counts of the RUNNING
     # tasks so the companion is present precisely while the UI shows background
-    # work. We do NOT exclude the stopping agent's own entry: at its final
-    # SubagentStop it still lists itself as running (the UI still shows it), so
-    # excluding it made the companion vanish a beat before the UI cleared. The
-    # agent drops out of a LATER snapshot when it's truly gone -> depart then.
+    # work. The stopping agent's OWN entry is excluded: it lists itself as
+    # running even at its final SubagentStop, and when that stop is the last
+    # hook event of an idle session (a background agent finishing while the
+    # user is away) no later snapshot ever arrives to clear it -- counting self
+    # left the companion up forever. Excluding self makes the final stop read
+    # as an empty snapshot; the engine's depart GRACE (not instant departure)
+    # is what keeps the companion trailing the UI instead of leading it.
     bt = data.get("background_tasks")
     if isinstance(bt, list):
+        self_id = data.get("agent_id")
         running = [b for b in bt if isinstance(b, dict)
-                   and b.get("status") == "running"]
+                   and b.get("status") == "running" and b.get("id") != self_id]
         msg["bg_tasks"] = len(running)                                  # any bg work
         msg["bg_agents"] = sum(1 for b in running
-                               if b.get("type") == "subagent")          # agents shown
+                               if b.get("type") == "subagent")          # other agents
     return json.dumps(msg) + "\n"
 
 

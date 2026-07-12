@@ -395,3 +395,23 @@ def test_idle_companion_outlives_any_fixed_timeout_while_work_runs():
     e.handle(_ev("Stop", bg_agents=0, bg_tasks=0), now=301.0)
     e.display_state(now=310.0)
     assert e.agents_active() == 0
+
+
+def test_final_stop_departs_without_any_later_event():
+    # A background agent that finishes while the session sits idle: its own
+    # final SubagentStop (which still lists itself as running) is the LAST hook
+    # event -- no later snapshot ever arrives. The companion must still depart
+    # on its own (grace, then goodbye), not linger forever.
+    import json
+    from claudlet import hook
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    bt = [{"id": "A", "type": "subagent", "status": "running"}]   # only itself
+    msg = json.loads(hook.build_message(
+        ["claudlet-hook", "SubagentStop"],
+        {"session_id": "a", "agent_id": "A", "background_tasks": bt}))
+    e.handle(msg, now=1.0)
+    e.display_state(now=1.5)
+    assert e.agents_active() == 1                 # grace: still here for a beat
+    e.display_state(now=10.0)                     # ...but departs unaided
+    assert e.agents_active() == 0
