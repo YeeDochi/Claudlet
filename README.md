@@ -173,6 +173,7 @@ drive the pet straight from a prompt:
 - **[Usage & interaction](docs/usage.md)** — drag & throw, click-to-focus, tray menu, motions, autostart, uninstall
 - **[Configuration](docs/configuration.md)** — remap which animation shows for which Claude Code activity (run `claudlet-config` or `/claudlet config` to locate & inspect it)
 - **[Platform support](docs/platform.md)** — support matrix + how to test on your OS
+- **[Contributing](CONTRIBUTING.md)** — dev setup, running tests, code style, branch model
 - **[Changelog](https://github.com/YeeDochi/Claudlet/releases/latest)** — what changed in each release (English + Korean)
 
 ## License
