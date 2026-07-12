@@ -304,22 +304,28 @@ def test_subagentstop_without_background_tasks_uses_legacy_decrement():
     assert e.agents_active() == 1
 
 
-def test_hook_to_engine_companion_survives_backgrounded_subagent():
-    # end-to-end contract: a real SubagentStop payload (the subagent yielded,
-    # its shell still running) piped through build_message keeps the companion
-    # alive in the engine -- guards against field-name drift between the two.
+def test_hook_to_engine_companion_survives_its_own_final_stop():
+    # end-to-end contract, and the core issue #2 fix: at an agent's OWN final
+    # SubagentStop it still lists itself as running (the UI still shows it), so
+    # piping that real payload through build_message must KEEP the companion --
+    # it only leaves once a later snapshot no longer lists the work.
     import json
     from claudlet import hook
     e = StateEngine()
     e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
-    bt = [{"id": "A", "type": "subagent", "status": "running"},
-          {"id": "sh", "type": "shell", "status": "running"}]
+    bt = [{"id": "A", "type": "subagent", "status": "running"}]   # self, still listed
     msg = json.loads(hook.build_message(
         ["claudlet-hook", "SubagentStop"],
         {"session_id": "a", "agent_id": "A", "background_tasks": bt}))
     e.handle(msg, now=1.0)
-    assert e.agents_active() == 1
-    assert e.agent_state() == "idle"
+    assert e.agents_active() == 1                 # stays (was the bug: it left here)
+    assert e.agent_state() is not None            # still shown as an active agent
+
+    # a later snapshot with no running work -> now it departs (matches the UI)
+    empty = json.loads(hook.build_message(
+        ["claudlet-hook", "Stop"], {"session_id": "a", "background_tasks": []}))
+    e.handle(empty, now=2.0)
+    assert e.agents_active() == 0
 
 
 def test_no_companion_from_unrelated_background_shell():

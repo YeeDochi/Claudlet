@@ -46,19 +46,19 @@ def build_message(argv, data):
             msg[key] = val
     # Companion lifetime (issue #2): Stop/SubagentStop payloads carry a
     # background_tasks snapshot -- Claude Code's own view of what is still
-    # running. Forward two reconciled counts so the pet can keep an agent
-    # companion up for the REAL lifetime of the work instead of blindly
-    # decrementing on each (possibly non-final) SubagentStop. Exclude the
-    # stopping agent's own subagent entry: it lists itself as 'running' even at
-    # its final stop, so counting it would never let the count reach zero.
+    # running, i.e. exactly what its UI shows. Forward counts of the RUNNING
+    # tasks so the companion is present precisely while the UI shows background
+    # work. We do NOT exclude the stopping agent's own entry: at its final
+    # SubagentStop it still lists itself as running (the UI still shows it), so
+    # excluding it made the companion vanish a beat before the UI cleared. The
+    # agent drops out of a LATER snapshot when it's truly gone -> depart then.
     bt = data.get("background_tasks")
     if isinstance(bt, list):
-        self_id = data.get("agent_id")
         running = [b for b in bt if isinstance(b, dict)
-                   and b.get("status") == "running" and b.get("id") != self_id]
+                   and b.get("status") == "running"]
         msg["bg_tasks"] = len(running)                                  # any bg work
         msg["bg_agents"] = sum(1 for b in running
-                               if b.get("type") == "subagent")          # active agents
+                               if b.get("type") == "subagent")          # agents shown
     return json.dumps(msg) + "\n"
 
 
