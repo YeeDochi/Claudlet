@@ -116,6 +116,19 @@ curl -fsSL https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python -
 ```
+
+Unlike pipx, this does **not** put the `claudlet*` commands on your PATH — they
+live in `~/claudlet/bin`. The hooks still work (Claude Code calls them by full
+path), but to run `claudlet`, `claudlet-config`, `/claudlet update`, etc.
+yourself, add that dir to your PATH:
+```bash
+# Linux / macOS — add to ~/.bashrc or ~/.zshrc, then restart the shell
+export PATH="$HOME/claudlet/bin:$PATH"
+```
+```powershell
+# Windows (PowerShell) — persist for your user, then restart the terminal
+setx PATH "$env:USERPROFILE\claudlet\bin;$env:PATH"
+```
 </details>
 
 New Claude Code sessions then auto-spawn a pet. Restart any already-running session

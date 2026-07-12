@@ -61,14 +61,47 @@ claudlet-install      # 훅 + /claudlet 스킬 등록 (idempotent)
 ```
 
 버전 확인은 `claudlet-version` (설치본 vs 최신 릴리즈). **릴리즈** 최신으로는
-`pipx upgrade claudlet && claudlet-install`, **master** 최신으로는
+`pipx upgrade claudlet && claudlet-install`, **develop**(엣지) 최신으로는
 `pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install`.
 어느 쪽이든 끝나면 Claude Code 세션을 다시 시작해야(`claude --continue`) 새 훅+펫
 코드가 로드돼요. 아니면 Claude Code 안에서 `/claudlet update`(릴리즈) /
 `/claudlet update latest`(master) 하고 안내 따라가면 됩니다.
 
-제거는 `claudlet-uninstall` (펫 종료 + 훅·스킬 해제; `--purge`면 설정도 삭제) 후
-`pipx uninstall claudlet`.
+제거는 **순서가 중요해요 — 훅부터 떼고, 그다음 패키지 삭제.**
+`claudlet-uninstall`이 `~/.claude/settings.json`에서 훅을 떼는 *유일한* 단계라,
+패키지를 먼저 지우면 훅이 남아서 Claude Code가 없어진 `claudlet-hook`을 계속
+실행하려 해요.
+
+```bash
+claudlet-uninstall        # 펫 종료 + 훅 · /claudlet 스킬 해제
+                          #   (--purge면 설정까지 삭제)
+pipx uninstall claudlet   # 위 줄이 성공한 뒤에만
+```
+
+<details><summary><code>claudlet-uninstall</code>이 안 잡히거나, 소스로 설치한 경우</summary>
+
+**명령어를 못 찾음 (Windows에서 흔함).** `claudlet*` 명령은 pipx의 bin 디렉터리에
+있는데, 그게 PATH에 없으면 셸이 못 찾아요. 해결:
+```
+pipx ensurepath        # pipx bin 디렉터리를 PATH에 추가
+```
+그다음 **터미널을 재시작**하고 `claudlet-uninstall`을 다시 실행하세요. (전체 경로로
+직접 실행하려면 `pipx list`가 설치 위치를 알려줘요.)
+
+**소스 설치** (`install.py` 한 줄 설치는 `~/claudlet`로 클론 — 지울 pip 패키지가
+없어요). 체크아웃의 스크립트를 직접 실행한 뒤 폴더를 지우세요:
+```bash
+python ~/claudlet/bin/claudlet-uninstall
+rm -rf ~/claudlet                                   # Windows: rmdir /s "%USERPROFILE%\claudlet"
+```
+
+**훅을 안 떼고 패키지부터 지워버렸다면?** 훅 항목이 아직 `~/.claude/settings.json`에
+남아 있어요. 잠깐 재설치해서 깔끔하게 떼면 됩니다:
+```
+pipx install claudlet && claudlet-uninstall && pipx uninstall claudlet
+```
+아니면 `~/.claude/settings.json`을 열어 `claudlet-hook` 항목을 직접 지우세요.
+</details>
 
 <details><summary>pipx 없이 — 소스 한 줄 설치</summary>
 
@@ -80,6 +113,19 @@ curl -fsSL https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py
 ```powershell
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python -
+```
+
+pipx와 달리 이 방식은 `claudlet*` 명령을 PATH에 **안 올려요** — `~/claudlet/bin`에
+있어요. 훅은 Claude Code가 전체 경로로 불러서 그대로 동작하지만, `claudlet`·
+`claudlet-config`·`/claudlet update` 같은 걸 직접 실행하려면 그 디렉터리를 PATH에
+추가하세요:
+```bash
+# Linux / macOS — ~/.bashrc 또는 ~/.zshrc에 추가 후 셸 재시작
+export PATH="$HOME/claudlet/bin:$PATH"
+```
+```powershell
+# Windows (PowerShell) — 사용자 PATH에 영구 반영 후 터미널 재시작
+setx PATH "$env:USERPROFILE\claudlet\bin;$env:PATH"
 ```
 </details>
 
