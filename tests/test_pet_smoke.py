@@ -776,3 +776,17 @@ def test_companion_survives_backgrounded_subagent_lifecycle():
         assert len(p._departing) == 1                        # waving goodbye, not vanished
     finally:
         p._cleanup()
+
+
+def test_companion_spawns_without_overlapping_pet():
+    # a freshly spawned companion used to pop in exactly on top of the pet
+    # (same x). It must spawn clear of the pet's body, then ease into the chain.
+    p = P.Pet(session_id="spawn")
+    try:
+        p._handle_event({"event": "PreToolUse", "session": "spawn", "tool_name": "Agent"})
+        p._tick()
+        c = p._companions[0]
+        overlap = not (c.x + c.w <= p.x or c.x >= p.x + p.w)
+        assert not overlap, "companion spawned overlapping the pet body"
+    finally:
+        p._cleanup()

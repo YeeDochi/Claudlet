@@ -675,7 +675,16 @@ class Pet(QWidget):
         while len(self._companions) < n:             # a new agent started
             c = Companion()
             prev = self._companions[-1] if self._companions else self
-            c.x, c.y = float(prev.x), float(prev.y)  # spawn at the chain's tail
+            # spawn just BEHIND the leader (opposite the pet's heading), clear of
+            # its body, so it doesn't pop in on top of the pet -- then it eases
+            # into the chain. GAP is past the leader's edge so the rects never
+            # overlap at spawn.
+            GAP = 12
+            if getattr(self, "facing", 1) >= 0:      # heading right -> trail LEFT
+                c.x = float(prev.x) - c.w - GAP
+            else:                                    # heading left  -> trail RIGHT
+                c.x = float(prev.x) + getattr(prev, "w", self.w) + GAP
+            c.y = float(prev.y)
             self._companions.append(c)
 
         if self.mode == "held":
