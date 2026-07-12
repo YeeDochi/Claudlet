@@ -692,6 +692,10 @@ class Pet(QWidget):
                 c.x = float(prev.x) - c.w - GAP
             else:                                    # heading left  -> trail RIGHT
                 c.x = float(prev.x) + getattr(prev, "w", self.w) + GAP
+            # keep the spawn on-screen (near a wall the offset could land it off
+            # the edge, where the throw physics would bounce it oddly).
+            c.x = min(max(c.x, float(self.screen_rect.left())),
+                      float(self.screen_rect.right() - c.w))
             c.y = float(prev.y)
             self._companions.append(c)
 

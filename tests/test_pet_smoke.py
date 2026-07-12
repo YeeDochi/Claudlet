@@ -151,6 +151,11 @@ def test_pet_throw_flings_companion_once(monkeypatch):
     p = P.Pet(session_id="cmpfling")
     try:
         monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
+        # deterministic spawn away from the walls: facing right -> the companion
+        # spawns to the LEFT, so a rightward throw carries it into open space
+        # (not straight into a wall it would bounce off).
+        p.x = float(p.screen_rect.left() + 300)
+        p.facing = 1
         p._sync_companion()                      # create companion (roam)
         p.mode = "thrown"
         p.vx, p.vy = 9.0, -4.0
