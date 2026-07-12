@@ -120,3 +120,27 @@ def test_session_start_dead_pet_still_drops_this_event(tmp_path, monkeypatch):
     assert len(launch_calls) == 1          # replacement launch still attempted
     assert not port_path.exists()          # stale file cleaned up by pet_alive
     assert sent and sent[0][0] is None      # send attempted, but nothing to send to
+
+
+def test_build_message_forwards_background_task_counts():
+    # SubagentStop payload with background_tasks: forward reconciled counts,
+    # excluding the stopping agent's own subagent entry, counting only running.
+    bt = [
+        {"id": "self", "type": "subagent", "status": "running"},
+        {"id": "shell1", "type": "shell", "status": "running"},
+        {"id": "other", "type": "subagent", "status": "running"},
+        {"id": "doneshell", "type": "shell", "status": "completed"},
+    ]
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "SubagentStop"],
+        {"session_id": "s1", "agent_id": "self", "background_tasks": bt}))
+    assert msg["bg_agents"] == 1      # 'other' (self excluded)
+    assert msg["bg_tasks"] == 2       # shell1 + other (self excluded, done not running)
+
+
+def test_build_message_omits_bg_counts_when_no_background_tasks():
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "PreToolUse"],
+        {"session_id": "s1", "tool_name": "Agent", "tool_input": {}}))
+    assert "bg_agents" not in msg
+    assert "bg_tasks" not in msg

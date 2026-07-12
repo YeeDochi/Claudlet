@@ -205,14 +205,17 @@ class StateEngine:
             elif nt == "idle_prompt":
                 s.set_state(self._events["idle_prompt"], now)
         elif name == "SubagentStop":
-            s.agents = max(0, s.agents - 1)    # one subagent finished
-            if s.agents == 0:
-                s.agent_state = None
+            if not self._reconcile_agents(s, ev):
+                s.agents = max(0, s.agents - 1)    # legacy: one subagent finished
+                if s.agents == 0:
+                    s.agent_state = None
         elif name == "Stop":
-            # Do NOT reset s.agents here either: Stop ends the MAIN turn, but
-            # background subagents keep running past it (their SubagentStop is
-            # the real close). Worst case a lost SubagentStop leaves a stuck
-            # companion until SessionEnd — preferable to killing live ones.
+            # The MAIN turn ended, but background subagents keep running past it.
+            # When the payload carries a background_tasks snapshot, reconcile the
+            # companion count to it (this also self-heals a stuck count from a
+            # lost SubagentStop). Without it, leave s.agents alone — killing it
+            # here would drop live companions.
+            self._reconcile_agents(s, ev)
             if self.is_focused():
                 s.set_state(self._events["done"], now)
             else:
@@ -225,6 +228,43 @@ class StateEngine:
             # any other event the user mapped by raw name (PostToolUse, etc.)
             s.set_state(self._raw[name], now)
         # otherwise (PostToolUse/SubagentStop/… unmapped): liveness refresh only
+
+    def _reconcile_agents(self, s, ev):
+        """Set the companion count from Claude Code's background_tasks snapshot,
+        forwarded (see hook.build_message) as:
+          bg_agents  running subagent-type tasks, excluding the stopping agent
+          bg_tasks   ALL running background tasks, excluding the stopping agent
+
+        Returns False when the event carried no snapshot (older Claude Code),
+        so the caller falls back to legacy -1 arithmetic.
+
+        The point (issue #2): a subagent that launches its own background work
+        and yields fires a SubagentStop while its work runs on — blindly
+        decrementing there drops the companion mid-work. Instead we keep one
+        idle companion while any background task is still running, and only
+        depart when the snapshot is empty. Exact per-agent identity of shell
+        tasks isn't exposed, so a lone leftover companion tracks 'work still
+        happening' rather than a specific agent — close enough, and it never
+        vanishes early."""
+        bg_agents = ev.get("bg_agents")
+        if bg_agents is None:
+            return False
+        bg_tasks = ev.get("bg_tasks") or 0
+        if bg_agents > 0:
+            s.agents = bg_agents               # active subagents, counted exactly
+            if not s.agent_state:
+                s.agent_state = "thinking"
+        elif bg_tasks > 0 and s.agents > 0:
+            # a subagent we were already tracking yielded; its background work
+            # runs on -> keep ONE companion, idle. The `s.agents > 0` guard
+            # means a plain background shell (no subagent ever dispatched) never
+            # conjures a companion from nothing.
+            s.agents = 1
+            s.agent_state = "idle"             # companion waits idle beside the pet
+        else:
+            s.agents = 0                        # nothing left running -> depart
+            s.agent_state = None
+        return True
 
     def _set_work(self, s, work_state, now):
         # Guarantee the current work motion shows >= DEBOUNCE before switching

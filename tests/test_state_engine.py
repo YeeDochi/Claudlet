@@ -243,3 +243,88 @@ def test_thinking_times_out_when_no_stop_fires():
     e.handle({"event": "UserPromptSubmit", "session": "a"}, now=0.0)
     assert e.display_state(now=10.0) == "thinking"
     assert e.display_state(now=121.0) == "sleeping"
+
+
+# --- issue #2: companion lifetime tracks Claude Code's background_tasks -------
+# Events forwarded from a Stop/SubagentStop payload carry two reconciled counts
+# (see hook.build_message): bg_agents = running subagent-type tasks excluding
+# the stopping agent itself; bg_tasks = ALL running background tasks excluding
+# self. The engine uses these as ground truth instead of blind -1 arithmetic.
+
+def test_companion_persists_while_subagent_backgrounds_work():
+    # A subagent yields (its SubagentStop) but its own background shell is still
+    # running: no active subagent (bg_agents=0) yet work remains (bg_tasks=1).
+    # The companion must STAY, shown idle -- not vanish mid-work (the bug).
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    assert e.agents_active() == 1
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)
+    assert e.agents_active() == 1
+    assert e.agent_state() == "idle"
+
+
+def test_companion_departs_when_background_work_clears():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)
+    assert e.agents_active() == 1
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=0), now=2.0)
+    assert e.agents_active() == 0
+    assert e.agent_state() is None
+
+
+def test_subagentstop_reconciles_count_to_ground_truth():
+    # two dispatched; a stop reporting 1 still active reconciles to 1 exactly,
+    # not blind decrement.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.1)
+    assert e.agents_active() == 2
+    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=1.0)
+    assert e.agents_active() == 1
+    assert e.agent_state() == "thinking"
+
+
+def test_stop_reconciles_companions_from_background_tasks():
+    # the MAIN-turn Stop carries ground truth too: a lone yielded agent (shell
+    # still running) keeps one idle companion.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("Stop", bg_agents=0, bg_tasks=2), now=1.0)
+    assert e.agents_active() == 1
+    assert e.agent_state() == "idle"
+
+
+def test_subagentstop_without_background_tasks_uses_legacy_decrement():
+    # older Claude Code payloads carry no background_tasks -> preserve -1.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.1)
+    e.handle(_ev("SubagentStop"), now=1.0)
+    assert e.agents_active() == 1
+
+
+def test_hook_to_engine_companion_survives_backgrounded_subagent():
+    # end-to-end contract: a real SubagentStop payload (the subagent yielded,
+    # its shell still running) piped through build_message keeps the companion
+    # alive in the engine -- guards against field-name drift between the two.
+    import json
+    from claudlet import hook
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    bt = [{"id": "A", "type": "subagent", "status": "running"},
+          {"id": "sh", "type": "shell", "status": "running"}]
+    msg = json.loads(hook.build_message(
+        ["claudlet-hook", "SubagentStop"],
+        {"session_id": "a", "agent_id": "A", "background_tasks": bt}))
+    e.handle(msg, now=1.0)
+    assert e.agents_active() == 1
+    assert e.agent_state() == "idle"
+
+
+def test_no_companion_from_unrelated_background_shell():
+    # a background task with no subagent ever dispatched (e.g. a plain user bash
+    # run in the background) must NOT conjure a companion out of nowhere.
+    e = StateEngine()
+    e.handle(_ev("Stop", bg_agents=0, bg_tasks=1), now=0.0)
+    assert e.agents_active() == 0
