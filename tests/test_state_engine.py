@@ -334,3 +334,44 @@ def test_no_companion_from_unrelated_background_shell():
     e = StateEngine()
     e.handle(_ev("Stop", bg_agents=0, bg_tasks=1), now=0.0)
     assert e.agents_active() == 0
+
+
+# --- issue #2: match Claude Code's UI, which drops an agent idle for 30s ------
+
+def test_companion_departs_after_30s_idle():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)   # idle, work pending
+    e.display_state(now=10.0)
+    assert e.agents_active() == 1                 # still there before 30s idle
+    e.display_state(now=33.0)                     # >30s idle -> UI drops it, so do we
+    assert e.agents_active() == 0
+
+
+def test_idle_timer_resets_when_agent_active_again():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)    # idle at 1s
+    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=20.0)   # active again -> reset
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=25.0)   # idle again at 25s
+    e.display_state(now=45.0)                     # 20s since latest idle, not 44s
+    assert e.agents_active() == 1
+
+
+def test_active_agent_not_dropped_by_idle_timeout():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=1.0)    # active, not idle
+    e.display_state(now=40.0)
+    assert e.agents_active() == 1
+
+
+def test_fresh_dispatch_clears_stale_idle_timer():
+    # a subagent dispatched after a previous one had gone idle must NOT be
+    # dropped by the old idle timer.
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)   # idle at 1s
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=50.0)          # NEW dispatch
+    e.display_state(now=51.0)                                         # 50s since old idle
+    assert e.agents_active() >= 1                                     # not dropped

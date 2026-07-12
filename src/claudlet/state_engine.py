@@ -89,6 +89,8 @@ DEBOUNCE = 0.8
 SLEEP_TIMEOUT = 60.0
 CELEBRATE_DUR = 1.6
 ERROR_DUR = 2.0
+COMPANION_IDLE_TIMEOUT = 30.0  # an agent idle this long departs, matching Claude
+                               # Code's bottom UI, which drops an idle agent at 30s
 WORK_TIMEOUT = 120.0   # work_*/thinking with no events this long -> assume the
                        # turn ended without a Stop (e.g. user interrupt) -> idle
 
@@ -103,7 +105,7 @@ def tool_to_state(tool_name):
 
 class _Session:
     __slots__ = ("state", "since", "expiry", "last_event", "pending", "agents",
-                 "agent_state")
+                 "agent_state", "agent_idle_since")
 
     def __init__(self, now):
         self.state = "idle"
@@ -113,6 +115,7 @@ class _Session:
         self.pending = None    # deferred work state (debounce)
         self.agents = 0        # open subagent windows (PreToolUse Agent .. SubagentStop)
         self.agent_state = None  # subagent's current activity, for the companion
+        self.agent_idle_since = None  # ts the companion went idle (for the 30s drop)
 
     def set_state(self, state, now):
         self.state = state
@@ -169,6 +172,7 @@ class StateEngine:
         if name == "SessionStart":
             s.agents = 0                       # fresh session -> no open agents
             s.agent_state = None
+            s.agent_idle_since = None
             s.set_state(self._events["start"], now)
         elif name == "UserPromptSubmit":
             # NOTE: deliberately does NOT reset s.agents — BACKGROUND subagents
@@ -183,6 +187,7 @@ class StateEngine:
                 # tool events (which arrive on THIS session between here and the
                 # SubagentStop). The main creature is left as-is.
                 s.agents += 1
+                s.agent_idle_since = None        # a fresh dispatch is active work
                 if not s.agent_state:
                     s.agent_state = "thinking"   # agent spinning up
             elif tool in ASK_TOOLS:
@@ -205,7 +210,7 @@ class StateEngine:
             elif nt == "idle_prompt":
                 s.set_state(self._events["idle_prompt"], now)
         elif name == "SubagentStop":
-            if not self._reconcile_agents(s, ev):
+            if not self._reconcile_agents(s, ev, now):
                 s.agents = max(0, s.agents - 1)    # legacy: one subagent finished
                 if s.agents == 0:
                     s.agent_state = None
@@ -215,7 +220,7 @@ class StateEngine:
             # companion count to it (this also self-heals a stuck count from a
             # lost SubagentStop). Without it, leave s.agents alone — killing it
             # here would drop live companions.
-            self._reconcile_agents(s, ev)
+            self._reconcile_agents(s, ev, now)
             if self.is_focused():
                 s.set_state(self._events["done"], now)
             else:
@@ -229,23 +234,24 @@ class StateEngine:
             s.set_state(self._raw[name], now)
         # otherwise (PostToolUse/SubagentStop/… unmapped): liveness refresh only
 
-    def _reconcile_agents(self, s, ev):
+    def _reconcile_agents(self, s, ev, now):
         """Set the companion count from Claude Code's background_tasks snapshot,
         forwarded (see hook.build_message) as:
-          bg_agents  running subagent-type tasks, excluding the stopping agent
-          bg_tasks   ALL running background tasks, excluding the stopping agent
+          bg_agents  count of RUNNING subagent-type tasks
+          bg_tasks   count of ALL running background tasks
 
         Returns False when the event carried no snapshot (older Claude Code),
         so the caller falls back to legacy -1 arithmetic.
 
         The point (issue #2): a subagent that launches its own background work
         and yields fires a SubagentStop while its work runs on — blindly
-        decrementing there drops the companion mid-work. Instead we keep one
-        idle companion while any background task is still running, and only
-        depart when the snapshot is empty. Exact per-agent identity of shell
-        tasks isn't exposed, so a lone leftover companion tracks 'work still
-        happening' rather than a specific agent — close enough, and it never
-        vanishes early."""
+        decrementing there drops the companion mid-work. Instead we mirror the
+        snapshot (Claude Code's own bottom-UI indicator): keep one idle
+        companion while any background task is still running, and depart when it
+        empties. The `s.agents > 0` guard means a plain background shell (no
+        subagent ever dispatched) never conjures a companion from nothing. An
+        agent that stays idle too long is dropped by _age (COMPANION_IDLE_TIMEOUT),
+        matching the UI, which also drops an agent idle for 30s."""
         bg_agents = ev.get("bg_agents")
         if bg_agents is None:
             return False
@@ -254,16 +260,16 @@ class StateEngine:
             s.agents = bg_agents               # active subagents, counted exactly
             if not s.agent_state:
                 s.agent_state = "thinking"
+            s.agent_idle_since = None          # active -> reset the idle-drop timer
         elif bg_tasks > 0 and s.agents > 0:
-            # a subagent we were already tracking yielded; its background work
-            # runs on -> keep ONE companion, idle. The `s.agents > 0` guard
-            # means a plain background shell (no subagent ever dispatched) never
-            # conjures a companion from nothing.
-            s.agents = 1
+            s.agents = 1                        # yielded; background work runs on
             s.agent_state = "idle"             # companion waits idle beside the pet
+            if s.agent_idle_since is None:
+                s.agent_idle_since = now       # start the 30s idle-drop countdown
         else:
             s.agents = 0                        # nothing left running -> depart
             s.agent_state = None
+            s.agent_idle_since = None
         return True
 
     def _set_work(self, s, work_state, now):
@@ -290,6 +296,13 @@ class StateEngine:
         # calm idle falls asleep after a long quiet spell
         if s.state == "idle" and (now - s.last_event) >= SLEEP_TIMEOUT:
             s.state = "sleeping"
+        # an agent idle (yielded, waiting on background work) too long departs,
+        # matching Claude Code's UI, which drops an agent idle for 30s.
+        if s.agent_idle_since is not None and s.agents > 0 and \
+           (now - s.agent_idle_since) >= COMPANION_IDLE_TIMEOUT:
+            s.agents = 0
+            s.agent_state = None
+            s.agent_idle_since = None
 
     def display_state(self, now):
         for s in self.sessions.values():
