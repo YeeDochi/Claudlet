@@ -131,15 +131,18 @@ class _GeomReceiver(QObject):
 
 
 def _macos_keep_visible(widget):
-    """macOS-only: stop this Qt.Tool window from being auto-hidden by AppKit
-    when the pet's app is deactivated (user clicks another window). No-op off
-    macOS or without pyobjc. Safe to call from any widget's showEvent — the
-    native NSView/NSWindow exists by then. See windows_macos for the why."""
+    """macOS-only: keep this Qt.Tool window on screen. Two AppKit fixes, both
+    no-ops off macOS or without pyobjc, both safe from any widget's showEvent
+    (the native NSView/NSWindow exists by then — see windows_macos for the why):
+      - stop AppKit auto-hiding it when the pet's app is deactivated (user clicks
+        another window);
+      - stop the Show-Desktop / Mission Control gesture sweeping it off-screen."""
     if sys.platform != "darwin":
         return
     try:
         from claudlet import windows_macos
         windows_macos.keep_visible_on_deactivate(widget.winId())
+        windows_macos.keep_stationary_on_desktop(widget.winId())
     except Exception:
         pass
 

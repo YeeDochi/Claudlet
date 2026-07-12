@@ -217,6 +217,23 @@ def test_own_bounds_finds_largest_any_layer():
     assert windows_macos._own_bounds(infos, 12345) is None
 
 
+def test_own_bounds_with_ref_ignores_a_bigger_menu_popup():
+    # Bug repro: right-clicking opens a QMenu — another window owned by the pet's
+    # pid, on a higher layer, and LARGER than the pet's tiny body. The old
+    # "pick the largest owned window" rule made that MENU the calibration ruler,
+    # yielding a wrong scale/offset that flung the pet across the screen. With the
+    # Qt ref given, _own_bounds must pick the window whose aspect matches the pet
+    # (uniform DPR scaling), i.e. the body, not the aspect-mismatched menu.
+    ref = (150, 200, 0, 0)                                  # pet Qt logical size 150x200
+    infos = [
+        _info(number=1, pid=42, layer=25, x=0, y=0, w=300, h=400),      # pet body, 2x -> aspect matches
+        _info(number=2, pid=42, layer=101, x=40, y=40, w=360, h=520),   # right-click menu, bigger, wrong aspect
+    ]
+    assert windows_macos._own_bounds(infos, 42, ref) == (0.0, 0.0, 300.0, 400.0)
+    # without a ref, the old largest-wins behaviour is preserved.
+    assert windows_macos._own_bounds(infos, 42) == (40.0, 40.0, 360.0, 520.0)
+
+
 def test_dump_with_ref_scales_other_windows(monkeypatch):
     SELF = 42
     fake = _FakeQuartz([

@@ -169,6 +169,40 @@ def keep_visible_on_deactivate(win_id):
         return False
 
 
+def keep_stationary_on_desktop(win_id):
+    """Stop the pet vanishing with the 'Show Desktop' / Mission Control gesture.
+
+    The macOS Show-Desktop trackpad gesture (spread thumb + three fingers) and
+    Exposé slide every ordinary app window off-screen. A roaming desktop creature
+    should stay put like a desktop widget instead. AppKit governs this with the
+    NSWindow's `collectionBehavior`: adding NSWindowCollectionBehaviorStationary
+    marks the window 'unaffected by Exposé' so it stays visible and in place
+    through Show Desktop, Exposé and Mission Control. Linux/Windows have no
+    equivalent 'sweep the desktop' concept, so the bug is macOS-only.
+
+    We OR the flag onto the window's existing behaviour rather than replacing it,
+    so whatever Qt already set (its NSPanel defaults) is preserved.
+
+    `win_id` is QWidget.winId() — on macOS an NSView* address; the native window
+    must already exist, so call this after show() (e.g. from showEvent), same as
+    keep_visible_on_deactivate. Best-effort; no-op / False without pyobjc or on
+    any error."""
+    if AppKit is None or objc is None:
+        return False
+    try:
+        view = objc.objc_object(c_void_p=int(win_id))   # NSView*
+        nswindow = view.window()
+        if nswindow is None:
+            return False
+        # NSWindowCollectionBehaviorStationary == 1 << 4; use the named constant
+        # when present, else the documented literal.
+        stationary = getattr(AppKit, "NSWindowCollectionBehaviorStationary", 1 << 4)
+        nswindow.setCollectionBehavior_(nswindow.collectionBehavior() | stationary)
+        return True
+    except Exception:
+        return False
+
+
 def _clean_class(name):
     """App/class name -> safe lowercase wire-format token. `;` and `|` are the
     wire format's field/record separators, so they must never appear in it."""
@@ -255,14 +289,24 @@ def _enum_windows(exclude_pid=None):
 LAST_CAL = (1.0, 0.0, 0.0)
 
 
-def _own_bounds(infos, pid):
-    """Raw CG bounds (x, y, w, h) of the LARGEST on-screen window owned by `pid`,
-    on ANY layer — used to self-calibrate the CG->Qt coordinate scale from the
-    pet's own window (whose Qt logical rect we already know). The pet window is
-    an always-on-top Tool window, so it is NOT on layer 0 and _row_from_info
-    (which filters to layer 0) would drop it; hence this separate, filter-free
-    scan. None if the pet window isn't in the list yet."""
-    best = None
+def _own_bounds(infos, pid, ref=None):
+    """Raw CG bounds (x, y, w, h) of the pet's OWN body window owned by `pid`, on
+    ANY layer — used to self-calibrate the CG->Qt coordinate scale from a window
+    whose Qt logical rect we already know. The pet window is an always-on-top
+    Tool window, so it is NOT on layer 0 and _row_from_info (which filters to
+    layer 0) would drop it; hence this separate, filter-free scan. None if the
+    pet window isn't in the list yet.
+
+    Picking the RIGHT own-window matters: the pet process also owns transient
+    windows — most importantly the right-click QMenu, which lives on a higher
+    layer and can be LARGER than the tiny body. The old "largest owned window"
+    rule then made the menu the calibration ruler, producing a bogus scale/offset
+    that remapped every other window and flung the pet across the screen while the
+    menu was open (jitter + fly-to-the-left). So when the Qt `ref` size is known,
+    prefer the candidate whose CG dimensions scale UNIFORMLY from the ref (the
+    body scales by the same DPR in x and y; a menu has a different aspect ratio),
+    breaking ties toward the largest. Without a ref, fall back to largest-area."""
+    cands = []
     for info in (infos or []):
         try:
             if int(info.get(K_OWNER_PID, -1)) != int(pid):
@@ -274,11 +318,18 @@ def _own_bounds(infos, pid):
             h = float(b.get("Height", 0))
             if w <= 0 or h <= 0:
                 continue
-            if best is None or w * h > best[2] * best[3]:
-                best = (float(b.get("X", 0)), float(b.get("Y", 0)), w, h)
+            cands.append((float(b.get("X", 0)), float(b.get("Y", 0)), w, h))
         except Exception:
             continue
-    return best
+    if not cands:
+        return None
+    qw = float(ref[0]) if ref else 0.0
+    qh = float(ref[1]) if ref else 0.0
+    if qw <= 0 or qh <= 0:
+        return max(cands, key=lambda b: b[2] * b[3])   # no ref: old largest-wins
+    # aspect-distortion first (0 == perfectly uniform scale, i.e. the body),
+    # then largest area as a tiebreak. Menus, with a mismatched aspect, sort last.
+    return min(cands, key=lambda b: (abs(b[2] / qw - b[3] / qh), -b[2] * b[3]))
 
 
 def _calibration(own, ref):
@@ -334,7 +385,7 @@ def dump(exclude_pid=None, ref=None):
             row = _row_from_info(info, exclude_pid)
             if row is not None:
                 rows.append(row)
-        cal = _calibration(_own_bounds(infos, exclude_pid), ref) \
+        cal = _calibration(_own_bounds(infos, exclude_pid, ref), ref) \
             if (ref and exclude_pid is not None) else (1.0, 0.0, 0.0)
         LAST_CAL = cal
         rows = [_scaled(r, *cal) for r in rows]
