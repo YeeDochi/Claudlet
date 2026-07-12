@@ -748,3 +748,31 @@ def test_float_still_shows_claude_animation():
         assert p._render_state == "jump"
     finally:
         p._cleanup()
+
+
+def test_companion_survives_backgrounded_subagent_lifecycle():
+    # issue #2 end-to-end through the real pet: a subagent that yields while its
+    # background work runs must keep its companion (shown idle), and only depart
+    # -- with the goodbye wave -- once the work truly finishes.
+    p = P.Pet(session_id="bg")
+    try:
+        p._handle_event({"event": "PreToolUse", "session": "bg", "tool_name": "Agent"})
+        p._tick()
+        assert len(p._companions) == 1                       # dispatched -> appears
+
+        # yielded, but background_tasks still shows work running
+        p._handle_event({"event": "SubagentStop", "session": "bg",
+                         "bg_agents": 0, "bg_tasks": 1})
+        p._tick()
+        assert len(p._companions) == 1                       # stays (was the bug)
+        assert p._departing == []
+        assert p.engine.agent_state() == "idle"              # waits idle
+
+        # work truly finished -> empty snapshot -> depart with the goodbye wave
+        p._handle_event({"event": "SubagentStop", "session": "bg",
+                         "bg_agents": 0, "bg_tasks": 0})
+        p._tick()
+        assert p._companions == []
+        assert len(p._departing) == 1                        # waving goodbye, not vanished
+    finally:
+        p._cleanup()
