@@ -269,6 +269,7 @@ def test_companion_departs_when_background_work_clears():
     e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=1), now=1.0)
     assert e.agents_active() == 1
     e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=0), now=2.0)
+    e.display_state(now=2.0 + 10.0)               # past the depart grace
     assert e.agents_active() == 0
     assert e.agent_state() is None
 
@@ -321,10 +322,13 @@ def test_hook_to_engine_companion_survives_its_own_final_stop():
     assert e.agents_active() == 1                 # stays (was the bug: it left here)
     assert e.agent_state() is not None            # still shown as an active agent
 
-    # a later snapshot with no running work -> now it departs (matches the UI)
+    # a later snapshot with no running work -> departs after the linger grace
+    # (trailing the UI, never leading it)
     empty = json.loads(hook.build_message(
         ["claudlet-hook", "Stop"], {"session_id": "a", "background_tasks": []}))
     e.handle(empty, now=2.0)
+    assert e.agents_active() == 1                 # grace: still here right away
+    e.display_state(now=2.0 + 10.0)               # past the grace
     assert e.agents_active() == 0
 
 
@@ -375,3 +379,26 @@ def test_fresh_dispatch_clears_stale_idle_timer():
     e.handle(_ev("PreToolUse", tool_name="Agent"), now=50.0)          # NEW dispatch
     e.display_state(now=51.0)                                         # 50s since old idle
     assert e.agents_active() >= 1                                     # not dropped
+
+
+# --- issue #2 follow-up: don't LEAD the UI -- linger a beat after the snapshot
+# empties, so the companion never vanishes before Claude Code's bottom line.
+
+def test_empty_snapshot_starts_grace_not_instant_departure():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=0), now=1.0)   # snapshot empty
+    assert e.agents_active() == 1                 # still here (grace running)
+    e.display_state(now=1.5)
+    assert e.agents_active() == 1                 # within grace -> still here
+    e.display_state(now=1.0 + 10.0)               # well past grace
+    assert e.agents_active() == 0                 # now it departs
+
+
+def test_work_reappearing_within_grace_cancels_departure():
+    e = StateEngine()
+    e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
+    e.handle(_ev("SubagentStop", bg_agents=0, bg_tasks=0), now=1.0)   # empty -> grace
+    e.handle(_ev("SubagentStop", bg_agents=1, bg_tasks=1), now=2.0)   # it's back!
+    e.display_state(now=20.0)
+    assert e.agents_active() == 1                 # departure cancelled

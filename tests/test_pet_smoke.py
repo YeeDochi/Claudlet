@@ -773,9 +773,19 @@ def test_companion_survives_backgrounded_subagent_lifecycle():
         assert p._departing == []
         assert p.engine.agent_state() == "idle"              # waits idle
 
-        # work truly finished -> empty snapshot -> depart with the goodbye wave
+        # work truly finished -> empty snapshot. NOT gone yet: it lingers for
+        # the depart grace so it trails Claude Code's UI instead of leading it.
         p._handle_event({"event": "SubagentStop", "session": "bg",
                          "bg_agents": 0, "bg_tasks": 0})
+        p._tick()
+        assert len(p._companions) == 1                       # grace: still around
+        assert p._departing == []
+
+        # ...then, once the grace has passed (backdate the timer rather than
+        # sleep), it departs with the goodbye wave.
+        from claudlet import state_engine as SE
+        p.engine.sessions["bg"].agent_gone_since = (
+            time.monotonic() - SE.COMPANION_DEPART_GRACE - 1.0)
         p._tick()
         assert p._companions == []
         assert len(p._departing) == 1                        # waving goodbye, not vanished

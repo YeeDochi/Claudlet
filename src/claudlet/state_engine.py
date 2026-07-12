@@ -91,6 +91,10 @@ CELEBRATE_DUR = 1.6
 ERROR_DUR = 2.0
 COMPANION_IDLE_TIMEOUT = 30.0  # an agent idle this long departs, matching Claude
                                # Code's bottom UI, which drops an idle agent at 30s
+COMPANION_DEPART_GRACE = 3.0   # linger this long after the background_tasks
+                               # snapshot empties before departing -- so the
+                               # companion trails Claude Code's UI instead of
+                               # vanishing a beat before the bottom line clears
 WORK_TIMEOUT = 120.0   # work_*/thinking with no events this long -> assume the
                        # turn ended without a Stop (e.g. user interrupt) -> idle
 
@@ -105,7 +109,7 @@ def tool_to_state(tool_name):
 
 class _Session:
     __slots__ = ("state", "since", "expiry", "last_event", "pending", "agents",
-                 "agent_state", "agent_idle_since")
+                 "agent_state", "agent_idle_since", "agent_gone_since")
 
     def __init__(self, now):
         self.state = "idle"
@@ -116,6 +120,7 @@ class _Session:
         self.agents = 0        # open subagent windows (PreToolUse Agent .. SubagentStop)
         self.agent_state = None  # subagent's current activity, for the companion
         self.agent_idle_since = None  # ts the companion went idle (for the 30s drop)
+        self.agent_gone_since = None  # ts the snapshot emptied (depart-grace timer)
 
     def set_state(self, state, now):
         self.state = state
@@ -173,6 +178,7 @@ class StateEngine:
             s.agents = 0                       # fresh session -> no open agents
             s.agent_state = None
             s.agent_idle_since = None
+            s.agent_gone_since = None
             s.set_state(self._events["start"], now)
         elif name == "UserPromptSubmit":
             # NOTE: deliberately does NOT reset s.agents — BACKGROUND subagents
@@ -188,6 +194,7 @@ class StateEngine:
                 # SubagentStop). The main creature is left as-is.
                 s.agents += 1
                 s.agent_idle_since = None        # a fresh dispatch is active work
+                s.agent_gone_since = None
                 if not s.agent_state:
                     s.agent_state = "thinking"   # agent spinning up
             elif tool in ASK_TOOLS:
@@ -261,15 +268,26 @@ class StateEngine:
             if not s.agent_state:
                 s.agent_state = "thinking"
             s.agent_idle_since = None          # active -> reset the idle-drop timer
+            s.agent_gone_since = None          # ...and cancel any pending departure
         elif bg_tasks > 0 and s.agents > 0:
             s.agents = 1                        # yielded; background work runs on
             s.agent_state = "idle"             # companion waits idle beside the pet
             if s.agent_idle_since is None:
                 s.agent_idle_since = now       # start the 30s idle-drop countdown
+            s.agent_gone_since = None          # work is still listed -> not gone
+        elif s.agents > 0:
+            # snapshot emptied: don't vanish on the spot -- the very next hook
+            # event can land a beat BEFORE Claude Code's bottom line clears, and
+            # leading the UI reads as "it died mid-work". Linger idle for
+            # COMPANION_DEPART_GRACE (see _age), trailing the UI instead.
+            s.agents = 1
+            s.agent_state = "idle"
+            if s.agent_gone_since is None:
+                s.agent_gone_since = now
         else:
-            s.agents = 0                        # nothing left running -> depart
             s.agent_state = None
             s.agent_idle_since = None
+            s.agent_gone_since = None
         return True
 
     def _set_work(self, s, work_state, now):
@@ -303,6 +321,15 @@ class StateEngine:
             s.agents = 0
             s.agent_state = None
             s.agent_idle_since = None
+            s.agent_gone_since = None
+        # snapshot emptied a moment ago: depart once the linger grace has passed
+        # (trail Claude Code's UI rather than lead it).
+        if s.agent_gone_since is not None and s.agents > 0 and \
+           (now - s.agent_gone_since) >= COMPANION_DEPART_GRACE:
+            s.agents = 0
+            s.agent_state = None
+            s.agent_idle_since = None
+            s.agent_gone_since = None
 
     def display_state(self, now):
         for s in self.sessions.values():
