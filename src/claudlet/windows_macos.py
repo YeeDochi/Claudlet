@@ -2,11 +2,14 @@
 can perch on and be contained by them — the macOS equivalent of the KWin/D-Bus
 feed and of `windows_win32.py`.
 
-*** SPECULATIVE / UNVERIFIED ***********************************************
-This module was written WITHOUT access to macOS hardware, from Apple's
-documentation alone, to be tested and fixed on a real Mac. Nothing here has
-ever executed on macOS. Comments below flag every assumption that needs
-verifying; do not trust this file until someone with a Mac has run it.
+*** VERIFIED ON HARDWARE (since v1.0.0) ***********************************
+This module runs on real macOS: perch, occlusion, and click-to-focus were
+confirmed on a Mac, and the bugs that surfaced there (right-click jitter,
+vanishing on the Show Desktop gesture) were fixed in 0.3.6. It began as
+documentation-only speculation, hence the assumption notes below — kept
+because the maintainer has no Mac, so macOS regressions still tend to appear
+post-release, and these notes are the map of where to look (coordinate space,
+Screen Recording) if perch/occlusion drift on a newer macOS.
 ****************************************************************************
 
 (proc_ancestors below uses `ps`, not Quartz, so it works even without pyobjc.)
@@ -31,10 +34,10 @@ Screen Recording permission gotcha (IMPORTANT for whoever tests this):
     title) is filled from `kCGWindowOwnerName` — the owning APP's name, which
     is documented to be available without any permission. That is also
     semantically the closer match for a window class. So geometry/perch/
-    occlusion should work without Screen Recording; only if owner names turn
-    out to be missing too would the permission matter. VERIFY on hardware.
+    occlusion work without Screen Recording (confirmed in practice); only if
+    owner names turn out to be missing too would the permission matter.
 
-Coordinate space assumption (VERIFY): `kCGWindowBounds` is a CGRect in
+Coordinate space (validated on hardware): `kCGWindowBounds` is a CGRect in
 CoreGraphics *global display* coordinates — origin at the top-left of the
 main display, y growing DOWNWARD (CGWindow/CGDisplay space is top-left
 based, unlike AppKit's bottom-left NSScreen space). Qt on macOS also exposes
