@@ -1,5 +1,4 @@
-import sys, os, socket, threading
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import os, socket, threading
 from claudlet import hostinfo
 
 

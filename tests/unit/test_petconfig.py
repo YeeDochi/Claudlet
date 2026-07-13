@@ -1,5 +1,4 @@
-import sys, os, json, tempfile
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import os, json, tempfile
 
 from claudlet import petconfig
 

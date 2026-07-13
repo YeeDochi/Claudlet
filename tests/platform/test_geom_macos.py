@@ -8,7 +8,6 @@ round-tripping through windows.parse_kwin_dump."""
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from claudlet import windows_macos
 from claudlet import windows
 

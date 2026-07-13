@@ -1,5 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from claudlet import windows
 
 SAMPLE = ("{id1};plasmashell;0,0,1920,1200|"         # desktop -> filtered

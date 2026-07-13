@@ -1,6 +1,5 @@
 import sys, os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from PyQt6.QtGui import QImage, QPainter
 from PyQt6.QtWidgets import QApplication
