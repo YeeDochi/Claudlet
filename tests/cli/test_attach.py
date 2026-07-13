@@ -1,4 +1,4 @@
-from claudlet import attach
+from claudlet.cli import attach
 
 
 def test_arg_value():

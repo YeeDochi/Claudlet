@@ -1,6 +1,6 @@
 import os, types
 import claudlet
-from claudlet import hook as mod
+from claudlet.cli import hook as mod
 
 
 def tree(d):

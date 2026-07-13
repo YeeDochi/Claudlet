@@ -1,2 +1,2 @@
 #!/usr/bin/env python3
-import _shim; _shim.run("claudlet.uninstall:_cli")
+import _shim; _shim.run("claudlet.cli.uninstall:_cli")

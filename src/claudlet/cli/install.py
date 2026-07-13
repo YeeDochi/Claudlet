@@ -187,12 +187,12 @@ def _print_readme(was_installed):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    from claudlet import install_hooks
+    from claudlet.cli import install_hooks
 
     if "--remove" in argv:
         # single teardown implementation lives in uninstall; delegate so
         # `claudlet-install --remove` and `claudlet-uninstall` never diverge.
-        from claudlet import uninstall
+        from claudlet.cli import uninstall
         return uninstall.main(argv)
 
     # capture BEFORE install_hooks.main() registers our hooks, else every run

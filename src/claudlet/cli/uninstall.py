@@ -15,10 +15,10 @@ import os
 import shutil
 import sys
 
-from claudlet import motion
+from claudlet.cli import motion
 from claudlet.core import petconfig
-from claudlet import install
-from claudlet import install_hooks
+from claudlet.cli import install
+from claudlet.cli import install_hooks
 
 
 def stop_running_pets():

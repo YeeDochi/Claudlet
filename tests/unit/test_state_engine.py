@@ -308,7 +308,7 @@ def test_hook_to_engine_companion_survives_its_own_final_stop():
     # piping that real payload through build_message must KEEP the companion --
     # it only leaves once a later snapshot no longer lists the work.
     import json
-    from claudlet import hook
+    from claudlet.cli import hook
     e = StateEngine()
     e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
     bt = [{"id": "A", "type": "subagent", "status": "running"}]   # self, still listed
@@ -400,7 +400,7 @@ def test_final_stop_departs_without_any_later_event():
     # event -- no later snapshot ever arrives. The companion must still depart
     # on its own (grace, then goodbye), not linger forever.
     import json
-    from claudlet import hook
+    from claudlet.cli import hook
     e = StateEngine()
     e.handle(_ev("PreToolUse", tool_name="Agent"), now=0.0)
     bt = [{"id": "A", "type": "subagent", "status": "running"}]   # only itself

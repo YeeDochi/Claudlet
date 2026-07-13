@@ -1,5 +1,5 @@
 import sys, os, json, socket
-from claudlet import motion as mod
+from claudlet.cli import motion as mod
 
 
 def test_new_motions_present():

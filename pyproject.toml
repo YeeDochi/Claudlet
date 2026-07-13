@@ -21,15 +21,15 @@ Homepage = "https://github.com/YeeDochi/Claudlet"
 
 [project.scripts]
 claudlet = "claudlet.pet:main"
-claudlet-attach = "claudlet.attach:_cli"
-claudlet-hook = "claudlet.hook:_cli"
-claudlet-motion = "claudlet.motion:_cli"
-claudlet-install = "claudlet.install:main"
-claudlet-uninstall = "claudlet.uninstall:_cli"
-claudlet-install-hooks = "claudlet.install_hooks:main"
-claudlet-config = "claudlet.configcli:_cli"
-claudlet-version = "claudlet.versioncli:_cli"
-claudlet-macos-diag = "claudlet.macos_diag:main"
+claudlet-attach = "claudlet.cli.attach:_cli"
+claudlet-hook = "claudlet.cli.hook:_cli"
+claudlet-motion = "claudlet.cli.motion:_cli"
+claudlet-install = "claudlet.cli.install:main"
+claudlet-uninstall = "claudlet.cli.uninstall:_cli"
+claudlet-install-hooks = "claudlet.cli.install_hooks:main"
+claudlet-config = "claudlet.cli.configcli:_cli"
+claudlet-version = "claudlet.cli.versioncli:_cli"
+claudlet-macos-diag = "claudlet.cli.macos_diag:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "claudlet.__version__" }

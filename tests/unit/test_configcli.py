@@ -1,6 +1,6 @@
 import json
 import os
-from claudlet import configcli as C
+from claudlet.cli import configcli as C
 
 
 def test_diagnose_separates_accepted_and_ignored():

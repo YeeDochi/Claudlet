@@ -1,6 +1,6 @@
 import json
 import os
-from claudlet import uninstall as U
+from claudlet.cli import uninstall as U
 
 
 def test_stop_running_pets_broadcasts_quit(monkeypatch):

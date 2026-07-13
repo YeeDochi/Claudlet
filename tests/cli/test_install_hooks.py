@@ -1,5 +1,5 @@
 import json
-from claudlet import install_hooks as ih
+from claudlet.cli import install_hooks as ih
 
 
 def _settings_with_our_hook(path):

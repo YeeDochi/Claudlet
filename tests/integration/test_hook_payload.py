@@ -1,5 +1,5 @@
 import sys, os, io, json
-from claudlet import hook as mod
+from claudlet.cli import hook as mod
 
 
 def test_pretooluse_forwards_tool_name():

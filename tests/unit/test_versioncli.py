@@ -1,4 +1,4 @@
-from claudlet import versioncli as V
+from claudlet.cli import versioncli as V
 
 
 def test_compare_states():

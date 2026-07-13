@@ -30,7 +30,7 @@ def _hook_command():
     """Command string settings.json invokes per hook event. Prefer the installed
     `claudlet-hook` console script (pipx/pip); else the source checkout's
     bin/claudlet-hook shim (which puts src/ on sys.path); else `python -m
-    claudlet.hook`. On Windows, extensionless scripts need the interpreter
+    claudlet.cli.hook`. On Windows, extensionless scripts need the interpreter
     prefixed (cmd.exe ignores "#!"); a real console-script .exe from which()
     runs directly."""
     exe = shutil.which("claudlet-hook")
@@ -43,7 +43,7 @@ def _hook_command():
         if os.name == "nt":
             return f"{_quote(sys.executable)} {_quote(repo_bin)}"
         return _quote(repo_bin)
-    return f"{_quote(sys.executable)} -m claudlet.hook"
+    return f"{_quote(sys.executable)} -m claudlet.cli.hook"
 
 
 HOOK_CMD = _hook_command()
@@ -73,9 +73,10 @@ def is_ours(group):
     for h in group.get("hooks", []):
         cmd = h.get("command", "")
         # match the current markers and the pre-rename ones ("claude-pet-hook"/
-        # "claude_pet.hook") so a migration run cleanly drops old entries instead
-        # of leaving them alongside the new claudlet ones (double-firing hooks).
-        if any(m in cmd for m in ("claudlet-hook", "claudlet.hook",
+        # "claude_pet.hook", plus the pre-cli-move "claudlet.hook") so a
+        # migration run cleanly drops old entries instead of leaving them
+        # alongside the new claudlet ones (double-firing hooks).
+        if any(m in cmd for m in ("claudlet-hook", "claudlet.hook", "claudlet.cli.hook",
                                   "claude-pet-hook", "claude_pet.hook")):
             return True
     return False
