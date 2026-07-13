@@ -37,6 +37,7 @@ except ImportError:                            # not built on some macOS/Windows
 from claudlet import creature as C
 from claudlet.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
 from claudlet import focus
+from claudlet import konsole
 from claudlet import hostinfo
 from claudlet import petconfig
 from claudlet import physics
@@ -1548,6 +1549,24 @@ class Pet(QWidget):
             pass
 
     # ---------- bring the Claude Code terminal forward ----------
+    def _konsole_focus_tab(self):
+        """Best-effort: select THIS session's Konsole tab over Konsole's D-Bus.
+        Konsole shares one process across all tabs/windows, so pid->window (the
+        KWin raise) can't distinguish two sessions in two tabs; the session's
+        shell pid, which is in our ancestor set, can. No-op off KDE/Konsole."""
+        if not sys.platform.startswith("linux") or not self._ancestor_pids:
+            return
+
+        def run(*args):
+            return subprocess.check_output(
+                ["qdbus6", *args], text=True, timeout=3,
+                stderr=subprocess.DEVNULL)
+
+        try:
+            konsole.focus(self._ancestor_pids, run)
+        except Exception:
+            pass
+
     def _activate_claude(self):
         if sys.platform == "darwin":
             self._activate_claude_macos()
@@ -1557,9 +1576,14 @@ class Pet(QWidget):
             return
         if not sys.platform.startswith("linux"):
             return                           # unknown platform: not implemented (no-op)
-        # Linux/KDE: prefer THIS session's own host window (matched by pid ->
-        # internalId) so with two consoles the click focuses the right one; fall
-        # back to the first window of the host class when we haven't identified it.
+        # Linux/KDE: Konsole runs every tab/window in ONE process, so two Claude
+        # sessions living in two tabs share the window pid — raising the window
+        # (below) can't pick the right TAB. Select our tab over Konsole's D-Bus
+        # first (best-effort); then raise the window so it comes forward.
+        self._konsole_focus_tab()
+        # prefer THIS session's own host window (matched by pid -> internalId) so
+        # with two consoles the click focuses the right one; fall back to the
+        # first window of the host class when we haven't identified it.
         classes = self.host_classes or ["konsole"]
         want = "[" + ",".join('"%s"' % c for c in classes) + "]"
         hostid = self._host_wid or ""
