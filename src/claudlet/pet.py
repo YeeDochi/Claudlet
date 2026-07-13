@@ -28,11 +28,7 @@ import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QObject, pyqtSlot
-try:
-    from PyQt6.QtDBus import QDBusConnection   # KDE window integration (Linux)
-except ImportError:                            # not built on some macOS/Windows Qt
-    QDBusConnection = None
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect
 
 from claudlet.core import creature as C
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
@@ -114,21 +110,6 @@ MOTION_MENU = [
 # creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
 # used to land the FEET on a window's top edge when perching (not the window box).
 FOOT_Y = 89
-
-
-class _GeomReceiver(QObject):
-    """D-Bus object the KWin geometry script pushes window dumps to."""
-    def __init__(self, pet):
-        super().__init__()
-        self._pet = pet
-
-    @pyqtSlot(str)
-    def push(self, dump):
-        self._pet._on_geom(dump)
-
-    @pyqtSlot(str)
-    def cursor(self, xy):
-        self._pet._on_cursor(xy)
 
 
 def _macos_keep_visible(widget):
@@ -424,7 +405,7 @@ class Pet(QWidget):
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / FPS))
 
-        self._geom_script_id = None
+        self._geom_kde = None
         self._setup_geom_feed()
 
         # drop the taskbar/pager entry once the window is mapped (KWin script)
@@ -877,23 +858,19 @@ class Pet(QWidget):
         if sys.platform == "darwin":
             self._setup_geom_feed_macos()
             return
-        if QDBusConnection is None:          # no QtDBus on some Qt builds
-            self._dbus_name = None
+        from claudlet.platform.geom import kde
+        self._dbus_name = None
+        if not kde.available():              # not KDE / no reachable KWin scripting
             return
-        try:
-            safe = re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
-            self._dbus_name = "org.claudepet.geom_" + safe
-            self._receiver = _GeomReceiver(self)
-            bus = QDBusConnection.sessionBus()
-            if not bus.registerService(self._dbus_name):
-                self._dbus_name = None
-                return
-            bus.registerObject("/", self._receiver,
-                               QDBusConnection.RegisterOption.ExportAllSlots)
-            self._start_geom_script()
-            self._geom_active = True
-        except Exception:
-            self._dbus_name = None
+        # kde.start registers the shared D-Bus object and loads the geometry
+        # script; the pushed dumps land in self._on_geom. The cursor feed below
+        # reuses the same D-Bus service (self._dbus_name) and object (its
+        # `cursor` slot -> self._on_cursor), so thread both callbacks through.
+        self._geom_kde = kde.start(self._on_geom, self.session_id, self._on_cursor)
+        if self._geom_kde is None:
+            return
+        self._dbus_name = self._geom_kde.dbus_name
+        self._geom_active = True
 
     def _setup_geom_feed_win32(self):
         try:
@@ -979,87 +956,6 @@ class Pet(QWidget):
                                  "top=%d pid=%s\n" % (
                                      w.wid, w.title, w.x, w.y, w.w, w.h, w.y, w.pid))
             sys.stderr.flush()
-        except Exception:
-            pass
-
-    def _start_geom_script(self):
-        svc = self._dbus_name
-        js = (
-            'var SVC="' + svc + '";'
-            # only windows on the CURRENT virtual desktop count (a perched pet is
-            # sticky/all-desktops, so a window that leaves the desktop must drop
-            # out of the feed -> pet falls to the desktop floor instead of
-            # hovering where the vanished window was).
-            'function _onDesk(c){'
-            '  if(c.onAllDesktops)return true;'
-            '  try{'
-            '    if(c.desktops&&c.desktops.length!==undefined){var cur=workspace.currentDesktop;'
-            '      for(var k=0;k<c.desktops.length;k++){if(c.desktops[k]===cur)return true;}'
-            '      return false;}'
-            '    if(typeof c.desktop==="number")'
-            '      return c.desktop<0||c.desktop===workspace.currentDesktop;'
-            '  }catch(e){}'
-            '  return true;}'                             # unknown API -> don't filter
-            'function _dump(top){'
-            # stackingOrder is bottom->top, so geom.window_at's "last match
-            # wins" correctly picks the TOPMOST window under the pet.
-            '  var ws=(typeof workspace.stackingOrder!=="undefined"&&workspace.stackingOrder)'
-            '    ?workspace.stackingOrder'
-            '    :((typeof workspace.windowList==="function")'
-            '      ?workspace.windowList():workspace.clientList());'
-            '  var ent=[];'
-            '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
-            '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c))'   # visible, on this desktop
-            '      ent.push({id:(""+c.internalId),'
-            '        s:c.internalId+";"+(c.resourceClass||"")+";"'
-            '        +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0)});}'
-            # workspace.stackingOrder lags a raise in this KWin (it settles AFTER
-            # windowActivated fires), so a just-activated window would still look
-            # buried for one click. We KNOW it is now topmost -> force it last.
-            '  if(top){var tid=""+top.internalId;'
-            '    for(var j=0;j<ent.length;j++){if(ent[j].id===tid){'
-            '      ent.push(ent.splice(j,1)[0]);break;}}}'
-            '  var o=[];for(var k=0;k<ent.length;k++)o.push(ent[k].s);'
-            '  callDBus(SVC,"/","","push",o.join("|"));'
-            '}'
-            'function _hook(c){if(!c)return;'
-            '  if((""+(c.resourceClass||"")).toLowerCase().indexOf("claudlet")>=0)'
-            '    return;'                                  # never react to our own window
-            '  if(c.frameGeometryChanged)c.frameGeometryChanged.connect(_dump);'
-            '  if(c.minimizedChanged)c.minimizedChanged.connect(_dump);}'  # refresh on (un)minimize
-            'var _w=(typeof workspace.windowList==="function")'
-            '  ?workspace.windowList():workspace.clientList();'
-            'for(var i=0;i<_w.length;i++)_hook(_w[i]);'
-            'if(workspace.windowAdded)workspace.windowAdded.connect('
-            '  function(c){_hook(c);_dump();});'
-            'if(workspace.windowRemoved)workspace.windowRemoved.connect(_dump);'
-            # re-dump on RAISE (click a window behind ours). windowActivated hands
-            # us the raised window; _dump forces it to the top of the reported
-            # order, because workspace.stackingOrder hasn't settled yet when this
-            # fires (relying on it lagged occlusion by one click).
-            'if(workspace.windowActivated)workspace.windowActivated.connect(_dump);'
-            '_dump();'
-        )
-        # stable plugin name so a re-launched pet for the SAME session replaces
-        # its old script instead of stacking a new one (orphans otherwise pile up
-        # and each keeps re-dumping on every geometry change).
-        self._geom_plugin = "claudepet_geom_" + re.sub(
-            r"[^A-Za-z0-9_]", "_", str(self.session_id))
-        try:
-            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
-                            "org.kde.kwin.Scripting.unloadScript", self._geom_plugin],
-                           timeout=3, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
-                f.write(js)
-                path = f.name
-            sid = subprocess.check_output(
-                ["qdbus6", "org.kde.KWin", "/Scripting",
-                 "org.kde.kwin.Scripting.loadScript", path, self._geom_plugin],
-                text=True, timeout=3).strip()
-            subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
-                            "org.kde.kwin.Scripting.start"], timeout=3)
-            self._geom_script_id = sid          # persistent — do NOT stop now
-            os.unlink(path)
         except Exception:
             pass
 
@@ -1702,14 +1598,10 @@ class Pet(QWidget):
                                    stdout=subprocess.DEVNULL)
                 except Exception:
                     pass
-        if getattr(self, "_geom_plugin", None):
-            try:
-                subprocess.run(["qdbus6", "org.kde.KWin", "/Scripting",
-                                "org.kde.kwin.Scripting.unloadScript", self._geom_plugin],
-                               timeout=3, stderr=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL)
-            except Exception:
-                pass
+        geom_kde = getattr(self, "_geom_kde", None)
+        if geom_kde is not None:
+            from claudlet.platform.geom import kde
+            kde.stop(geom_kde)
         try:
             os.unlink(self.port_file)
         except OSError:
