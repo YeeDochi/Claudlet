@@ -1,10 +1,2 @@
 #!/usr/bin/env python3
-"""Thin shim -> claudlet.hook (never fails Claude; always exits 0)."""
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-try:
-    from claudlet.hook import main
-    main()
-except Exception:
-    pass
-sys.exit(0)
+import _shim; _shim.run("claudlet.hook:main", swallow=True)

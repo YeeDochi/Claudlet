@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Backward-compat shim -> claudlet.hook (never fails Claude; always exits 0).
-
-The project was renamed claude-pet -> claudlet. This path is kept because
-settings.json entries registered before the rename still invoke it; re-run
-`claudlet-install-hooks` to migrate them to bin/claudlet-hook."""
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-try:
-    from claudlet.hook import main
-    main()
-except Exception:
-    pass
-sys.exit(0)
+# DEPRECATED backward-compat path (pre-rename settings.json). Remove next minor;
+# claudlet-install-hooks migrates old entries to bin/claudlet-hook.
+import _shim; _shim.run("claudlet.hook:main", swallow=True)
