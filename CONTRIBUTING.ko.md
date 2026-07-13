@@ -2,8 +2,8 @@
 
 [English](CONTRIBUTING.md) | **한국어**
 
-관심 가져줘서 고마워요 — 지금 제일 급한 건 **macOS 검증**이지만(아래 참고), 버그
-수정, 문서, 다른 플랫폼 리포트도 다 환영이에요.
+관심 가져줘서 고마워요 — 버그 수정, 문서, 플랫폼 리포트 다 환영이에요. 특히
+**꾸준한 macOS 테스트**가 값져요, 유지관리자에게 Mac이 없거든요(아래 참고).
 
 ## 개발 환경 설정
 
@@ -60,11 +60,12 @@ pytest
 
 ## 지금 제일 필요한 것
 
-**macOS 검증.** macOS 창 통합 경로 전체(`src/claudlet/windows_macos.py`,
-`pet.py`에 연결됨)는 실제 Mac 없이 애플 문서만 보고 작성한 코드라 — 한 번도 실행된
-적이 없어요. 정확한 체크리스트(화면 기록 권한, perch, occlusion, click-to-focus,
-트레이)는 **[각자 OS에서 테스트 도와주세요](docs/platform.ko.md#각자-os에서-테스트-도와주세요)**를 참고하세요.
-공개 발표 전 마지막 관문이라, 여기 리포트가 특히 값져요.
+**꾸준한 macOS 테스트.** v1.0.0 기준 세 플랫폼 모두 실기 검증됐지만, 유지관리자에게
+Mac이 없어요 — 그래서 macOS 창 통합 경로(`src/claudlet/windows_macos.py`, `pet.py`에
+연결됨)는 협력자만 실기로 확인하고, macOS 전용 회귀는 릴리스 후에 드러나는 경향이 있어요.
+새 macOS 버전에서 재검증하고 이상한 점(perch 어긋남, occlusion, click-to-focus)을
+리포트해 주는 게 특히 값져요. 화면 기록 권한 이슈와 `claudlet-macos-diag` 진단은
+**[macOS 참고](docs/platform.ko.md#macos-참고)**를 보세요.
 
 ## 버그 제보 / 기능 요청
 

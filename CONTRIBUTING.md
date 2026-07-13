@@ -2,9 +2,9 @@
 
 **English** | [한국어](CONTRIBUTING.ko.md)
 
-Thanks for considering it — **macOS verification** is the single biggest gap
-right now (see below), but fixes, docs, and other platform reports are welcome
-too.
+Thanks for considering it — fixes, docs, and platform reports are all welcome.
+**Ongoing macOS testing** is especially valuable, since the maintainer has no
+Mac (see below).
 
 ## Dev setup
 
@@ -61,13 +61,14 @@ please run the suite locally before opening a PR.
 
 ## What's most needed right now
 
-**macOS verification.** The whole macOS window-integration path
-(`src/claudlet/windows_macos.py`, wired into `pet.py`) was written from
-Apple's docs without access to real Mac hardware — it has never actually run.
-See **[Help test on your OS](docs/platform.md#help-test-on-your-os)** for the
-exact checklist (Screen Recording permission, perch, occlusion, click-to-focus,
-tray). This is the last gate before a public announcement, so reports here are
-especially valuable.
+**Ongoing macOS testing.** All three platforms are hardware-verified as of
+v1.0.0, but the maintainer has no Mac — so the macOS window-integration path
+(`src/claudlet/windows_macos.py`, wired into `pet.py`) is only checked on real
+hardware by contributors, which means macOS-specific regressions tend to surface
+after a release. Retesting on new macOS versions and reporting anything off
+(perch offsets, occlusion, click-to-focus) stays especially valuable. See
+**[macOS notes](docs/platform.md#macos-notes)** for the Screen Recording
+permission gotcha and `claudlet-macos-diag` troubleshooting.
 
 ## Reporting bugs / requesting features
 

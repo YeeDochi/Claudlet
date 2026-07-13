@@ -135,10 +135,10 @@ New Claude Code sessions then auto-spawn a pet. Restart any already-running sess
 to pick up the hooks — or launch one now with `claudlet`.
 
 Best on **KDE Plasma**. Perching on and riding windows also works on **Windows**
-(Win32) and **macOS** (experimental — needs `pyobjc-framework-Quartz`, which the
-installer adds automatically; the pet self-calibrates window coordinates at
-runtime). Elsewhere the window tricks switch off gracefully and the pet just
-roams. See **[Platform support](docs/platform.md)**.
+(Win32) and **macOS** (needs `pyobjc-framework-Quartz`, which the installer adds
+automatically; the pet self-calibrates window coordinates at runtime) — all three
+are hardware-verified. Elsewhere the window tricks switch off gracefully and the
+pet just roams. See **[Platform support](docs/platform.md)**.
 
 ## What it shows
 

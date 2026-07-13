@@ -8,10 +8,11 @@
 Claude Code ──hook──▶ claudlet-hook ──loopback TCP──▶ pet (PyQt6 window)
 ```
 
-- **`src/pet.py`** — the pet: a frameless, translucent, always-on-top window. On
-  Linux it runs under XWayland (`QT_QPA_PLATFORM=xcb`) so it can position itself,
-  which native Wayland forbids; on macOS/Windows it uses the native Qt platform.
-- **`src/creature.py`** — the creature renderer (pure `QPainter`, state-driven).
+- **`src/claudlet/pet.py`** — the pet: a frameless, translucent, always-on-top
+  window. On Linux it runs under XWayland (`QT_QPA_PLATFORM=xcb`) so it can
+  position itself, which native Wayland forbids; on macOS/Windows it uses the
+  native Qt platform.
+- **`src/claudlet/creature.py`** — the creature renderer (pure `QPainter`, state-driven).
 - **`bin/claudlet-hook`** — forwards each Claude Code hook event to the pet over
   a per-session loopback TCP socket (port published in
   `$XDG_RUNTIME_DIR/claudlet-<session>.port`; stock Windows Python builds have

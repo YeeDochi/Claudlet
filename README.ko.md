@@ -133,9 +133,9 @@ setx PATH "$env:USERPROFILE\claudlet\bin;$env:PATH"
 인식해요 — 아니면 `claudlet`로 지금 하나 띄워도 돼요.
 
 **KDE Plasma**에서 가장 잘 동작해요. 창 위에 올라타기/타고 다니기는 **Windows**(Win32)와
-**macOS**(실험적 — `pyobjc-framework-Quartz` 필요, 인스톨러가 자동 설치하고 창 좌표는
-런타임에 자동 보정)에서도 되고, 그 외 환경에선 창 기능만 곱게 꺼지고 펫은 그냥 돌아다녀요.
-→ **[플랫폼 지원](docs/platform.md)**
+**macOS**(`pyobjc-framework-Quartz` 필요, 인스톨러가 자동 설치하고 창 좌표는 런타임에 자동
+보정)에서도 되고 — 셋 다 실기 검증됐어요 — 그 외 환경에선 창 기능만 곱게 꺼지고 펫은 그냥
+돌아다녀요. → **[플랫폼 지원](docs/platform.md)**
 
 ## 뭘 보여주나요
 
