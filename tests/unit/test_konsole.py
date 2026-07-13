@@ -1,4 +1,4 @@
-from claudlet import konsole
+from claudlet.platform import konsole
 
 
 # --- pure helpers ---------------------------------------------------------

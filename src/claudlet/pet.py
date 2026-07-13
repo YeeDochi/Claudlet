@@ -36,8 +36,8 @@ except ImportError:                            # not built on some macOS/Windows
 
 from claudlet.core import creature as C
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
-from claudlet import focus
-from claudlet import konsole
+from claudlet.platform import focus
+from claudlet.platform import konsole
 from claudlet.core import hostinfo
 from claudlet.core import petconfig
 from claudlet.core import physics

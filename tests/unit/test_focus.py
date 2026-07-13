@@ -1,4 +1,4 @@
-from claudlet import focus
+from claudlet.platform import focus
 
 
 def test_focused_true_when_active_matches(monkeypatch):
