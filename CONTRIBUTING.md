@@ -45,8 +45,8 @@ please run the suite locally before opening a PR.
 - `state_engine.py` is deliberately Qt-free and takes `now` as an explicit
   argument instead of reading the wall clock, so it stays pure and
   unit-testable without a display. Keep new engine logic in that shape.
-- Platform-specific code stays isolated per OS (`windows_win32.py`,
-  `windows_macos.py`, `focus.py` dispatching by host) — avoid scattering
+- Platform-specific code stays isolated per OS (`platform/geom/win32.py`,
+  `platform/geom/macos.py`, `platform/focus.py` dispatching by host) — avoid scattering
   `sys.platform` checks through shared modules.
 
 ## Branches & commits
@@ -63,7 +63,7 @@ please run the suite locally before opening a PR.
 
 **Ongoing macOS testing.** All three platforms are hardware-verified as of
 v1.0.0, but the maintainer has no Mac — so the macOS window-integration path
-(`src/claudlet/windows_macos.py`, wired into `pet.py`) is only checked on real
+(`src/claudlet/platform/geom/macos.py`, wired into `pet.py`) is only checked on real
 hardware by contributors, which means macOS-specific regressions tend to surface
 after a release. Retesting on new macOS versions and reporting anything off
 (perch offsets, occlusion, click-to-focus) stays especially valuable. See

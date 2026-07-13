@@ -34,9 +34,9 @@ disabled.
 - **KDE Plasma** for the full experience: `qdbus6` (window integration / click-to-focus),
   `wmctrl` (optional, hides the pet from the taskbar). XWayland if on Wayland.
 - **Windows**: nothing extra — window integration uses only the stdlib `ctypes`
-  bindings to `user32`/`dwmapi`/`kernel32` in `src/claudlet/windows_win32.py`.
+  bindings to `user32`/`dwmapi`/`kernel32` in `src/claudlet/platform/geom/win32.py`.
 - **macOS only**: `pip install pyobjc-framework-Quartz` for perch/occlusion
-  (`src/claudlet/windows_macos.py`). The installer (`pipx install claudlet` or the
+  (`src/claudlet/platform/geom/macos.py`). The installer (`pipx install claudlet` or the
   one-line source installer) adds it automatically. Optional — without it the pet
   still runs, with window integration off. Never needed (or imported) on
   Windows/Linux.

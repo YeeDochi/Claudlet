@@ -44,8 +44,8 @@ pytest
 - `state_engine.py`는 일부러 Qt에 의존하지 않고, 벽시계를 직접 읽는 대신 `now`를
   인자로 받아요 — 그래야 화면 없이도 순수하고 유닛테스트 가능한 상태로 남아요. 새
   엔진 로직도 이 형태를 유지해주세요.
-- 플랫폼별 코드는 OS별로 분리돼 있어요(`windows_win32.py`, `windows_macos.py`,
-  호스트별로 분기하는 `focus.py`) — 공유 모듈에 `sys.platform` 체크를 흩뿌리지
+- 플랫폼별 코드는 OS별로 분리돼 있어요(`platform/geom/win32.py`, `platform/geom/macos.py`,
+  호스트별로 분기하는 `platform/focus.py`) — 공유 모듈에 `sys.platform` 체크를 흩뿌리지
   마세요.
 
 ## 브랜치 & 커밋
@@ -61,7 +61,7 @@ pytest
 ## 지금 제일 필요한 것
 
 **꾸준한 macOS 테스트.** v1.0.0 기준 세 플랫폼 모두 실기 검증됐지만, 유지관리자에게
-Mac이 없어요 — 그래서 macOS 창 통합 경로(`src/claudlet/windows_macos.py`, `pet.py`에
+Mac이 없어요 — 그래서 macOS 창 통합 경로(`src/claudlet/platform/geom/macos.py`, `pet.py`에
 연결됨)는 협력자만 실기로 확인하고, macOS 전용 회귀는 릴리스 후에 드러나는 경향이 있어요.
 새 macOS 버전에서 재검증하고 이상한 점(perch 어긋남, occlusion, click-to-focus)을
 리포트해 주는 게 특히 값져요. 화면 기록 권한 이슈와 `claudlet-macos-diag` 진단은

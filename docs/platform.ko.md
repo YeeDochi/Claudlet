@@ -30,10 +30,10 @@ KDE·Windows·macOS 모두 실사용 지원 대상이에요. GNOME은 창 통합
 - Python 3 + PyQt6 — `pip install PyQt6`
 - 전체 기능엔 **KDE Plasma**: `qdbus6`(창 통합/클릭-포커스), `wmctrl`(선택, 작업표시줄에서
   펫 숨김). Wayland면 XWayland.
-- **Windows**: 추가 요구사항 없음 — 창 통합은 `src/claudlet/windows_win32.py`에서 표준
+- **Windows**: 추가 요구사항 없음 — 창 통합은 `src/claudlet/platform/geom/win32.py`에서 표준
   라이브러리 `ctypes`로 `user32`/`dwmapi`/`kernel32`를 직접 호출해요.
 - **macOS 전용**: 올라타기/가림에 `pip install pyobjc-framework-Quartz`
-  (`src/claudlet/windows_macos.py`). 인스톨러(`pipx install claudlet` 또는 한 줄 소스
+  (`src/claudlet/platform/geom/macos.py`). 인스톨러(`pipx install claudlet` 또는 한 줄 소스
   설치)가 자동으로 깔아줘요. 선택 사항 — 없어도 펫은 실행되고, 창 통합만 꺼져요.
   Windows/Linux에선 절대 필요 없고 import되지도 않아요.
 
