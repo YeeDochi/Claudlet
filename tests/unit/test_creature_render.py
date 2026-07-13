@@ -50,7 +50,7 @@ def test_new_motions_render_without_error():
                 p.end()
 
 
-NEW_LOOKS = {"climbdown", "strain"}
+NEW_LOOKS = {"climbdown", "strain", "leap"}
 
 
 def test_new_looks_present():

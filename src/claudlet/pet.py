@@ -37,6 +37,7 @@ from claudlet.platform import konsole
 from claudlet.core import hostinfo
 from claudlet.core import petconfig
 from claudlet.core import physics
+from claudlet.core import follow_nav
 from claudlet.platform import geom
 
 # ---- config ----
@@ -113,12 +114,8 @@ MOTION_MENU = [
 # used to land the FEET on a window's top edge when perching (not the window box).
 FOOT_Y = 89
 
-# follow-mode vertical reactions (Pet._tick's `elif following:` branch): an
-# in-place "><" strain hop when the cursor is above, and climb-down off a raised
-# surface when it's below. See the follow block for the predicates.
-X_ALIGN = 14                             # cursor considered "over" the pet's column
-CURSOR_ABOVE_MARGIN = 10                 # cursor must clear this much above self.y to hop
-CURSOR_BELOW_MARGIN = 20                 # cursor must clear this much below the feet to climb down
+# follow-mode navigation thresholds (jump reach, alignment, strain margins)
+# live in core/follow_nav.py -- the pure planner the follow branch delegates to.
 
 
 def _macos_keep_visible(widget):
@@ -390,6 +387,7 @@ class Pet(QWidget):
         self._floating = False
         # follow mode: walk toward the mouse cursor until toggled off
         self._follow = False
+        self._follow_jump = False        # airborne on a follow-aimed jump
         # latest GLOBAL cursor pos pushed by the KWin script. Qt's QCursor.pos()
         # only updates while the cursor is over our own (XWayland) surface, so on
         # Wayland the compositor is the only reliable source off-surface.
@@ -589,49 +587,70 @@ class Pet(QWidget):
                 self.y += dy / dist * step
             self._render_state = "float"
         elif following:
-            # grounded follow: walk left/right toward the cursor's column along
-            # the floor. Bounds come from _bounds(), so a pet perched inside a
-            # window follows WITHIN that window rather than leaving it.
+            # grounded follow: plan ONE move toward the cursor's place each
+            # tick -- walk the current surface, launch an aimed ballistic jump
+            # (mode "thrown" flies it; _physics resolves the landing), enter
+            # the window under the cursor, strain when it's unreachably above,
+            # climb down when it's below. The decision lives in the pure
+            # core/follow_nav planner; this block only applies intents.
             left, right, _t, floor = self._bounds()
-            # surface under us dropped away (window closed/moved, or we walked
-            # off a ledge) -> fall to it instead of snapping/teleporting
-            # (mirrors _roam and the stationary-state branch below).
             if self.y < floor - 2:
+                # surface dropped away (window closed/moved, or we stepped off
+                # a ledge / dropped into an entered window) -> fall to it
+                # instead of snapping/teleporting. It's a follow-motivated
+                # descent, so fly it like an aimed jump: "jump" pose, dead
+                # landing (no tumbling, no restitution flapping).
                 self.vx = 0.0
                 self.vy = 0.0
                 self.mode = "thrown"
+                self._follow_jump = True
                 self.target_x = None
             else:
+                # NOTE: do NOT snap y to floor before planning -- climbdown
+                # escapes its surface by stepping the feet just past the
+                # support tolerance, and a pre-plan snap would cancel that
+                # step every tick (an infinite 6px trembling loop). Standing
+                # intents snap below instead.
                 curx, cury = self._cursor_pos()
-                desired = curx - self.w / 2.0
-                self.target_x = min(max(desired, left), right)
-                dx = self.target_x - self.x
-                petcx = self.x + self.w / 2.0
-                feet = self.y + FOOT_Y
-                aligned = abs(petcx - curx) <= X_ALIGN
-                if aligned and cury < self.y - CURSOR_ABOVE_MARGIN:
-                    # cursor clearly ABOVE the pet's head -> an in-place "><" hop
-                    # (strain): the render bobs from the frame counter. Stays
-                    # grounded -- no real jump, no travel.
-                    self.y = floor
-                    self._render_state = "strain"
-                elif (aligned and cury > feet + CURSOR_BELOW_MARGIN
-                        and floor <= self.y + 2):
-                    # cursor BELOW a raised surface we're resting on -> climb down;
-                    # the ⑤ fall guard (above) finishes the descent next tick.
-                    self._render_state = "climbdown"
-                    self.y += 6
-                else:
-                    # otherwise WALK toward the cursor's column on the current
-                    # surface (no jumping between windows).
-                    speed = 10.0                # constant pace (no speed-up when far)
+                scr = self.screen_rect
+                intent = follow_nav.plan_move(
+                    self.x, self.y, self._nav_box(), self._contain,
+                    self._wins, scr.left(), scr.right(),
+                    self._screen_bottom_at(self.x + self.w / 2.0),
+                    curx, cury)
+                kind = intent[0]
+                if kind == "walk":
+                    tx = min(max(intent[1] - self.w / 2.0, left), right)
+                    self.target_x = tx
+                    dx = tx - self.x
+                    speed = 10.0            # constant pace (no far speed-up)
                     if abs(dx) <= speed:
-                        self.x = self.target_x
-                        self._render_state = eff    # arrived: resume normal animation
+                        self.x = tx
+                        self._render_state = eff    # arrived: normal animation
                     else:
                         self.facing = 1 if dx > 0 else -1
                         self.x += speed * self.facing
                         self._render_state = "walk"
+                    self.y = floor
+                elif kind == "jump":
+                    self._contain = None    # jumps always leave the window
+                    self.vx, self.vy = intent[1], intent[2]
+                    if intent[1]:
+                        self.facing = 1 if intent[1] > 0 else -1
+                    self.mode = "thrown"
+                    self._follow_jump = True    # _physics resolves the landing
+                elif kind == "enter":
+                    self._contain = intent[1]   # ⑤ fall guard / contained
+                    self._render_state = "climbdown"   # bounds finish the move
+                elif kind == "strain":
+                    self._render_state = "strain"
+                    self.y = floor
+                elif kind == "climbdown":
+                    self._render_state = "climbdown"
+                    self._contain = None    # contained: exit out the bottom
+                    self.y += 6             # ⑤ fall guard finishes the descent
+                else:                       # arrived
+                    self._render_state = eff
                     self.y = floor
         elif floating:
             # hover in place (no gravity): show the floaty pose when idle,
@@ -904,15 +923,71 @@ class Pet(QWidget):
         p = QCursor.pos()
         return (p.x(), p.y())
 
+    def _nav_box(self):
+        return follow_nav.Box(self.w, self.h, FOOT_Y)
+
     def _physics(self):
+        # a follow-aimed jump/descent may become CONTAINED mid-flight: an arc
+        # aimed into the cursor's window converts the moment the feet pierce
+        # its body, so the interior floor catches it (walls don't block
+        # flight, but nothing else inside would stop the arc).
+        if self._follow_jump and self._follow and self._contain is None:
+            curx, cury = self._cursor_pos()
+            win = follow_nav.midflight_enter(
+                self.x, self.y, self._nav_box(), self._wins, curx, cury)
+            if win is not None:
+                self._contain = win
         left, right, top, floor = self._bounds()
+        if self._follow_jump and self._contain is None and self.vy < 0:
+            # one-way platforms: an ascending follow-jump sails PAST window
+            # tops (no lip-catch chopping the arc into a dead stop at the
+            # edge); support only catches on the way down.
+            floor = self._screen_bottom_at(self.x + self.w / 2.0) - self.h
+        # deliberate follow moves land DEAD (no restitution flapping); only
+        # user flings keep the bounce.
+        rest = 0.0 if self._follow_jump else physics.FLOOR_RESTITUTION
         self.x, self.y, self.vx, self.vy, settled = physics.advance(
-            self.x, self.y, self.vx, self.vy, left, right, top, floor)
+            self.x, self.y, self.vx, self.vy, left, right, top, floor,
+            floor_restitution=rest)
         if settled:
             self.mode = "roam"
             self._render_state = self.claude_state
+            if self._follow_jump:
+                self._follow_jump = False
+                if self._follow:
+                    curx, cury = self._cursor_pos()
+                    # skid-snap: discrete flight steps land up to ~2 ticks
+                    # past the aim; walking the overshoot back flickered
+                    # land->walk->stand after every hop. Landed near the
+                    # cursor column -> settle ON it.
+                    want = min(max(curx - self.w / 2.0, left), right)
+                    if abs(want - self.x) <= 30:
+                        self.x = want
+                    # a follow-aimed jump just landed: entering the window the
+                    # cursor is in is the landing's MEANING (perch/floor need
+                    # no action -- support already provides them).
+                    scr = self.screen_rect
+                    r = follow_nav.resolve_landing(
+                        self.x, self.y, self._nav_box(), self._wins,
+                        self._screen_bottom_at(self.x + self.w / 2.0),
+                        scr.left(), scr.right(), curx, cury)
+                    if r[0] == "enter":
+                        self._contain = r[1]
+        elif self._follow_jump and (self.x <= left or self.x >= right):
+            # an aim clipped by the screen wall: don't ping-pong off it --
+            # drop straight down from the wall and replan from the ground.
+            self.vx = 0.0
+            self._render_state = "climbdown" if self.vy >= 0 else "leap"
+        elif self._follow_jump:
+            # straight-down follow descents READ as climbing down; real arcs
+            # show the STEADY leap pose -- the in-place "jump" motion bobs on
+            # its own and fights the ballistic movement (reads as stutter).
+            # Never the tumbling "falling".
+            self._render_state = ("climbdown"
+                                  if abs(self.vx) < 0.5 and self.vy >= 0
+                                  else "leap")
         else:
-            self._render_state = "falling"   # tumbling through the air
+            self._render_state = "falling"   # user flings tumble
 
     def _setup_geom_feed(self):
         """Feed self._wins with other windows' geometry so the pet can perch on
@@ -1272,6 +1347,7 @@ class Pet(QWidget):
             self._moved = False
             self._vel_samples = [(time.monotonic(), self._press_global)]
             self.mode = "held"
+            self._follow_jump = False      # a grab cancels any follow-jump
         elif e.button() == Qt.MouseButton.RightButton:
             self._menu(e.globalPosition().toPoint())
 
@@ -1376,6 +1452,7 @@ class Pet(QWidget):
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
     def _toggle_follow(self):
+        self._follow_jump = False
         self._follow = not self._follow
         if self._follow:
             self.walk_pause = 0           # follows within its window if perched

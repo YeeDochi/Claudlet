@@ -777,9 +777,10 @@ def test_follow_strain_hops_when_cursor_unreachably_above():
 
 
 def test_follow_strains_when_cursor_above_but_beyond_jump_reach():
-    # a platform ~48px above the current surface -- inside the OLD JUMP_REACH=70
-    # (would have launched a doomed arc -> hop loop) but beyond the achievable
-    # apex. ③ must STRAIN in place, never launch.
+    # a platform far above the current surface -- beyond the jump apex
+    # (~206px with VY_JUMP=24) and with no stepping stone -> STRAIN in
+    # place, never a doomed arc. (The old 48px version of this test guarded
+    # the previous branch's ~28px apex; 48px is now correctly jumpable.)
     from claudlet.platform import geom as W
     p = P.Pet(session_id="st2")
     try:
@@ -788,16 +789,218 @@ def test_follow_strains_when_cursor_above_but_beyond_jump_reach():
         p.x, p.y = 400.0, float(p.floor_y)               # on the screen floor
         petcx = p.x + p.w / 2.0
         sb = p._screen_bottom_at(petcx)
-        # FIXED 48px above the current surface: inside the old JUMP_REACH=70
-        # (would have wrongly launched) but well beyond the ~28px apex. Fixed,
-        # NOT derived from JUMP_REACH, so it stays RED if JUMP_REACH regresses.
-        wy = sb - 48
+        wy = sb - 500                                    # way beyond the apex
         win = W.Win("w1", 0, int(wy), 800, 400, "code", 1)
         p._wins = [win]
-        p._on_cursor(f"{int(petcx)},{int(p.y) - 60}")     # aligned, above margin
+        p._on_cursor(f"{int(petcx)},{int(wy) - 30}")     # aligned, above it
         p._tick()
         assert p._render_state == "strain"
         assert p.mode != "thrown", "beyond reach must strain, not launch a doomed arc"
+    finally:
+        p._cleanup()
+
+
+def test_follow_jumps_onto_small_step_above():
+    # a window top a few dozen px above the feet is a real platformer step:
+    # follow must LAUNCH (mode thrown) and land feet-flush on the top edge.
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="js1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        p.x, p.y = 200.0, float(p.floor_y)
+        petcx = p.x + p.w / 2.0
+        sb = p._screen_bottom_at(petcx)
+        wy = sb - 48                                     # 32px above the feet
+        win = W.Win("w1", 0, int(wy), 800, 600, "code", 1)
+        p._wins = [win]
+        p._on_cursor(f"{int(petcx)},{int(wy) - 30}")     # in the air above it
+        p._tick()
+        assert p.mode == "thrown" and p.vy < 0, "step in reach -> aimed jump"
+        p._tick()
+        # in flight the pose must be the STEADY leap -- the in-place "jump"
+        # motion bobs ~27px on its own, which fights the ballistic movement
+        # and reads as stutter.
+        assert p._render_state == "leap"
+        for _ in range(300):
+            p._tick()
+            if p.mode != "thrown":
+                break
+        assert p.mode == "roam"
+        assert abs(p.y - (wy - P.FOOT_Y)) <= 2, "feet should rest on the step"
+    finally:
+        p._cleanup()
+
+
+def test_follow_enters_floor_level_window_under_cursor():
+    # cursor inside a window whose body reaches the screen floor: the pet
+    # standing in front of it steps straight in (contained), no jump needed.
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="en1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        p.x, p.y = 340.0, float(p.floor_y)
+        petcx = p.x + p.w / 2.0                          # 400
+        sb = p._screen_bottom_at(petcx)
+        win = W.Win("w1", 300, int(sb - 400), 400, 400, "code", 1)
+        p._wins = [win]
+        p._on_cursor(f"450,{int(sb - 200)}")             # inside the window
+        p._tick()
+        assert p._contain is not None and p._contain.wid == "w1"
+    finally:
+        p._cleanup()
+
+
+def test_follow_jumps_into_panel_gap_window_and_gets_contained():
+    # windows on KDE float above the panel: bottom ~40px over the screen
+    # bottom. Too high for the walk-in tolerance, top beyond the apex ->
+    # the pet must jump INTO the body and get contained mid-flight.
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="pg1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        p.x, p.y = 340.0, float(p.floor_y)
+        petcx = p.x + p.w / 2.0                          # 400
+        sb = p._screen_bottom_at(petcx)
+        win = W.Win("w1", 300, int(sb - 400), 400, 360, "code", 1)  # bottom sb-40
+        p._wins = [win]
+        p._on_cursor(f"450,{int(sb - 200)}")             # inside the window
+        p._tick()
+        assert p.mode == "thrown" and p.vy < 0, "must LEAP into the body"
+        for _ in range(300):
+            p._tick()
+            if p.mode != "thrown":
+                break
+        assert p.mode == "roam"
+        assert p._contain is not None and p._contain.wid == "w1"
+    finally:
+        p._cleanup()
+
+
+def test_follow_descent_lands_clean_without_bouncing():
+    # deliberate follow descents (climb-down off a perch, dropping out of a
+    # window) must land DEAD: no restitution flapping, and the airborne pose
+    # is the aimed "jump", not the tumbling "falling".
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="nb1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        sb = p._screen_bottom_at(400.0)
+        top = int(sb - 300)
+        win = W.Win("w1", 100, top, 600, 200, "code", 1)   # bottom sb-100
+        p._wins = [win]
+        p.x, p.y = 340.0, float(top - P.FOOT_Y)            # perched on w1
+        petcx = p.x + p.w / 2.0
+        p._on_cursor(f"{int(petcx)},{sb - 10}")            # floor below, aligned
+        floor_y = float(p.floor_y)
+        touched = False
+        for _ in range(300):
+            p._tick()
+            if p.mode == "thrown":
+                # "climbdown" lingers on the guard-fire transition tick
+                assert p._render_state in ("jump", "climbdown"), \
+                    "descent must not tumble"
+            if p.y >= floor_y - 1:
+                touched = True
+            if touched:
+                assert p.y >= floor_y - 3, "bounced back up after touching down"
+            if touched and p.mode != "thrown":
+                break
+        assert touched and p.mode == "roam"
+    finally:
+        p._cleanup()
+
+
+def test_follow_exit_below_contained_window_climbs_down_not_jumps():
+    # contained in a window, cursor on the floor below it: the pet must show
+    # a DESCENT (climbdown pose all the way), never the jump pose.
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="cx1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        sb = p._screen_bottom_at(400.0)
+        win = W.Win("w1", 100, int(sb - 500), 600, 300, "code", 1)  # bottom sb-200
+        p._wins = [win]
+        p._contain = win
+        _l, _r, _t, floor = p._bounds()
+        p.x, p.y = 340.0, float(floor)                   # standing inside
+        p._on_cursor(f"400,{sb - 10}")                   # floor below, outside
+        p._tick()
+        assert p._render_state == "climbdown"
+        assert p._contain is None, "climbing out must release containment"
+        for _ in range(300):
+            p._tick()
+            if p.mode == "thrown":
+                assert p._render_state == "climbdown", \
+                    "a straight-down exit must not use the jump pose"
+            elif p.y >= float(p.floor_y) - 1:
+                break
+        assert p.mode == "roam" and abs(p.y - p.floor_y) <= 1
+    finally:
+        p._cleanup()
+
+
+def test_follow_jump_lands_without_post_shuffle():
+    # discrete flight steps land up to ~2 ticks (~28px) past the aim; the
+    # pet then walked BACK, flickering land->walk->stand after every hop.
+    # Settling must snap onto the cursor column when it lands nearby.
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="sh1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        sb = p._screen_bottom_at(400.0)
+        top = int(sb - 166)
+        win = W.Win("w1", 300, top, 450, 600, "code", 1)
+        p._wins = [win]
+        p.x, p.y = 80.0, float(p.floor_y)
+        p._on_cursor(f"600,{top - 30}")                  # above the window top
+        for _ in range(300):
+            p._tick()
+            if p._follow_jump:
+                break
+        assert p._follow_jump, "never launched"
+        for _ in range(300):
+            p._tick()
+            if p.mode != "thrown":
+                break
+        assert p.mode == "roam"
+        landed_x = p.x
+        p._tick()
+        assert p._render_state != "walk", "post-landing correction shuffle"
+        assert p.x == landed_x
+    finally:
+        p._cleanup()
+
+
+def test_follow_gap_jump_lands_and_enters_target_window():
+    # perched on one window, cursor inside another across a gap: one aimed
+    # ballistic hop, landing on the target's top edge, which (because the
+    # cursor is inside it) resolves to ENTER -> contained in w2.
+    from claudlet.platform import geom as W
+    p = P.Pet(session_id="gj1")
+    try:
+        p._follow = True
+        p.mode = "roam"
+        sb = p._screen_bottom_at(400.0)
+        top = int(sb - 300)
+        w1 = W.Win("w1", 50, top, 300, 300, "code", 1)
+        w2 = W.Win("w2", 420, top, 300, 300, "code", 2)
+        p._wins = [w1, w2]
+        p.x, p.y = 150.0, float(top - P.FOOT_Y)          # perched on w1
+        p._on_cursor(f"500,{top + 150}")                 # inside w2
+        p._tick()
+        assert p.mode == "thrown" and p.vx > 0, "gap -> aimed jump toward w2"
+        for _ in range(300):
+            p._tick()
+            if p.mode != "thrown":
+                break
+        assert p.mode == "roam"
+        assert p._contain is not None and p._contain.wid == "w2"
     finally:
         p._cleanup()
 

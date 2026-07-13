@@ -18,11 +18,14 @@ def _clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
 
 
-def advance(x, y, vx, vy, left, right, top, floor_y):
+def advance(x, y, vx, vy, left, right, top, floor_y,
+            floor_restitution=FLOOR_RESTITUTION):
     """Advance one physics step. Returns (x, y, vx, vy, settled).
 
     `top` is the ceiling (min y): an upward toss bounces off it instead of
-    flying off-screen and drifting back seconds later.
+    flying off-screen and drifting back seconds later. `floor_restitution`
+    lets deliberate moves (aimed follow-jumps) land DEAD (pass 0.0) while
+    user flings keep the default bounce.
     """
     vy = _clamp(vy + GRAVITY, -V_MAX, V_MAX)
     vx = _clamp(vx, -V_MAX, V_MAX)
@@ -38,7 +41,7 @@ def advance(x, y, vx, vy, left, right, top, floor_y):
     settled = False
     if y >= floor_y:
         y = floor_y
-        vy = -vy * FLOOR_RESTITUTION
+        vy = -vy * floor_restitution
         vx *= FLOOR_FRICTION
         if abs(vy) < SETTLE_VY and abs(vx) < SETTLE_VX:
             vx = vy = 0.0

@@ -31,7 +31,8 @@ STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
           "work_agent", "work_skill", "autopilot") + AUTO_VARIANTS + (
           "thinking", "attention", "asking",
           "error", "celebrate", "sleeping", "held", "falling",
-          "jump", "wave", "sing", "juggle", "float", "climbdown", "strain")
+          "jump", "wave", "sing", "juggle", "float", "climbdown", "strain",
+          "leap")
 
 # prop drawn beside each auto_* variant (auto_skill uses a visor glint instead)
 _AUTO_PROP = {"auto_computer": "window", "auto_search": "magnify",
@@ -229,6 +230,14 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None):
         sx = 1.0 - 0.10 * (j / 5.5)
         legphase = 0.5
         eyes = "happy"
+    elif state == "leap":
+        # airborne on an aimed follow-jump: like `falling`, the ballistic
+        # motion IS the animation -- a frame-driven bob would fight it and
+        # read as stutter. Steady stretched leap, legs tucked, happy.
+        bob = 0.0
+        sx, sy = 0.90, 1.12                      # stretched into the arc
+        legphase = 0.5                           # legs together/tucked
+        eyes = "happy"
     elif state == "wave":
         bob = _sin(frame, 30, 0.4)
         tilt = _sin(frame, 20, 4.0)              # rock while waving
@@ -271,7 +280,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None):
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
     arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
            "held": "up", "falling": "up", "juggle": "up", "wave": "wave",
-           "climbdown": "up"}.get(state, "side")
+           "climbdown": "up", "leap": "up"}.get(state, "side")
     arm_swing = (_sin(frame, 12, 0.5) if state == "walk" else
                  _sin(frame, 16, 0.5) if state in _WALKERS else 0.0)
 
@@ -649,7 +658,8 @@ if __name__ == "__main__":
                "celebrate": "완료", "error": "실패", "sleeping": "수면",
                "jump": "모션 · 점프", "wave": "모션 · 손 흔들기",
                "sing": "모션 · 노래", "juggle": "모션 · 저글링", "float": "모션 · 둥둥",
-               "climbdown": "모션 · 내려오기", "strain": "모션 · 안간힘"},
+               "climbdown": "모션 · 내려오기", "strain": "모션 · 안간힘",
+               "leap": "이동 · 도약"},
         "en": {"idle": "idle", "walk": "roaming",
                "work_computer": "edit · run", "work_search": "read · search",
                "work_web": "web · MCP", "work_agent": "subagent",
@@ -662,7 +672,8 @@ if __name__ == "__main__":
                "jump": "motion · jump", "wave": "motion · wave",
                "sing": "motion · sing", "juggle": "motion · juggle",
                "float": "motion · float",
-               "climbdown": "motion · climb down", "strain": "motion · strain"},
+               "climbdown": "motion · climb down", "strain": "motion · strain",
+               "leap": "nav · leap"},
     }
     labels = LABELS[sheet_lang]
     TITLE = {"ko": "claudlet — 오리지널 크리처 · 전부 코드 렌더 · CC0",
@@ -674,7 +685,8 @@ if __name__ == "__main__":
              "auto_computer", "auto_search", "auto_web", "auto_skill",
              "thinking", "attention", "asking",
              "celebrate", "error", "sleeping",
-             "jump", "wave", "sing", "juggle", "float", "climbdown", "strain"]
+             "jump", "wave", "sing", "juggle", "float", "climbdown", "strain",
+             "leap"]
     # show two animation frames per state to convey motion
     u = 7
     cellw, cellh = 210, 190
