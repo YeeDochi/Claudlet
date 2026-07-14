@@ -59,3 +59,58 @@ def test_wake_rebounds_energy():
     e = IdleEnergy(energy=0.2)
     e.wake(now=100.0)
     assert e.value > 0.2
+
+
+import random
+from claudlet.core.idle_engine import (
+    pick_behavior, WALK, EXPLORE, HOP, OBSERVE, TIC, SETTLE, DOZE, RESTING,
+)
+
+
+def _dist(level, on_window, n=4000, seed=1):
+    rng = random.Random(seed)
+    out = {}
+    for _ in range(n):
+        b = pick_behavior(level, rng, on_window=on_window)
+        out[b] = out.get(b, 0) + 1
+    return out
+
+
+def test_pick_behavior_is_deterministic_for_a_seed():
+    a = pick_behavior(HIGH, random.Random(42), on_window=False)
+    b = pick_behavior(HIGH, random.Random(42), on_window=False)
+    assert a == b
+
+
+def test_high_energy_favors_exploration():
+    d = _dist(HIGH, on_window=False)
+    explore = d.get(EXPLORE, 0) + d.get(HOP, 0)
+    rest = d.get(SETTLE, 0) + d.get(DOZE, 0)
+    assert explore > rest
+
+
+def test_low_energy_collapses_to_rest():
+    d = _dist(LOW, on_window=False)
+    rest = d.get(SETTLE, 0) + d.get(DOZE, 0)
+    assert rest > d.get(EXPLORE, 0) + d.get(HOP, 0)
+    assert DOZE in d
+
+
+def test_low_energy_never_explores_or_hops():
+    d = _dist(LOW, on_window=False)
+    assert EXPLORE not in d and HOP not in d
+
+
+def test_hop_only_offered_when_on_a_window():
+    assert HOP not in _dist(HIGH, on_window=False)
+    assert HOP in _dist(HIGH, on_window=True)
+
+
+def test_all_choices_are_known_behaviors():
+    known = {WALK, EXPLORE, HOP, OBSERVE, TIC, SETTLE, DOZE}
+    for level in (HIGH, MID, LOW):
+        assert set(_dist(level, on_window=True)).issubset(known)
+
+
+def test_resting_set_contents():
+    assert RESTING == frozenset({OBSERVE, TIC, SETTLE, DOZE})

@@ -54,3 +54,41 @@ class IdleEnergy:
         if self.value <= _LOW_AT:
             return LOW
         return MID
+
+
+WALK = "walk"
+EXPLORE = "explore_window"
+HOP = "hop_between"
+OBSERVE = "observe"
+TIC = "tic"
+SETTLE = "settle"
+DOZE = "doze"
+
+RESTING = frozenset({OBSERVE, TIC, SETTLE, DOZE})
+
+# weight tables per energy level: behavior -> relative weight.
+# EXPLORE/HOP are exploration; OBSERVE/TIC are light rest; SETTLE/DOZE are
+# heavy rest (the slide toward sleep). HOP is only reachable when on a window.
+_WEIGHTS = {
+    HIGH: {WALK: 3, EXPLORE: 5, HOP: 4, OBSERVE: 2, TIC: 2, SETTLE: 0, DOZE: 0},
+    MID:  {WALK: 3, EXPLORE: 2, HOP: 2, OBSERVE: 3, TIC: 3, SETTLE: 1, DOZE: 0},
+    LOW:  {WALK: 1, EXPLORE: 0, HOP: 0, OBSERVE: 2, TIC: 1, SETTLE: 4, DOZE: 4},
+}
+
+
+def pick_behavior(level, rng, on_window):
+    """Weighted choice of the next idle behavior for this energy level.
+    `rng` is a random.Random (injected for determinism); `on_window` gates
+    HOP (only meaningful when standing on a window)."""
+    weights = dict(_WEIGHTS.get(level, _WEIGHTS[MID]))
+    if not on_window:
+        weights[HOP] = 0
+    items = [(b, w) for b, w in weights.items() if w > 0]
+    total = sum(w for _, w in items)
+    r = rng.uniform(0, total)
+    upto = 0.0
+    for b, w in items:
+        upto += w
+        if r <= upto:
+            return b
+    return items[-1][0]
