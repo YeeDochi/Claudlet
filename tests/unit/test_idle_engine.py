@@ -114,3 +114,37 @@ def test_all_choices_are_known_behaviors():
 
 def test_resting_set_contents():
     assert RESTING == frozenset({OBSERVE, TIC, SETTLE, DOZE})
+
+
+from claudlet.core.idle_engine import pick_explore_point
+
+
+class _W:
+    def __init__(self, wid, x, y, w, h):
+        self.wid, self.x, self.y, self.w, self.h = wid, x, y, w, h
+
+
+def test_explore_point_none_when_no_windows():
+    assert pick_explore_point([], random.Random(0), current_wid=None) is None
+
+
+def test_explore_point_none_when_only_current_window():
+    wins = [_W("A", 0, 100, 200, 150)]
+    assert pick_explore_point(wins, random.Random(0), current_wid="A") is None
+
+
+def test_explore_point_is_on_a_window_top_center():
+    wins = [_W("A", 0, 100, 200, 150), _W("B", 400, 300, 100, 80)]
+    pt = pick_explore_point(wins, random.Random(0), current_wid="A")
+    assert pt is not None
+    x, y = pt
+    # must be window B's top surface, centered
+    assert x == 400 + 100 / 2
+    assert y == 300
+
+
+def test_explore_point_skips_current_window():
+    wins = [_W("A", 0, 100, 200, 150), _W("B", 400, 300, 100, 80)]
+    for seed in range(20):
+        x, y = pick_explore_point(wins, random.Random(seed), current_wid="A")
+        assert (x, y) != (0 + 200 / 2, 100)   # never picks A

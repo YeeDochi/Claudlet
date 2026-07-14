@@ -92,3 +92,15 @@ def pick_behavior(level, rng, on_window):
         if r <= upto:
             return b
     return items[-1][0]
+
+
+def pick_explore_point(wins, rng, current_wid=None):
+    """Choose a window to go visit and return the point on its top surface
+    (horizontal center, top edge) to aim at — feed this to
+    follow_nav.plan_move as the (cursor_x, cursor_y) target. Skips the window
+    currently under the feet. Returns None if nothing eligible."""
+    candidates = [w for w in wins if getattr(w, "wid", None) != current_wid]
+    if not candidates:
+        return None
+    w = rng.choice(candidates)
+    return (w.x + w.w / 2.0, float(w.y))
