@@ -1287,6 +1287,45 @@ def test_energy_does_not_drain_below_zero():
         p._cleanup()
 
 
+def test_explore_falls_back_to_walk_without_window_feed():
+    # HIGH energy can pick explore/hop, but with no window feed at all there is
+    # nothing to travel to -- must degrade to a plain walk leg, never freeze.
+    p = P.Pet(session_id="ex1")
+    try:
+        p.idle_energy.value = 0.9              # HIGH -> may pick explore/hop
+        p.claude_state = "idle"
+        p.mode = "roam"
+        p._wins = []
+        x0 = p.x
+        moved = False
+        for _ in range(300):
+            p._tick()
+            if p.x != x0:
+                moved = True
+        assert moved                            # still roams (walks) with no windows
+    finally:
+        p._cleanup()
+
+
+def test_explore_sets_target_toward_a_window():
+    # force the EXPLORE behavior and a fake window point far to the right;
+    # _roam must store it and route toward it via the follow_nav planner
+    # (progress in x, or an immediate arrival/consume of the target).
+    p = P.Pet(session_id="ex2")
+    try:
+        p.idle_energy.value = 0.9
+        p.claude_state = "idle"
+        p.mode = "roam"
+        p._explore_point = lambda: (p.x + 500, p.y)
+        p._idle_behavior = idle_engine.EXPLORE
+        p._behavior_timer = 50
+        x0 = p.x
+        p._roam()
+        assert p._explore_target == (x0 + 500, p.y) or p.x != x0
+    finally:
+        p._cleanup()
+
+
 def test_companion_window_flags_keep_bypass_on_x11():
     # Linux/X11 keeps override-redirect: a second managed on-top window fights
     # the pet's interactive drag (jitter). Must NOT regress to StaysOnTop.

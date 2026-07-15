@@ -383,6 +383,7 @@ class Pet(QWidget):
         self.idle_energy = IdleEnergy()
         self._idle_behavior = idle_engine.WALK
         self._behavior_timer = 0             # ticks left before choosing a new behavior
+        self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -630,40 +631,7 @@ class Pet(QWidget):
                     self._wins, scr.left(), scr.right(),
                     self._screen_bottom_at(self.x + self.w / 2.0),
                     curx, cury)
-                kind = intent[0]
-                if kind == "walk":
-                    tx = min(max(intent[1] - self.w / 2.0, left), right)
-                    self.target_x = tx
-                    dx = tx - self.x
-                    speed = 10.0            # constant pace (no far speed-up)
-                    if abs(dx) <= speed:
-                        self.x = tx
-                        self._render_state = eff    # arrived: normal animation
-                    else:
-                        self.facing = 1 if dx > 0 else -1
-                        self.x += speed * self.facing
-                        self._render_state = "walk"
-                    self.y = floor
-                elif kind == "jump":
-                    self._contain = None    # jumps always leave the window
-                    self.vx, self.vy = intent[1], intent[2]
-                    if intent[1]:
-                        self.facing = 1 if intent[1] > 0 else -1
-                    self.mode = "thrown"
-                    self._follow_jump = True    # _physics resolves the landing
-                elif kind == "enter":
-                    self._contain = intent[1]   # ⑤ fall guard / contained
-                    self._render_state = "climbdown"   # bounds finish the move
-                elif kind == "strain":
-                    self._render_state = "strain"
-                    self.y = floor
-                elif kind == "climbdown":
-                    self._render_state = "climbdown"
-                    self._contain = None    # contained: exit out the bottom
-                    self.y += 6             # ⑤ fall guard finishes the descent
-                else:                       # arrived
-                    self._render_state = eff
-                    self.y = floor
+                self._apply_follow_intent(intent, left, right, floor)
         elif floating:
             # hover in place (no gravity): show the floaty pose when idle,
             # otherwise keep the live Claude-activity animation.
@@ -888,6 +856,7 @@ class Pet(QWidget):
                 on_window=on_window)
             self._behavior_timer = random.randint(60, 200)
             self.target_x = None
+            self._explore_target = None
         self._behavior_timer -= 1
 
         b = self._idle_behavior
@@ -900,8 +869,28 @@ class Pet(QWidget):
             self._render_state = b
             return
 
-        # WALK / EXPLORE / HOP all locomote; EXPLORE/HOP nav lands in Task 7.
-        # For now every locomotion behavior does a plain horizontal walk leg.
+        if b in (idle_engine.EXPLORE, idle_engine.HOP):
+            # travel to another window, reusing the whole follow_nav pipeline
+            # (walk/jump/enter/climbdown) with a window point standing in for
+            # the cursor. No window feed at all -> degrade to a plain walk leg.
+            if self._explore_target is None:
+                self._explore_target = self._explore_point()
+            if self._explore_target is None:
+                b = idle_engine.WALK        # no windows -> fall through below
+            else:
+                tx, ty = self._explore_target
+                intent = follow_nav.plan_move(
+                    self.x, self.y, self._nav_box(), self._contain,
+                    self._wins, self.screen_rect.left(), self.screen_rect.right(),
+                    self._screen_bottom_at(self.x + self.w / 2.0), tx, ty)
+                self.idle_energy.note_roam(time.monotonic())
+                if self._apply_follow_intent(intent, left, right, floor):
+                    self._explore_target = None
+                    self._behavior_timer = 0     # arrived -> pick next behavior
+                return
+
+        # WALK (or EXPLORE/HOP degraded for lack of a window feed): a plain
+        # horizontal walk leg on the current surface.
         if self.target_x is None:
             reach = (random.uniform(120, 320) if random.random() < 0.8
                      else random.uniform(320, 900))
@@ -945,6 +934,66 @@ class Pet(QWidget):
 
     def _nav_box(self):
         return follow_nav.Box(self.w, self.h, FOOT_Y)
+
+    def _explore_point(self):
+        """A window point to go visit while idling, or None if no feed/windows."""
+        wins = getattr(self, "_wins", None) or []
+        cur = self._contain.wid if self._contain is not None else None
+        return idle_engine.pick_explore_point(wins, random, current_wid=cur)
+
+    def _apply_follow_intent(self, intent, left, right, floor):
+        """Apply one follow_nav.plan_move intent (walk/jump/enter/strain/
+        climbdown/arrived) to the pet's position, mode and render state.
+        Shared by grounded follow-the-cursor (the `following` branch of
+        `_tick`) and idle window exploration (`_roam`'s EXPLORE/HOP), which
+        feeds a window point into the same planner instead of the cursor.
+        `left`/`right`/`floor` are the caller's current `_bounds()` (already
+        window-interior-aware when contained); the planner's own
+        screen_left/right/bottom are computed by the caller and baked into
+        `intent`. Returns True once the intent resolves to "arrived" --
+        either a walk leg landing on its target this tick, or a plain
+        arrived (already there)."""
+        kind = intent[0]
+        if kind == "walk":
+            tx = min(max(intent[1] - self.w / 2.0, left), right)
+            self.target_x = tx
+            dx = tx - self.x
+            speed = 10.0            # constant pace (no far speed-up)
+            if abs(dx) <= speed:
+                self.x = tx
+                self._render_state = self.claude_state  # arrived: normal animation
+                self.y = floor
+                return True
+            self.facing = 1 if dx > 0 else -1
+            self.x += speed * self.facing
+            self._render_state = "walk"
+            self.y = floor
+            return False
+        if kind == "jump":
+            self._contain = None    # jumps always leave the window
+            self.vx, self.vy = intent[1], intent[2]
+            if intent[1]:
+                self.facing = 1 if intent[1] > 0 else -1
+            self.mode = "thrown"
+            self._follow_jump = True    # _physics resolves the landing
+            return False
+        if kind == "enter":
+            self._contain = intent[1]   # fall guard / contained
+            self._render_state = "climbdown"   # bounds finish the move
+            return False
+        if kind == "strain":
+            self._render_state = "strain"
+            self.y = floor
+            return False
+        if kind == "climbdown":
+            self._render_state = "climbdown"
+            self._contain = None    # contained: exit out the bottom
+            self.y += 6             # fall guard finishes the descent
+            return False
+        # arrived
+        self._render_state = self.claude_state
+        self.y = floor
+        return True
 
     def _physics(self):
         # a follow-aimed jump/descent may become CONTAINED mid-flight: an arc
