@@ -1273,9 +1273,16 @@ def test_energy_drains_and_reaches_doze():
 def test_energy_does_not_drain_below_zero():
     p = P.Pet(session_id="nrg2")
     try:
-        for _ in range(2000):
+        p.claude_state = "idle"
+        p.mode = "roam"
+        for i in range(3000):
+            p.idle_energy.note_event(now=float(i))   # heavy activity drain
             p._tick()
-        assert p.idle_energy.value >= 0.0
+        # _tick's resting-recovery runs last each loop and can nudge the value a
+        # floating-point sliver above 0; one final drain lands it back on the floor.
+        p.idle_energy.note_event(now=3000.0)
+        assert p.idle_energy.value == 0.0            # bottomed out, clamped
+        assert p.idle_energy.value >= 0.0            # never negative
     finally:
         p._cleanup()
 

@@ -882,7 +882,7 @@ class Pet(QWidget):
             return
         # choose a new idle behavior when the current one's timer elapses
         if self._behavior_timer <= 0:
-            on_window = self._contain is not None or self.y < floor - 2
+            on_window = self._contain is not None
             self._idle_behavior = idle_engine.pick_behavior(
                 self.idle_energy.level(), random,
                 on_window=on_window)
@@ -898,9 +898,6 @@ class Pet(QWidget):
                 self.facing = -self.facing
             self.y = floor
             self._render_state = b
-            # doze at rock-bottom energy is the on-ramp to sleeping
-            if b == idle_engine.DOZE and self.idle_energy.level() == idle_engine.LOW:
-                self.claude_state = "sleeping"
             return
 
         # WALK / EXPLORE / HOP all locomote; EXPLORE/HOP nav lands in Task 7.
