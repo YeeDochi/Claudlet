@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QPoint
 from claudlet import pet as P
 from claudlet.core import hostinfo
+from claudlet.core import idle_engine
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -1252,6 +1253,31 @@ def test_companion_window_flags_match_pet_zorder_off_x11():
         f = P._companion_flags(plat)
         assert f & Qt.WindowType.WindowStaysOnTopHint, plat
         assert not (f & Qt.WindowType.BypassWindowManagerHint), plat
+
+
+def test_energy_drains_and_reaches_doze():
+    p = P.Pet(session_id="nrg1")
+    try:
+        p.idle_energy.value = 0.05             # force exhausted
+        p.claude_state = "idle"
+        p.mode = "roam"
+        seen = set()
+        for _ in range(400):
+            p._tick()
+            seen.add(p._idle_behavior)
+        assert idle_engine.DOZE in seen or idle_engine.SETTLE in seen
+    finally:
+        p._cleanup()
+
+
+def test_energy_does_not_drain_below_zero():
+    p = P.Pet(session_id="nrg2")
+    try:
+        for _ in range(2000):
+            p._tick()
+        assert p.idle_energy.value >= 0.0
+    finally:
+        p._cleanup()
 
 
 def test_companion_window_flags_keep_bypass_on_x11():

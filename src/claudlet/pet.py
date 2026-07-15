@@ -38,6 +38,8 @@ from claudlet.core import hostinfo
 from claudlet.core import petconfig
 from claudlet.core import physics
 from claudlet.core import follow_nav
+from claudlet.core import idle_engine
+from claudlet.core.idle_engine import IdleEnergy
 from claudlet.platform import geom
 
 # ---- config ----
@@ -378,6 +380,9 @@ class Pet(QWidget):
         self.vx = self.vy = 0.0
         self._walk_speed = 2.2               # per-trip roam speed (varied a little)
         self._search_anchor = None           # x the work_search darts stay around
+        self.idle_energy = IdleEnergy()
+        self._idle_behavior = idle_engine.WALK
+        self._behavior_timer = 0             # ticks left before choosing a new behavior
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -511,6 +516,11 @@ class Pet(QWidget):
                 self._motion_expiry = (time.monotonic() + dur) if dur > 0 else None
             return
         self.engine.handle(ev, time.monotonic())
+        now = time.monotonic()
+        was_idle = self.claude_state in ("idle", "sleeping")
+        self.idle_energy.note_event(now)
+        if was_idle and ev.get("event") not in ("Stop", "Notification"):
+            self.idle_energy.wake(now)   # real activity resumed -> startle
         name = ev.get("event") or ev.get("hook_event_name") or ""
         if name == "SessionEnd":
             self._arm_quit()          # session ended -> wind down (cancellable)
@@ -561,6 +571,8 @@ class Pet(QWidget):
         # agent/skill stay put and focus. idle/waiting roam as before.
         roaming = (eff in ("idle", "sleeping") or eff in AUTO_ROAM) \
             and self.mode == "roam" and not self.dnd
+        resting = self._idle_behavior in idle_engine.RESTING
+        self.idle_energy.update(now, resting=(roaming and resting))
 
         if self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
@@ -868,37 +880,48 @@ class Pet(QWidget):
             self.mode = "thrown"
             self.target_x = None
             return
-        if self.walk_pause > 0:
-            self.walk_pause -= 1
-            # occasionally glance the other way while resting (looks alive)
-            if random.random() < 0.01:
+        # choose a new idle behavior when the current one's timer elapses
+        if self._behavior_timer <= 0:
+            on_window = self._contain is not None or self.y < floor - 2
+            self._idle_behavior = idle_engine.pick_behavior(
+                self.idle_energy.level(), random,
+                on_window=on_window)
+            self._behavior_timer = random.randint(60, 200)
+            self.target_x = None
+        self._behavior_timer -= 1
+
+        b = self._idle_behavior
+        if b in (idle_engine.OBSERVE, idle_engine.TIC,
+                 idle_engine.SETTLE, idle_engine.DOZE):
+            # resting in place: show the pose, occasional glance while observing
+            if b == idle_engine.OBSERVE and random.random() < 0.01:
                 self.facing = -self.facing
             self.y = floor
-            self._render_state = self.claude_state
+            self._render_state = b
+            # doze at rock-bottom energy is the on-ramp to sleeping
+            if b == idle_engine.DOZE and self.idle_energy.level() == idle_engine.LOW:
+                self.claude_state = "sleeping"
             return
+
+        # WALK / EXPLORE / HOP all locomote; EXPLORE/HOP nav lands in Task 7.
+        # For now every locomotion behavior does a plain horizontal walk leg.
         if self.target_x is None:
-            if random.random() < 0.012:
-                # wander mostly nearby; now and then take a longer stroll
-                reach = (random.uniform(120, 320) if random.random() < 0.8
-                         else random.uniform(320, 900))
-                direction = 1 if random.random() < 0.5 else -1
-                self.target_x = min(max(self.x + direction * reach, left), right)
-                self._walk_speed = random.uniform(1.8, 2.8)   # slight pace variety
-            self.y = floor
-            self._render_state = self.claude_state
-            return
+            reach = (random.uniform(120, 320) if random.random() < 0.8
+                     else random.uniform(320, 900))
+            direction = 1 if random.random() < 0.5 else -1
+            self.target_x = min(max(self.x + direction * reach, left), right)
+            self._walk_speed = random.uniform(1.8, 2.8)
         speed = self._walk_speed
         dx = self.target_x - self.x
         if abs(dx) <= speed:
             self.x = self.target_x
             self.target_x = None
-            # mostly short pauses, occasionally a longer rest
-            self.walk_pause = (random.randint(20, 90) if random.random() < 0.8
-                               else random.randint(120, 260))
+            self._behavior_timer = 0        # arrived -> pick next behavior
             self._render_state = self.claude_state
         else:
             self.facing = 1 if dx > 0 else -1
             self.x += speed * self.facing
+            self.idle_energy.note_roam(time.monotonic())
             self._render_state = self._walk_render()
         self.y = floor
 
@@ -1332,7 +1355,7 @@ class Pet(QWidget):
             state not in AUTO_STATES else None
         # facing handled inside draw_creature (body mirrors, text upright)
         C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
-                        facing=self.facing, visor=vis)
+                        facing=self.facing, visor=vis, energy=self.idle_energy.value)
         p.end()
 
     # ---------- interaction ----------
