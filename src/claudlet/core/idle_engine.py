@@ -76,13 +76,19 @@ _WEIGHTS = {
 }
 
 
-def pick_behavior(level, rng, on_window):
+def pick_behavior(level, rng, on_window, allow_rest=True):
     """Weighted choice of the next idle behavior for this energy level.
     `rng` is a random.Random (injected for determinism); `on_window` gates
-    HOP (only meaningful when standing on a window)."""
+    HOP (only meaningful when standing on a window). `allow_rest=False`
+    excludes the resting behaviors (RESTING) so only locomotion is offered —
+    used during autopilot (AUTO_ROAM), where the creature must keep visibly
+    working rather than settle in or doze off."""
     weights = dict(_WEIGHTS.get(level, _WEIGHTS[MID]))
     if not on_window:
         weights[HOP] = 0
+    if not allow_rest:
+        for b in RESTING:
+            weights[b] = 0
     items = [(b, w) for b, w in weights.items() if w > 0]
     total = sum(w for _, w in items)
     r = rng.uniform(0, total)

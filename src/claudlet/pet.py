@@ -851,9 +851,10 @@ class Pet(QWidget):
         # choose a new idle behavior when the current one's timer elapses
         if self._behavior_timer <= 0:
             on_window = self._contain is not None
+            allow_rest = self.claude_state in ("idle", "sleeping")
             self._idle_behavior = idle_engine.pick_behavior(
                 self.idle_energy.level(), random,
-                on_window=on_window)
+                on_window=on_window, allow_rest=allow_rest)
             self._behavior_timer = random.randint(60, 200)
             self.target_x = None
             self._explore_target = None

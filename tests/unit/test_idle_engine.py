@@ -116,6 +116,31 @@ def test_resting_set_contents():
     assert RESTING == frozenset({OBSERVE, TIC, SETTLE, DOZE})
 
 
+def _dist_no_rest(level, on_window, n=4000, seed=1):
+    rng = random.Random(seed)
+    out = {}
+    for _ in range(n):
+        b = pick_behavior(level, rng, on_window=on_window, allow_rest=False)
+        out[b] = out.get(b, 0) + 1
+    return out
+
+
+def test_allow_rest_false_never_yields_rest_behaviors():
+    locomotion = {WALK, EXPLORE, HOP}
+    for level in (HIGH, MID, LOW):
+        for on_window in (False, True):
+            d = _dist_no_rest(level, on_window=on_window)
+            assert not (set(d) & RESTING), (level, on_window, d)
+            assert set(d).issubset(locomotion)
+            assert d      # at least one locomotion behavior was actually chosen
+
+
+def test_allow_rest_default_still_rests_at_low_energy():
+    # regression guard: the default (allow_rest=True) is unchanged.
+    d = _dist(LOW, on_window=False)
+    assert d.get(SETTLE, 0) + d.get(DOZE, 0) > 0
+
+
 from claudlet.core.idle_engine import pick_explore_point
 
 
