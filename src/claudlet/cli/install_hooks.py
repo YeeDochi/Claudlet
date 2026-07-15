@@ -5,13 +5,14 @@ Usage:
     claudlet-install-hooks           # install
     claudlet-install-hooks --remove  # remove
 
-Backs up settings.json before writing. Idempotent.
+Keeps a single rolling backup (settings.json.bak) and writes atomically.
+Idempotent.
 """
 import json
 import os
 import shutil
 import sys
-import time
+import tempfile
 
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
 
@@ -57,16 +58,45 @@ ALL_EVENTS = TOOL_EVENTS + PLAIN_EVENTS
 def load():
     if not os.path.exists(SETTINGS):
         return {}
-    with open(SETTINGS, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(SETTINGS, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        # Corrupt/unreadable settings.json. Returning {} would drop every OTHER
+        # setting the user has when we write our hooks back, so bail loudly and
+        # leave their file untouched instead.
+        raise SystemExit(
+            f"claudlet: cannot read {SETTINGS} ({e}).\n"
+            "Fix or move it aside, then re-run the installer.")
 
 
 def save(s):
-    os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
+    """Write settings.json atomically, keeping a single rolling backup.
+
+    The old approach renamed the live file to a timestamped .bak and *then*
+    wrote the new one: a crash in between left no settings.json at all, and the
+    timestamped backups piled up forever. Instead: copy the current file to a
+    stable settings.json.bak, write the new content to a temp file in the same
+    directory, fsync it, and os.replace() it into place (atomic on the same
+    filesystem). The live file is never absent, and only one backup is kept.
+    """
+    d = os.path.dirname(SETTINGS)
+    os.makedirs(d, exist_ok=True)
     if os.path.exists(SETTINGS):
-        os.rename(SETTINGS, f"{SETTINGS}.bak.{int(time.time())}")
-    with open(SETTINGS, "w", encoding="utf-8") as f:
-        json.dump(s, f, indent=2, ensure_ascii=False)
+        shutil.copy2(SETTINGS, f"{SETTINGS}.bak")   # single rolling backup
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(s, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, SETTINGS)
+    except Exception:
+        try:
+            os.unlink(tmp)          # don't leave a half-written temp behind
+        except OSError:
+            pass
+        raise
 
 
 def is_ours(group):
