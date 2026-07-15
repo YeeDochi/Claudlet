@@ -153,11 +153,22 @@ def _companion_flags(platform):
     return base | Qt.WindowType.WindowStaysOnTopHint
 
 
+def _same_win(a, b):
+    """Two window handles refer to the same window (by id), or both are None."""
+    if a is None or b is None:
+        return a is None and b is None
+    return a.wid == b.wid
+
+
 class Companion(QWidget):
-    """An independent little creature in its own window that loosely FOLLOWS the
-    pet while a subagent runs. Eased motion (COMPANION_EASE) so it trails behind
-    rather than staying pinned — a sidekick scurrying after the pet. No perch/
-    physics; it just chases a target the pet feeds it each tick."""
+    """An independent little creature in its own window that FOLLOWS the pet
+    while a subagent runs, through the SAME pure nav+physics core the pet uses
+    (`follow_nav.plan_move` + `physics.advance`): it walks, jumps between
+    windows, drops INTO a window to sit with the pet, climbs down, and falls
+    under gravity — a real sidekick, not a lerp. When it truly can't reach
+    (unreachably above / stranded a level away) it teleports beside the pet.
+    Not user-grabbable (WA_TransparentForMouseEvents); the driving lives in
+    Pet._sync_companion, which owns the window feed and screen bounds."""
 
     def __init__(self):
         super().__init__()
@@ -178,9 +189,13 @@ class Companion(QWidget):
         self._state = "idle"           # walk while chasing, idle when settled
         self._masked = False           # occlusion mask state (same trick as the pet)
         self._last_mask = None
-        self.vx = 0.0                  # own physics while flung (see fling/fly)
+        self.vx = 0.0                  # own physics while airborne (see fly)
         self.vy = 0.0
         self._air = False              # True while flying/bouncing on its own
+        self._contain = None           # Win it lives INSIDE, or None (mirrors Pet)
+        self.target_x = None           # current walk-leg target (pipeline)
+        self._follow_jump = False      # air arc is a deliberate follow move ->
+                                       # dead landing + window-entry resolution
         self._depart_until = None      # monotonic deadline of the goodbye wave
         self._reunite_ticks = 0        # ticks spent separated, trying to walk back
         self.hat = random.choice(C.HAT_KINDS)   # each sidekick gets its own hat
@@ -261,28 +276,29 @@ class Companion(QWidget):
         self.move(int(self.x), int(self.y))
         self.update()
 
-    def fling(self, vx, vy):
-        """Launch with the SAME velocity as the pet's throw: the companion traces
-        its own parallel arc and BOUNCES off the floor itself (breakout-style),
-        instead of lerping after the pet — a lerp smears the bounce into a slow
-        drift, which read wrong."""
-        self.vx, self.vy = float(vx), float(vy)
-        self._air = True
-
     def fly(self, left, right, top, floor):
-        """One tick of its own physics while flung (same engine as the pet).
-        Settles -> back to ground-following."""
+        """One tick of a deliberate follow-arc -- a jump toward the leader, or a
+        fall onto a surface below -- run through the pet's own physics engine
+        with a DEAD landing (no restitution flapping), matching Pet._physics.
+        The companion is never user-flung (not grabbable), so there is no
+        bouncing toss to model. Settles -> back to ground-following; returns
+        whether it settled this tick."""
         self.x, self.y, self.vx, self.vy, settled = physics.advance(
-            self.x, self.y, self.vx, self.vy, left, right, top, floor)
+            self.x, self.y, self.vx, self.vy, left, right, top, floor,
+            floor_restitution=0.0)
         if settled:
             self._air = False
-            self._moving = True             # walk the remaining gap to the pet
+            self._moving = True             # walk the remaining gap to the leader
         if abs(self.vx) > 0.2:
             self.facing = 1 if self.vx > 0 else -1
-        self._state = "walk"                # legs flailing mid-air
+        # straight-down descents read as climbing down; real arcs show the leap.
+        if not settled:
+            self._state = ("climbdown" if abs(self.vx) < 0.5 and self.vy >= 0
+                           else "leap")
         self.frame = (self.frame + 1) % 100000
         self.move(int(self.x), int(self.y))
         self.update()
+        return settled
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -368,7 +384,6 @@ class Pet(QWidget):
         self._host_wid = None                # internalId of our host window (focus)
         self._companions = []                # agent followers, one per running agent
         self._departing = []                 # finished agents' companions waving goodbye
-        self._comp_flung = False             # this throw already launched the companions
         self._hidden_for_win = False         # hidden because our perch/host went away
         self._masked = False                 # pet clipped to a window's exposed part
         self._last_mask = None               # last applied QRegion (skip redundant sets)
@@ -722,105 +737,242 @@ class Pet(QWidget):
 
         if self.mode == "held":
             # the pet is lifted: the whole chain scurries to the cursor and
-            # dangles UNDER the held pet, so a throw launches everyone together.
-            self._comp_flung = False
+            # dangles UNDER the held pet. A release/throw just drops them back
+            # into the follow pipeline (they fall/navigate to where it lands).
             for i, c in enumerate(self._companions):
                 c.hover_to(self.x + (self.w - c.w) / 2.0,
                            self.y + self.h + 2 + i * int(c.h * 0.75))
+                c._contain = None            # re-navigate from scratch on release
+                c._air = False
+                c._follow_jump = False
                 self._occlude_companion(c)
                 if not c.isVisible():
                     c.show()
             return
-        if self.mode == "thrown" and not self._comp_flung:
-            # the pet just got thrown: launch every companion with the same
-            # velocity — parallel arcs bouncing off the floor (breakout-style).
-            for c in self._companions:
-                c.fling(self.vx, self.vy)
-            self._comp_flung = True
-        if self.mode != "thrown":
-            self._comp_flung = False
 
+        # Every other mode (roam AND thrown) drives each companion through the
+        # SAME pure nav+physics core the pet uses: aim at the LEADER (the pet
+        # for #1, the companion ahead for the rest — a duckling chain) and let
+        # follow_nav.plan_move + physics.advance walk / jump between windows /
+        # drop IN to sit with it / climb down / fall. This is the "share the
+        # pet's physics" requirement: a thrown pet is just a moving target the
+        # companion chases, not a special fling.
         ratio = COMPANION_U / float(U)
+        scr = self.screen_rect
         leader = self
         for c in self._companions:
+            box = self._companion_nav_box(c)
+            foot = box.foot_y
+            lead_foot = FOOT_Y if leader is self else FOOT_Y * ratio
+            lead_x = leader.x + leader.w / 2.0
+            lead_feet = leader.y + lead_foot
+            lead_contain = self._contain if leader is self else leader._contain
+            # target point fed to the planner: when the leader is PERCHED (not
+            # contained), its feet sit exactly on a window's top edge, which
+            # window_at reads as "inside" -- so the companion would try to drop
+            # INTO the window instead of perching beside it. Nudge the target
+            # just above the edge so it reads as a spot ON the top. When the
+            # leader is genuinely contained, keep the true feet (aim inside).
+            tgt_feet = (lead_feet if lead_contain is not None
+                        else lead_feet - (follow_nav.SURF_TOL + 2))
+            ccx = c.x + c.w / 2.0
             if c._air:
-                if self._contain is not None:
-                    # flung INSIDE a window: bounce within its interior like the
-                    # pet does, instead of sailing out to the screen edges.
-                    win = self._contain
-                    fly_l, fly_r = win.x, win.x + win.w - c.w
-                    fly_t = win.y
-                    fly_floor = (win.y + win.h - self.h
-                                 + FOOT_Y * (1.0 - ratio))
-                else:
-                    # physical bounce floor: the screen floor under the
-                    # companion, feet-aligned with a pet standing there.
-                    ccx = c.x + c.w / 2.0
-                    fly_l = self.screen_rect.left()
-                    fly_r = self.screen_rect.right() - c.w
-                    fly_t = self.screen_rect.top()
-                    fly_floor = (self._screen_bottom_at(ccx) - self.h
-                                 + FOOT_Y * (1.0 - ratio))
-                c.fly(fly_l, fly_r, fly_t, fly_floor)
+                # a deliberate follow-arc mid-flight: same engine as the pet
+                # (dead landing), entering the leader's window the moment its
+                # feet pierce it, or on landing.
+                if c._contain is None:
+                    win = follow_nav.midflight_enter(
+                        c.x, c.y, box, self._wins, lead_x, tgt_feet)
+                    if win is not None:
+                        c._contain = win
+                left, right, top, floor = self._companion_bounds(c)
+                if c._contain is None and c._follow_jump and c.vy < 0:
+                    # one-way platforms: an ascending arc sails PAST window tops
+                    # (support catches only on the way down), like the pet.
+                    floor = follow_nav.floor_feet(
+                        self._screen_bottom_at(ccx), box) - foot
+                if c.fly(left, right, top, floor) and c._follow_jump:
+                    c._follow_jump = False
+                    # entering the leader's window is the landing's MEANING
+                    # (perch/floor need no action — support already gives them).
+                    r = follow_nav.resolve_landing(
+                        c.x, c.y, box, self._wins,
+                        self._screen_bottom_at(c.x + c.w / 2.0),
+                        scr.left(), scr.right(), lead_x, tgt_feet)
+                    if r[0] == "enter":
+                        c._contain = r[1]
             else:
-                # Each companion rests on the surface under ITS OWN column
-                # (screen floor or a window top) — not the pet's shared level.
-                # Pick the window in this column whose top is NEAREST the
-                # companion's own feet (not support_surface_under's
-                # global-topmost, which would float it up to the highest of two
-                # overlapping windows — the anti-pattern flagged for the pet's
-                # jump above). Nearest-to-feet also handles both directions with
-                # one rule: a floor-standing companion climbs onto a window in
-                # its column, a companion above a window falls flush onto it,
-                # and it never drops through the surface it already rests on.
-                # The bare screen floor is the fallback when no window spans it.
-                ccx = c.x + c.w / 2.0
-                comp_feet = c.y + FOOT_Y * ratio
-                screen_bottom = self._screen_bottom_at(ccx)
-                surf = None
-                for w in self._wins:
-                    if w.x <= ccx <= w.x + w.w:
-                        if surf is None or abs(w.y - comp_feet) < abs(surf - comp_feet):
-                            surf = w.y
-                if surf is None:
-                    # bare floor: feet-align to the pet's shared floor line —
-                    # reduces to the old shared ground_y when the pet is on the
-                    # same screen floor (surf - self.h + FOOT_Y*(1-ratio)).
-                    comp_ground = screen_bottom - self.h + FOOT_Y * (1.0 - ratio)
+                left, right, top, floor = self._companion_bounds(c)
+                if c.y < floor - 2:
+                    # the surface under it dropped away (walked off a ledge, a
+                    # ridden window closed/moved, or it must descend to the pet)
+                    # -> FALL, flown as a dead-landing follow arc rather than
+                    # snapped. (Fixes the missing-fall symptom.)
+                    c.vx = 0.0
+                    c.vy = 0.0
+                    c._air = True
+                    c._follow_jump = True
+                    c.target_x = None
                 else:
-                    # window perch: feet FLUSH with the window top. This also
-                    # reduces to the old shared ground_y when the pet perches on
-                    # this same window (pet.y = surf - FOOT_Y there, so
-                    # ground_y = surf - FOOT_Y + FOOT_Y*(1-ratio) = surf - FOOT_Y*ratio).
-                    comp_ground = surf - FOOT_Y * ratio
-                # a level away (landed a throw somewhere else)? Give it a chance
-                # to walk itself back first (it still advance()s toward the pet
-                # below, on its own resolved surface) — only after
-                # COMPANION_REUNITE_TICKS of failing does it BLINK to the pet,
-                # instead of walking a floating line across the screen forever.
-                if abs(c.y - comp_ground) > COMPANION_BLINK_DY:
-                    c._reunite_ticks += 1
-                    if c._reunite_ticks >= COMPANION_REUNITE_TICKS:
-                        c.x = self.x + (self.w - c.w) / 2.0
-                        c._reunite_ticks = 0
-                else:
-                    c._reunite_ticks = 0
-                # duckling chain: chase your LEADER's centre (pet for the first)
-                target_x = leader.x + leader.w / 2.0
-                c.advance(target_x, comp_ground, self.engine.agent_state())
+                    intent = follow_nav.plan_move(
+                        c.x, c.y, box, c._contain, self._wins,
+                        scr.left(), scr.right(), self._screen_bottom_at(ccx),
+                        lead_x, tgt_feet)
+                    self._drive_companion(c, intent, left, right, floor,
+                                          lead_feet, foot, lead_contain)
             self._occlude_companion(c)
             if not c.isVisible():
                 c.show()
             leader = c
 
+    def _companion_nav_box(self, c):
+        """A follow_nav.Box for the companion whose feet lines (screen floor,
+        window perch, window interior) coincide with the PET's, despite its
+        smaller window. The trick: box.h - foot_y is kept equal to the pet's
+        (self.h - FOOT_Y), while foot_y is the companion's TRUE drawn foot
+        (FOOT_Y*ratio) so a resolved position lands the DRAWN feet on the
+        surface. box.w is the real companion width, for the screen/edge clamps."""
+        foot = FOOT_Y * (COMPANION_U / float(U))
+        return follow_nav.Box(c.w, (self.h - FOOT_Y) + foot, foot)
+
+    def _companion_bounds(self, c):
+        """(left, right, top, floor) for a companion's current context: the
+        window interior when contained, else the perch/screen-floor under its
+        own column. `floor` is the top-left y at which its DRAWN feet rest on
+        that surface — mirrors Pet._bounds for the companion box, so the two
+        share one feet line."""
+        box = self._companion_nav_box(c)
+        foot = box.foot_y
+        if c._contain is not None:
+            w = c._contain
+            if w.w < c.w:                    # window narrower than the companion
+                left = right = w.x + (w.w - c.w) / 2.0
+            else:
+                left = w.x
+                right = w.x + w.w - c.w
+            top = w.y
+            floor = follow_nav.inside_feet(w, box) - foot
+            return left, right, top, floor
+        scr = self.screen_rect
+        left = scr.left()
+        right = scr.right() - c.w
+        top = scr.top()
+        ccx = c.x + c.w / 2.0
+        feet = c.y + foot
+        sb = self._screen_bottom_at(ccx)
+        surface = geom.support_surface_under(ccx, self._wins, sb, feet)
+        if surface >= sb:
+            floor = follow_nav.floor_feet(sb, box) - foot
+        else:
+            floor = surface - foot           # perch: drawn feet flush on the top
+        return left, right, top, floor
+
+    def _drive_companion(self, c, intent, left, right, floor, lead_feet, foot,
+                         lead_contain):
+        """Apply one follow_nav intent to a companion (the companion's analogue
+        of Pet._apply_follow_intent) and run the give-up teleport. A WALK keeps
+        a trailing gap (duckling hysteresis via Companion.advance); every
+        surface-changing intent runs immediately, so the companion follows the
+        pet INTO a window, DOWN a ledge, or ACROSS to another window. It only
+        teleports beside the pet after staying a level apart it can't bridge
+        (strained overhead / stuck) for COMPANION_REUNITE_TICKS."""
+        rest = self.engine.agent_state()
+        kind = intent[0]
+        # vertical gap to the leader's feet line = the "can't reach" signal.
+        separated = abs(lead_feet - (c.y + foot)) > COMPANION_BLINK_DY
+        if self._companion_reunite(c, kind, separated, rest):
+            c.frame = (c.frame + 1) % 100000
+            c.move(int(c.x), int(c.y))
+            c.update()
+            return
+        if kind == "walk":
+            # A walk on the leader's OWN surface is the final approach: keep a
+            # trailing duckling gap (Companion.advance's FOLLOW_START/STOP
+            # hysteresis). A walk anywhere else is a ROUTING leg (walk to a ledge
+            # to leap, or close a gap before a jump across windows) and must
+            # arrive EXACTLY, or the gap strands it short of the edge and it
+            # never jumps. Same surface = same window (or both on floor/perch)
+            # AND at the same feet line.
+            same_surface = _same_win(c._contain, lead_contain) and not separated
+            if same_surface:
+                c.advance(intent[1], floor, rest)        # trailing-gap follow
+            else:
+                self._companion_route_walk(c, intent[1], left, right, floor)
+            return
+        if kind == "jump":
+            c._contain = None
+            c.vx, c.vy = intent[1], intent[2]
+            if intent[1]:
+                c.facing = 1 if intent[1] > 0 else -1
+            c._air = True
+            c._follow_jump = True
+            c.target_x = None
+            c._state = "leap"
+        elif kind == "enter":
+            c._contain = intent[1]            # interior bounds finish the drop
+            c._state = "climbdown"
+        elif kind == "climbdown":
+            c._contain = None                 # exit/descend out the bottom
+            c._state = "climbdown"
+            c.y += 6                          # fall guard finishes the descent
+        elif kind == "strain":
+            c._state = "strain"
+            c.y = floor
+        else:                                 # arrived
+            c._state = rest or "idle"
+            c.y = floor
+        c.frame = (c.frame + 1) % 100000
+        c.move(int(c.x), int(c.y))
+        c.update()
+
+    def _companion_reunite(self, c, kind, separated, rest):
+        """Give-up teleport: only a companion that STAYS a level apart with no
+        route (strained overhead, or arrived-stuck on the wrong level) burns the
+        budget; any reachable move resets it. On expiry it blinks beside the pet
+        and adopts the pet's window. Returns True if it teleported this tick."""
+        if separated and kind in ("strain", "arrived", "walk"):
+            c._reunite_ticks += 1
+            if c._reunite_ticks >= COMPANION_REUNITE_TICKS:
+                c.x = self.x + (self.w - c.w) / 2.0
+                c.y = float(self.y)               # land beside the pet, not below
+                c._contain = self._contain        # and share its window, if any
+                c._air = False
+                c._follow_jump = False
+                c._reunite_ticks = 0
+                c._state = rest or "idle"
+                return True
+        else:
+            c._reunite_ticks = 0
+        return False
+
+    def _companion_route_walk(self, c, want_cx, left, right, floor):
+        """Walk toward column want_cx and ARRIVE exactly -- a routing leg to a
+        ledge or into a jump. No trailing gap (that would strand it short of the
+        edge). Speeds up when far, like Companion.advance."""
+        cx = c.x + c.w / 2.0
+        dx = want_cx - cx
+        speed = min(COMPANION_SPEED * (1.0 + abs(dx) / COMPANION_RUN_FACTOR),
+                    COMPANION_SPEED * COMPANION_RUN_CAP)
+        if abs(dx) <= speed:
+            c.x = min(max(want_cx - c.w / 2.0, left), right)
+        else:
+            c.facing = 1 if dx > 0 else -1
+            c.x = min(max(c.x + (speed if dx > 0 else -speed), left), right)
+        c._state = "walk"
+        c.y = floor
+        c.frame = (c.frame + 1) % 100000
+        c.move(int(c.x), int(c.y))
+        c.update()
+
     def _occlude_companion(self, c):
-        """Clip the companion the way the pet clips itself: when it followed the
-        pet INSIDE a window, windows stacked above that window cover it too. On
-        the desktop (or without a geom feed) it stays fully visible."""
-        if not getattr(self, "_geom_active", False) or self._contain is None:
+        """Clip the companion the way the pet clips itself: when it lives INSIDE
+        a window, windows stacked above THAT window (its own, which may differ
+        from the pet's) cover it too. On the desktop (or without a geom feed) it
+        stays fully visible."""
+        if not getattr(self, "_geom_active", False) or c._contain is None:
             c.apply_mask(QRegion(QRect(0, 0, c.w, c.h)))
             return
-        cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
+        cur = next((w for w in self._wins if w.wid == c._contain.wid), None)
         if cur is None:                        # ridden window minimized/closed
             c.apply_mask(QRegion())
             return
