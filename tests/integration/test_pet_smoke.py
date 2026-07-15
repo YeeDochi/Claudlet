@@ -1354,3 +1354,50 @@ def test_companion_window_flags_keep_bypass_on_x11():
     f = P._companion_flags("linux")
     assert f & Qt.WindowType.BypassWindowManagerHint
     assert not (f & Qt.WindowType.WindowStaysOnTopHint)
+
+
+def test_aim_point_uses_explore_target_when_exploring_else_cursor():
+    # The airborne-jump aim point routes correctly: follow tracks the live
+    # cursor, idle exploration aims at its chosen window point.
+    p = P.Pet(session_id="aim1")
+    try:
+        p._follow = False
+        p._explore_target = (1234.0, 56.0)
+        assert p._aim_point() == (1234.0, 56.0)     # exploring -> explore target
+        p._follow = True
+        p._cursor = (10, 20)
+        assert p._aim_point() == (10, 20)           # following overrides -> cursor
+        p._follow = False
+        p._explore_target = None
+        p._cursor = (7, 8)
+        assert p._aim_point() == (7, 8)             # neither -> cursor
+    finally:
+        p._cleanup()
+
+
+def test_explore_jump_enters_targeted_window_midflight():
+    # Regression guard: an idle EXPLORE/HOP jump aimed INTO a window (top out of
+    # reach -> arc pierces the body) must become CONTAINED, not sail through and
+    # fall back out. Before the fix, _physics gated entry on self._follow (which
+    # exploration never sets) and used the cursor, not the explore target, so the
+    # pet popped in and out. Now entry is gated on _follow_jump and aims via
+    # _aim_point().
+    p = P.Pet(session_id="enter1")
+    try:
+        scr = p.screen_rect
+        wx, wy = float(scr.left() + 200), float(scr.top() + 150)
+        win = P.geom.Win("W1", wx, wy, 300.0, 200.0, "t")
+        p._wins = [win]
+        p._contain = None
+        p._follow = False                            # idle exploration, NOT follow
+        aim = (wx + 150.0, wy + 100.0)               # a point inside the window body
+        p._explore_target = aim
+        p.x = wx + 150.0 - p.w / 2.0                 # center-x over the window
+        p.y = wy                                     # feet (y + FOOT_Y) inside the body
+        p.mode = "thrown"
+        p._follow_jump = True
+        p.vx, p.vy = 0.0, 1.0
+        p._physics()
+        assert p._contain is not None and p._contain.wid == "W1"
+    finally:
+        p._cleanup()

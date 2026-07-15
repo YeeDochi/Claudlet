@@ -932,6 +932,17 @@ class Pet(QWidget):
         p = QCursor.pos()
         return (p.x(), p.y())
 
+    def _aim_point(self):
+        """The point the current airborne follow-jump is aimed at. Follow mode
+        tracks the LIVE cursor (so a moving cursor steers the arc mid-flight);
+        idle exploration aims at the fixed window point it chose. Used by
+        _physics to decide mid-flight/landing window entry for BOTH."""
+        if self._follow:
+            return self._cursor_pos()
+        if self._explore_target is not None:
+            return self._explore_target
+        return self._cursor_pos()
+
     def _nav_box(self):
         return follow_nav.Box(self.w, self.h, FOOT_Y)
 
@@ -1000,8 +1011,8 @@ class Pet(QWidget):
         # aimed into the cursor's window converts the moment the feet pierce
         # its body, so the interior floor catches it (walls don't block
         # flight, but nothing else inside would stop the arc).
-        if self._follow_jump and self._follow and self._contain is None:
-            curx, cury = self._cursor_pos()
+        if self._follow_jump and self._contain is None:
+            curx, cury = self._aim_point()
             win = follow_nav.midflight_enter(
                 self.x, self.y, self._nav_box(), self._wins, curx, cury)
             if win is not None:
@@ -1023,18 +1034,19 @@ class Pet(QWidget):
             self._render_state = self.claude_state
             if self._follow_jump:
                 self._follow_jump = False
-                if self._follow:
-                    curx, cury = self._cursor_pos()
+                if self._follow or self._explore_target is not None:
+                    curx, cury = self._aim_point()
                     # skid-snap: discrete flight steps land up to ~2 ticks
                     # past the aim; walking the overshoot back flickered
                     # land->walk->stand after every hop. Landed near the
-                    # cursor column -> settle ON it.
+                    # aim column -> settle ON it.
                     want = min(max(curx - self.w / 2.0, left), right)
                     if abs(want - self.x) <= 30:
                         self.x = want
                     # a follow-aimed jump just landed: entering the window the
-                    # cursor is in is the landing's MEANING (perch/floor need
-                    # no action -- support already provides them).
+                    # aim point is in is the landing's MEANING (perch/floor need
+                    # no action -- support already provides them). Applies to
+                    # both cursor-follow and idle window-exploration jumps.
                     scr = self.screen_rect
                     r = follow_nav.resolve_landing(
                         self.x, self.y, self._nav_box(), self._wins,
