@@ -376,7 +376,6 @@ class Pet(QWidget):
         # movement
         self.mode = "roam"                   # roam | held | thrown
         self.target_x = None
-        self.walk_pause = 0.0
         self.vx = self.vy = 0.0
         self._walk_speed = 2.2               # per-trip roam speed (varied a little)
         self._search_anchor = None           # x the work_search darts stay around
@@ -1525,7 +1524,6 @@ class Pet(QWidget):
         self._follow_jump = False
         self._follow = not self._follow
         if self._follow:
-            self.walk_pause = 0           # follows within its window if perched
             if self.mode == "thrown":
                 self.mode = "roam"
             self._start_cursor_feed()     # start reading the cursor only now
