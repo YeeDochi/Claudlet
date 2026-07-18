@@ -1688,6 +1688,10 @@ class Pet(QWidget):
         if self._contain is not None or perched:
             self._contain = None
             self.vx = self.vy = 0.0
+            # drop below the current surface so support_surface_under (tol 6px)
+            # skips it next tick; without this a PERCHED pet re-matches the same
+            # window top every tick and oscillates thrown<->roam without falling.
+            self.y += 8.0
             self.mode = "thrown"        # physics drops us to the surface below
 
     def showEvent(self, e):

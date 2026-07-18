@@ -1506,6 +1506,23 @@ def test_vacate_noop_when_not_blocked():
         p._cleanup()
 
 
+def test_vacate_drops_off_perch_when_fully_zoned():
+    p = P.Pet(session_id="vac3")
+    try:
+        win = type("W", (), {"x": 400.0, "y": 300.0, "w": 300.0, "h": 200.0, "wid": 3})()
+        p._wins = [win]
+        p._contain = None                       # PERCHED on top, not contained
+        floor = win.y - P.FOOT_Y                 # feet rest on the window top
+        p.x, p.y = 450.0, float(floor)
+        p._no_go = [{"x": win.x, "y": win.y, "w": win.w, "h": win.h}]
+        y0 = p.y
+        p._vacate_if_trapped(floor)
+        assert p.mode == "thrown"
+        assert p.y > y0                          # nudged below the perch -> will fall
+    finally:
+        p._cleanup()
+
+
 def test_env_forces_palette(monkeypatch):
     monkeypatch.setenv("CLAUDLET_PALETTE", "shiny_violet")
     p = P.Pet(session_id="pal")
