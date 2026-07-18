@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect
 
+from claudlet import roambounds
 from claudlet.core import creature as C
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
 from claudlet.platform import focus
@@ -368,6 +369,8 @@ class Pet(QWidget):
         self.frame = 0
         self.facing = 1
         cfg = petconfig.load_config()
+        self._roam_area = cfg.get("roam_area")
+        self._no_go = cfg.get("no_go") or []
         self.engine = StateEngine(is_focused=self._is_focused,
                                   tool_states=cfg["tool_states"],
                                   event_states=cfg["event_states"],
@@ -659,6 +662,14 @@ class Pet(QWidget):
             self._render_state = "float" if eff in ("idle", "sleeping") else eff
         elif roaming:
             self._roam()
+            # _roam's own push-out only guards its ENTRY into this tick; the
+            # walk/explore step it takes afterward can land right back in a
+            # no-go zone (the pet then oscillates at the zone edge forever
+            # instead of clearing it). Re-apply after it moves so the position
+            # actually published this tick is clear, not just the one before.
+            self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go)
+            left, right, _t, _f = self._bounds()
+            self.x = min(max(self.x, left), right)   # containment wins over no-go
         else:
             # stationary Claude state (working / attention / thinking / ...).
             # still gravity-bound: rest on the surface, and fall if it drops away
@@ -679,15 +690,19 @@ class Pet(QWidget):
                         self._search_anchor = self.x
                     if self.target_x is None or abs(self.target_x - self.x) < 4:
                         span = self.w * 1.5
-                        self.target_x = min(max(self._search_anchor
-                                                + random.uniform(-span, span),
-                                                lft), rgt)
+                        cand = min(max(self._search_anchor
+                                       + random.uniform(-span, span), lft), rgt)
+                        if roambounds.blocks_target(cand, self.w, self.y + FOOT_Y, self._no_go):
+                            cand = min(max(self._search_anchor, lft), rgt)
+                        self.target_x = cand
                     dx = self.target_x - self.x
                     self.facing = 1 if dx > 0 else -1
                     self.x += max(-6, min(6, dx))     # fast step
                 else:
                     self._search_anchor = None        # re-anchor next search episode
                 self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
+                self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go)
+                self.x = min(max(self.x, lft), rgt)   # containment wins over no-go
                 self.y = floor
                 self._render_state = eff
 
@@ -999,6 +1014,8 @@ class Pet(QWidget):
         left, right, top, floor = self._bounds()
         # bounds can shift under us (a window we're in/on moved or resized): pull
         # the pet back inside every tick so it never gets stranded through a wall.
+        self.x = min(max(self.x, left), right)
+        self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go)
         self.x = min(max(self.x, left), right)
         # surface under us dropped away (window closed/moved, or we walked off a
         # ledge) -> fall to it instead of snapping/teleporting.
@@ -1554,6 +1571,8 @@ class Pet(QWidget):
             floor = surface - self.h        # screen floor: keep window fully on-screen
         else:
             floor = surface - FOOT_Y        # window perch: feet on the top edge
+        left, right = roambounds.restrict_span(left, right, self._roam_area, self.w)
+        top, floor = roambounds.restrict_floor(top, floor, self._roam_area, self.h)
         return left, right, top, floor
 
     def _screen_bottom_at(self, cx):

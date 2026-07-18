@@ -3,6 +3,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt, QPoint
 from claudlet import pet as P
+from claudlet import roambounds
 from claudlet.core import hostinfo
 from claudlet.core import idle_engine
 
@@ -1442,5 +1443,26 @@ def test_explore_jump_enters_targeted_window_midflight():
         p.vx, p.vy = 0.0, 1.0
         p._physics()
         assert p._contain is not None and p._contain.wid == "W1"
+    finally:
+        p._cleanup()
+
+
+def test_roam_stays_out_of_no_go():
+    p = P.Pet(session_id="nogo")
+    try:
+        p._roam_area = None
+        # Anchor off screen-centre (not Pet()'s random spawn x) so the no-go
+        # zone built around it has room to escape on BOTH sides -- a zone
+        # abutting a screen edge would leave push_out_x's chosen edge
+        # unreachable after clamping back to bounds, which isn't what this
+        # test means to exercise.
+        left, right, _t, _f = p._bounds()
+        p.x = (left + right) / 2.0
+        p._no_go = [{"x": p.x - 5.0, "y": float(p.y), "w": p.w + 10.0, "h": 400.0}]
+        p.x = float(p._no_go[0]["x"] + 2)     # start inside the zone
+        p.claude_state = "idle"               # roaming state -> _roam runs each tick
+        for _ in range(30):
+            p._tick()
+        assert not roambounds.blocks_target(p.x, p.w, p.y + P.FOOT_Y, p._no_go)
     finally:
         p._cleanup()
