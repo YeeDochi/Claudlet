@@ -61,7 +61,7 @@ def set_lang(lang):
     LANG = "en" if lang == "en" else "ko"
 
 
-def _speech(state):
+def speech(state):
     return (SPEECH_EN if LANG == "en" else SPEECH).get(state, "")
 
 ORANGE   = QColor("#D97757")
@@ -104,7 +104,7 @@ PALETTES = {
 }
 
 
-def _palette_colors(palette):
+def palette_colors(palette):
     """(body, hi, lo, bang) QColors. palette=None -> current defaults."""
     if palette is None:
         return ORANGE, ORANGE_L, ORANGE_D, BANG
@@ -127,7 +127,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
     from PyQt6.QtCore import Qt
     p.setPen(Qt.PenStyle.NoPen)
 
-    ORANGE, ORANGE_L, ORANGE_D, BANG = _palette_colors(palette)
+    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
 
     # ---- per-state rig parameters ----
     bob = 0.0          # whole-body vertical offset (art px)
@@ -666,7 +666,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
             by = 2.6 + 3.2 * (1.0 - math.sin(t * math.pi))  # arc: high in the middle
             rect(bx, by, 1.2, 1.2, cols[k])
     elif prop == "speech":
-        phrase = _speech(state)
+        phrase = speech(state)
         if phrase:
             n = len(phrase)
             cyc = frame % (n * 7 + 30)          # type ~1 char / 7 frames, then hold
@@ -768,7 +768,7 @@ if __name__ == "__main__":
         gx = x0 + (cellw - GRID_W * u) / 2
         gy = y0 + (cellh - GRID_H * u) / 2 - 6
         if st in SPEECH:            # freeze where the bubble is fully typed & held
-            frame = len(_speech(st)) * 7 + 5
+            frame = len(speech(st)) * 7 + 5
         elif st == "work_computer":
             frame = 100
         elif st == "walk":

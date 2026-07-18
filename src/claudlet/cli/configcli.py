@@ -94,7 +94,7 @@ def init_config(path=None):
     return True
 
 
-def _open_command(path, platform=None, name=None):
+def open_command(path, platform=None, name=None):
     """How to open `path`: an argv list for a subprocess, or the string
     "startfile" meaning use os.startfile (Windows). Pure."""
     platform = sys.platform if platform is None else platform
@@ -107,7 +107,7 @@ def _open_command(path, platform=None, name=None):
 
 
 def _launch(path):
-    cmd = _open_command(path)
+    cmd = open_command(path)
     if cmd == "startfile":
         os.startfile(path)                      # noqa: Windows only
     else:

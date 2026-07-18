@@ -88,11 +88,11 @@ def test_init_does_not_clobber_existing(tmp_path):
 
 
 def test_open_command_per_platform():
-    assert C._open_command("/x/c.json", platform="linux", name="posix") == \
+    assert C.open_command("/x/c.json", platform="linux", name="posix") == \
         ["xdg-open", "/x/c.json"]
-    assert C._open_command("/x/c.json", platform="darwin", name="posix") == \
+    assert C.open_command("/x/c.json", platform="darwin", name="posix") == \
         ["open", "/x/c.json"]
-    assert C._open_command("C:\\x\\c.json", platform="win32", name="nt") == \
+    assert C.open_command("C:\\x\\c.json", platform="win32", name="nt") == \
         "startfile"
 
 

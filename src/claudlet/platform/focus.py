@@ -71,13 +71,22 @@ def _active_window_class():
             or _active_via_applescript())
 
 
-def terminal_focused(classes):
-    """True if the active window matches any of `classes` (host window class
-    substrings). Empty `classes` (unknown host) or undetectable active window
-    -> True (conservative: suppress celebrate)."""
+def focus_matches(classes, active_cls):
+    """Pure decision: does the active window's class match any host class?
+
+    `classes` are host-window class substrings; `active_cls` is the live active
+    window's class (or None if undetectable). Empty `classes` (unknown host) or
+    `active_cls is None` -> True (conservative: suppress celebrate). Pure, so
+    it's tested with data — no probe monkeypatching."""
     if not classes:
         return True
-    cls = _active_window_class()
-    if cls is None:
+    if active_cls is None:
         return True
-    return any(c in cls for c in classes)
+    return any(c in active_cls for c in classes)
+
+
+def terminal_focused(classes):
+    """True if the active window matches any of `classes` (host window class
+    substrings). Thin adapter: probe the live active-window class, then defer
+    the decision to `focus_matches`."""
+    return focus_matches(classes, _active_window_class())

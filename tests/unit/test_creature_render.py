@@ -41,8 +41,8 @@ def test_new_motions_present():
 
 
 def test_default_palette_name_matches_constants():
-    named = C._palette_colors("default")
-    none_path = C._palette_colors(None)
+    named = C.palette_colors("default")
+    none_path = C.palette_colors(None)
     assert [c.name() for c in named] == [c.name() for c in none_path]
 
 
@@ -76,12 +76,12 @@ def test_new_looks_render_without_error():
 def test_speech_language_switch():
     # set_lang flips the bubble text; default is Korean
     C.set_lang("ko")
-    assert C._speech("thinking") == "고민중…"
+    assert C.speech("thinking") == "고민중…"
     C.set_lang("en")
-    assert C._speech("thinking") == "hmm…"
-    assert C._speech("asking") == "yeah?"
+    assert C.speech("thinking") == "hmm…"
+    assert C.speech("asking") == "yeah?"
     C.set_lang("bogus")          # unknown -> Korean fallback
-    assert C._speech("thinking") == "고민중…"
+    assert C.speech("thinking") == "고민중…"
     C.set_lang("ko")             # restore default for other tests
 
 
@@ -151,7 +151,7 @@ def test_palettes_registered():
 
 
 def test_palette_colors_default_matches_constants():
-    body, hi, lo, bang = C._palette_colors(None)
+    body, hi, lo, bang = C.palette_colors(None)
     assert (body.name(), bang.name()) == (C.ORANGE.name(), C.BANG.name())
 
 
