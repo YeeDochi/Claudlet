@@ -56,13 +56,23 @@ def _forbidden_intervals(w, foot_y, no_go):
     return merged
 
 
-def push_out_x(x, w, foot_y, no_go):
-    """Push x to the nearest edge outside any no-go zone the feet are in."""
+def push_out_x(x, w, foot_y, no_go, left=None, right=None):
+    """Push x to the nearest zone edge outside any no-go zone the feet are in.
+    When left/right (the roam bounds) are given, prefer an escape edge that
+    lands within [left, right]; if NEITHER edge is in-bounds, leave x as-is
+    (the pet is genuinely trapped — a zone spanning the whole reachable floor,
+    a config mistake — and forcing it either way would only jam it at a wall)."""
     if not no_go:
         return x
     for lo, hi in _forbidden_intervals(w, foot_y, no_go):
         if lo < x < hi:
-            x = lo if (x - lo) <= (hi - x) else hi
+            cands = [lo, hi]
+            if left is not None and right is not None:
+                in_bounds = [c for c in cands if left <= c <= right]
+                if not in_bounds:
+                    continue                 # no reachable escape -> leave x
+                cands = in_bounds
+            x = min(cands, key=lambda c: abs(c - x))
     return x
 
 

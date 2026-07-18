@@ -53,3 +53,20 @@ def test_blocks_target_true_and_false():
     assert rb.blocks_target(1000.0, 100.0, 950.0, zones) is True
     assert rb.blocks_target(1000.0, 100.0, 100.0, zones) is False   # above band
     assert rb.blocks_target(50.0, 100.0, 950.0, zones) is False     # left of zone
+
+
+def test_push_out_x_escapes_toward_in_bounds_edge():
+    # zone abuts the left bound (x 0..800); pet w=200 near the left half.
+    # blind-nearest would push LEFT (to -200) and the clamp would pin it back
+    # inside; bounds-aware must push RIGHT to 800 instead.
+    zones = [{"x": 0, "y": 900, "w": 800, "h": 180}]
+    x = rb.push_out_x(50.0, 200.0, 950.0, zones, left=0.0, right=1720.0)
+    assert x == 800.0
+    assert not rb.blocks_target(x, 200.0, 950.0, zones)
+
+
+def test_push_out_x_trapped_when_no_edge_in_bounds():
+    # zone spans the whole reachable floor -> neither edge in bounds -> leave x
+    zones = [{"x": 0, "y": 900, "w": 1920, "h": 180}]
+    x = rb.push_out_x(50.0, 200.0, 950.0, zones, left=0.0, right=1720.0)
+    assert x == 50.0

@@ -372,7 +372,8 @@ class Pet(QWidget):
         self._roam_area = cfg.get("roam_area")
         self._no_go = cfg.get("no_go") or []
         _pal = os.environ.get("CLAUDLET_PALETTE") or cfg.get("palette", "auto")
-        self._palette = petconfig.resolve_palette(_pal, random.random(), random.random())
+        _rng = random.Random()
+        self._palette = petconfig.resolve_palette(_pal, _rng.random(), _rng.random())
         self.engine = StateEngine(is_focused=self._is_focused,
                                   tool_states=cfg["tool_states"],
                                   event_states=cfg["event_states"],
@@ -669,8 +670,8 @@ class Pet(QWidget):
             # no-go zone (the pet then oscillates at the zone edge forever
             # instead of clearing it). Re-apply after it moves so the position
             # actually published this tick is clear, not just the one before.
-            self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go)
             left, right, _t, _f = self._bounds()
+            self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
             self.x = min(max(self.x, left), right)   # containment wins over no-go
         else:
             # stationary Claude state (working / attention / thinking / ...).
@@ -703,7 +704,7 @@ class Pet(QWidget):
                 else:
                     self._search_anchor = None        # re-anchor next search episode
                 self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
-                self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go)
+                self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, lft, rgt)
                 self.x = min(max(self.x, lft), rgt)   # containment wins over no-go
                 self.y = floor
                 self._render_state = eff
@@ -1017,7 +1018,7 @@ class Pet(QWidget):
         # bounds can shift under us (a window we're in/on moved or resized): pull
         # the pet back inside every tick so it never gets stranded through a wall.
         self.x = min(max(self.x, left), right)
-        self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go)
+        self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
         self.x = min(max(self.x, left), right)
         # surface under us dropped away (window closed/moved, or we walked off a
         # ledge) -> fall to it instead of snapping/teleporting.

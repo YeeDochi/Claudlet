@@ -40,6 +40,12 @@ def test_new_motions_present():
     assert NEW_MOTIONS.issubset(set(C.STATES)), NEW_MOTIONS - set(C.STATES)
 
 
+def test_default_palette_name_matches_constants():
+    named = C._palette_colors("default")
+    none_path = C._palette_colors(None)
+    assert [c.name() for c in named] == [c.name() for c in none_path]
+
+
 def test_new_motions_render_without_error():
     img = QImage(C.GRID_W * 6, C.GRID_H * 6, QImage.Format.Format_ARGB32)
     for st in NEW_MOTIONS:
