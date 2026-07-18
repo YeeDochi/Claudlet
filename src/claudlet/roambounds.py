@@ -79,3 +79,13 @@ def push_out_x(x, w, foot_y, no_go, left=None, right=None):
 def blocks_target(x, w, foot_y, no_go):
     """True if a candidate position's feet land inside any no-go zone."""
     return any(_hits(x, w, foot_y, z) for z in no_go)
+
+
+def normalize_rect(x0, y0, x1, y1, min_size=8):
+    """Two drag corners -> a {x,y,w,h} rect (positive size, float). Returns None
+    if the drag is smaller than min_size in either axis (a click, not a zone)."""
+    x, w = min(x0, x1), abs(x1 - x0)
+    y, h = min(y0, y1), abs(y1 - y0)
+    if w < min_size or h < min_size:
+        return None
+    return {"x": float(x), "y": float(y), "w": float(w), "h": float(h)}

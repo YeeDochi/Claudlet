@@ -70,3 +70,21 @@ def test_push_out_x_trapped_when_no_edge_in_bounds():
     zones = [{"x": 0, "y": 900, "w": 1920, "h": 180}]
     x = rb.push_out_x(50.0, 200.0, 950.0, zones, left=0.0, right=1720.0)
     assert x == 50.0
+
+
+def test_normalize_rect_basic():
+    assert rb.normalize_rect(100, 200, 400, 500) == {"x": 100.0, "y": 200.0, "w": 300.0, "h": 300.0}
+
+
+def test_normalize_rect_reversed_drag():
+    # dragged bottom-right -> top-left; must still yield a positive-size rect
+    assert rb.normalize_rect(400, 500, 100, 200) == {"x": 100.0, "y": 200.0, "w": 300.0, "h": 300.0}
+
+
+def test_normalize_rect_too_small_is_none():
+    assert rb.normalize_rect(100, 100, 104, 220) is None    # w=4 < min_size
+    assert rb.normalize_rect(100, 100, 220, 104) is None    # h=4 < min_size
+
+
+def test_normalize_rect_min_size_boundary():
+    assert rb.normalize_rect(0, 0, 8, 8, min_size=8) == {"x": 0.0, "y": 0.0, "w": 8.0, "h": 8.0}
