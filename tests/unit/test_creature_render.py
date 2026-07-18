@@ -131,3 +131,27 @@ def test_rest_poses_render_without_error():
                 p = QPainter(img)
                 C.draw_creature(p, 0, 0, 6, st, frame, facing=facing)
                 p.end()
+
+
+def _render_palette(palette):
+    img = QImage(C.GRID_W * 6, C.GRID_H * 6, QImage.Format.Format_ARGB32)
+    p = QPainter(img)
+    C.draw_creature(p, 0, 0, 6, "idle", 0, palette=palette)
+    p.end()
+
+
+def test_palettes_registered():
+    assert "shiny_teal" in C.PALETTES and "default" in C.PALETTES
+
+
+def test_palette_colors_default_matches_constants():
+    body, hi, lo, bang = C._palette_colors(None)
+    assert (body.name(), bang.name()) == (C.ORANGE.name(), C.BANG.name())
+
+
+def test_draw_with_named_palette_no_error():
+    _render_palette("shiny_teal")
+
+
+def test_draw_with_unknown_palette_falls_back():
+    _render_palette("does_not_exist")     # must not raise

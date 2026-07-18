@@ -97,13 +97,27 @@ HAT_KINDS = ("cap", "hardhat", "beret", "tophat", "propeller", "beanie")
 
 GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props/bounce)
 
+PALETTES = {
+    "default":      {"body": "#D97757", "hi": "#ECA184", "lo": "#B0532F", "bang": "#D0402E"},
+    "shiny_teal":   {"body": "#2FA88C", "hi": "#7FD9C4", "lo": "#1C7361", "bang": "#1F5F52"},
+    "shiny_violet": {"body": "#8B6FD4", "hi": "#BCA8EC", "lo": "#5E45A0", "bang": "#4A2F8A"},
+}
+
+
+def _palette_colors(palette):
+    """(body, hi, lo, bang) QColors. palette=None -> current defaults."""
+    if palette is None:
+        return ORANGE, ORANGE_L, ORANGE_D, BANG
+    p = palette if isinstance(palette, dict) else PALETTES.get(palette, PALETTES["default"])
+    return QColor(p["body"]), QColor(p["hi"]), QColor(p["lo"]), QColor(p["bang"])
+
 
 def _sin(frame, period, amp, phase=0.0):
     return math.sin((frame / period + phase) * 2 * math.pi) * amp
 
 
 def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
-                  energy=1.0):
+                  energy=1.0, palette=None):
     """Draw the creature. All coordinates are in art pixels * u.
 
     visor="up" pushes a VR-headset up onto the head (auto mode while not actively
@@ -112,6 +126,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
     p.setPen(p.pen())  # no-op keep
     from PyQt6.QtCore import Qt
     p.setPen(Qt.PenStyle.NoPen)
+
+    ORANGE, ORANGE_L, ORANGE_D, BANG = _palette_colors(palette)
 
     # ---- per-state rig parameters ----
     bob = 0.0          # whole-body vertical offset (art px)
