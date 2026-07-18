@@ -1475,6 +1475,37 @@ def test_roam_stays_out_of_no_go():
         p._cleanup()
 
 
+def test_vacate_leaves_window_when_fully_zoned():
+    p = P.Pet(session_id="vac1")
+    try:
+        # a fake window the pet is contained in
+        win = type("W", (), {"x": 400.0, "y": 300.0, "w": 300.0, "h": 200.0, "wid": 1})()
+        p._contain = win
+        p.x, p.y = 450.0, 300.0
+        floor = win.y + win.h - p.h
+        # a no-go zone covering the whole window interior at the pet's foot band
+        p._no_go = [{"x": win.x, "y": win.y, "w": win.w, "h": win.h}]
+        p._vacate_if_trapped(floor)
+        assert p._contain is None            # left the window
+        assert p.mode == "thrown"            # falling to whatever is below
+    finally:
+        p._cleanup()
+
+
+def test_vacate_noop_when_not_blocked():
+    p = P.Pet(session_id="vac2")
+    try:
+        win = type("W", (), {"x": 400.0, "y": 300.0, "w": 300.0, "h": 200.0, "wid": 2})()
+        p._contain = win
+        p.x, p.y = 450.0, 300.0
+        p._no_go = [{"x": 1500.0, "y": 300.0, "w": 100.0, "h": 200.0}]   # far away
+        floor = win.y + win.h - p.h
+        p._vacate_if_trapped(floor)
+        assert p._contain is win             # stays put
+    finally:
+        p._cleanup()
+
+
 def test_env_forces_palette(monkeypatch):
     monkeypatch.setenv("CLAUDLET_PALETTE", "shiny_violet")
     p = P.Pet(session_id="pal")

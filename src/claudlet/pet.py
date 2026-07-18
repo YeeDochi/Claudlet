@@ -756,6 +756,7 @@ class Pet(QWidget):
             left, right, _t, _f = self._bounds()
             self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
             self.x = min(max(self.x, left), right)   # containment wins over no-go
+            self._vacate_if_trapped(_f)
         else:
             # stationary Claude state (working / attention / thinking / ...).
             # still gravity-bound: rest on the surface, and fall if it drops away
@@ -789,6 +790,7 @@ class Pet(QWidget):
                 self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
                 self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, lft, rgt)
                 self.x = min(max(self.x, lft), rgt)   # containment wins over no-go
+                self._vacate_if_trapped(floor)
                 self.y = floor
                 self._render_state = eff
 
@@ -1669,6 +1671,24 @@ class Pet(QWidget):
             if g.left() <= cx <= g.right():
                 return g.bottom()
         return self.screen_rect.bottom()
+
+    def _vacate_if_trapped(self, floor):
+        """No-go backstop: if our feet are STILL inside a zone after the
+        horizontal push-out (the whole reachable surface here is forbidden),
+        abandon this surface -- leave the window / drop off the perch and fall
+        to whatever is below, re-evaluating next tick. On the true screen floor
+        there's nowhere lower to go, so leave it (a full-width floor zone is a
+        config mistake)."""
+        if not self._no_go:
+            return
+        if not roambounds.blocks_target(self.x, self.w, self.y + FOOT_Y, self._no_go):
+            return
+        screen_bottom = self._screen_bottom_at(self.x + self.w / 2.0)
+        perched = floor < screen_bottom - self.h    # floor is a window top, not the screen floor
+        if self._contain is not None or perched:
+            self._contain = None
+            self.vx = self.vy = 0.0
+            self.mode = "thrown"        # physics drops us to the surface below
 
     def showEvent(self, e):
         super().showEvent(e)
