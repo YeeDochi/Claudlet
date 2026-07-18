@@ -28,6 +28,11 @@ import json
 from claudlet.core.state_engine import MAPPABLE_STATES, DEFAULT_EVENT_STATES
 
 
+SHINY_PALETTES = ("shiny_teal", "shiny_violet")
+SHINY_CHANCE = 0.02
+_PALETTE_NAMES = ("auto", "default") + SHINY_PALETTES
+
+
 def config_path():
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return os.path.join(base, "claudlet", "config.json")
@@ -51,6 +56,10 @@ def _clean(raw):
     if lang not in ("ko", "en", "auto"):
         lang = "auto"
 
+    palette = raw.get("palette")
+    if palette not in _PALETTE_NAMES:
+        palette = "auto"
+
     def _rect(v):
         if not isinstance(v, dict):
             return None
@@ -70,7 +79,7 @@ def _clean(raw):
 
     return {"tool_states": tools, "event_states": events,
             "raw_events": raw_events, "lang": lang,
-            "roam_area": roam_area, "no_go": no_go}
+            "roam_area": roam_area, "no_go": no_go, "palette": palette}
 
 
 def _windows_locale():
@@ -98,6 +107,22 @@ def resolve_lang(value):
     return "ko" if loc.lower().startswith("ko") else "en"
 
 
+def resolve_palette(config_value, roll, pick=0.0):
+    """Map a config palette value to a concrete palette name.
+
+    config_value: "auto" (default) / a known name / anything else.
+    roll: 0..1 shiny chance draw (caller passes random()). pick: 0..1 chooses
+    among shinies. Pure & deterministic for tests — no randomness inside."""
+    if config_value in (None, "auto"):
+        if roll < SHINY_CHANCE:
+            idx = int(pick * len(SHINY_PALETTES)) % len(SHINY_PALETTES)
+            return SHINY_PALETTES[idx]
+        return "default"
+    if config_value in ("default",) + SHINY_PALETTES:
+        return config_value
+    return "default"
+
+
 def load_config(path=None):
     """Read + validate the config file. Never raises: a missing/broken file
     yields empty overrides (built-in defaults apply)."""
@@ -107,8 +132,8 @@ def load_config(path=None):
             raw = json.load(f)
     except (OSError, ValueError):
         return {"tool_states": {}, "event_states": {}, "raw_events": {},
-                "lang": "auto", "roam_area": None, "no_go": []}
+                "lang": "auto", "roam_area": None, "no_go": [], "palette": "auto"}
     if not isinstance(raw, dict):
         return {"tool_states": {}, "event_states": {}, "raw_events": {},
-                "lang": "auto", "roam_area": None, "no_go": []}
+                "lang": "auto", "roam_area": None, "no_go": [], "palette": "auto"}
     return _clean(raw)

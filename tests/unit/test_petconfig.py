@@ -11,7 +11,7 @@ def _write(tmp, obj):
 
 
 EMPTY = {"tool_states": {}, "event_states": {}, "raw_events": {}, "lang": "auto",
-         "roam_area": None, "no_go": []}
+         "roam_area": None, "no_go": [], "palette": "auto"}
 
 
 def test_valid_overrides_kept():
@@ -103,3 +103,25 @@ def test_roam_keys_default_absent():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = petconfig.load_config(_write(tmp, {}))
         assert cfg["roam_area"] is None and cfg["no_go"] == []
+
+
+def test_resolve_palette_auto_shiny_on_low_roll():
+    assert petconfig.resolve_palette("auto", roll=0.001, pick=0.0) in petconfig.SHINY_PALETTES
+
+
+def test_resolve_palette_auto_default_on_high_roll():
+    assert petconfig.resolve_palette("auto", roll=0.9, pick=0.0) == "default"
+
+
+def test_resolve_palette_forced_name():
+    assert petconfig.resolve_palette("shiny_violet", roll=0.9) == "shiny_violet"
+
+
+def test_resolve_palette_unknown_is_default():
+    assert petconfig.resolve_palette("banana", roll=0.001) == "default"
+
+
+def test_palette_config_key():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert petconfig.load_config(_write(tmp, {"palette": "shiny_teal"}))["palette"] == "shiny_teal"
+        assert petconfig.load_config(_write(tmp, {}))["palette"] == "auto"
