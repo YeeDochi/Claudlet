@@ -1525,3 +1525,35 @@ def test_zone_edit_callback_adds_and_clear_empties():
         assert p._no_go == []
     finally:
         p._cleanup()
+
+
+def test_zone_drag_captures_global_not_local_coords():
+    """A drag on the overlay must store GLOBAL (virtual-desktop) coordinates, not
+    window-local ones. On multi-monitor the WM clamps/offsets the overlay window,
+    so local != global; the old `local + assumed_origin` math landed zones on the
+    wrong monitor and the pet ignored them. Regression guard: feed a drag whose
+    local coords differ from its global coords and assert the stored zone matches
+    the GLOBAL corners."""
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtCore import QPointF, QEvent
+
+    def _ev(kind, lx, ly, gx, gy, button):
+        return QMouseEvent(kind, QPointF(lx, ly), QPointF(gx, gy),
+                           button, button, Qt.KeyboardModifier.NoModifier)
+
+    p = P.Pet(session_id="zonedrag")
+    try:
+        p._no_go = []
+        p._enter_zone_edit()
+        ov = p._zone_overlay
+        # local (10,10)->(110,90) but global (2010,30)->(2110,110): a window on a
+        # second monitor whose real origin is ~(2000,20).
+        ov.mousePressEvent(_ev(QEvent.Type.MouseButtonPress, 10, 10, 2010, 30,
+                               Qt.MouseButton.LeftButton))
+        ov.mouseMoveEvent(_ev(QEvent.Type.MouseMove, 110, 90, 2110, 110,
+                              Qt.MouseButton.NoButton))
+        ov.mouseReleaseEvent(_ev(QEvent.Type.MouseButtonRelease, 110, 90, 2110, 110,
+                                 Qt.MouseButton.LeftButton))
+        assert {"x": 2010.0, "y": 30.0, "w": 100.0, "h": 80.0} in p._no_go
+    finally:
+        p._cleanup()

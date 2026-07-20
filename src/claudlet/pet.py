@@ -322,16 +322,23 @@ class Companion(QWidget):
 
 
 class ZoneOverlay(QWidget):
-    """Full virtual-desktop translucent overlay for drawing no-go zones.
-    Zones are in absolute virtual-desktop pixels; the overlay sits at
-    screen_rect's origin, so local = absolute - origin."""
+    """One translucent overlay per monitor, for drawing no-go zones.
+
+    Zones are stored in absolute virtual-desktop pixels. A single window can NOT
+    reliably cover the whole virtual desktop: KWin/XWayland (and other WMs) clamp
+    a frameless window to ONE monitor, and even then place it below top panels —
+    so the old "one union-sized window, local + union.topLeft() = absolute" math
+    put every zone on the wrong monitor once a second screen existed. Instead
+    _enter_zone_edit spawns one overlay per screen (each un-clampable), and we
+    read/write GLOBAL coordinates directly: capture via e.globalPosition() and
+    paint via mapToGlobal(0,0) — the window's REAL origin, panel offset and all —
+    never an assumed screen.topLeft()."""
     def __init__(self, screen_rect, zones, on_zone, on_done):
         super().__init__(None)
-        self._origin = screen_rect.topLeft()
         self._zones = list(zones)          # absolute-coord rects, for display
         self._on_zone = on_zone
         self._on_done = on_done
-        self._drag = None                  # (x0,y0,x1,y1) local, in-progress
+        self._drag = None                  # (x0,y0,x1,y1) GLOBAL, in-progress
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint
                             | Qt.WindowType.WindowStaysOnTopHint
                             | Qt.WindowType.Tool)
@@ -348,22 +355,21 @@ class ZoneOverlay(QWidget):
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.RightButton:
             self._finish(); return
-        pos = e.position()
-        self._drag = (pos.x(), pos.y(), pos.x(), pos.y())
+        g = e.globalPosition()
+        self._drag = (g.x(), g.y(), g.x(), g.y())
 
     def mouseMoveEvent(self, e):
         if self._drag is not None:
-            pos = e.position()
-            self._drag = (self._drag[0], self._drag[1], pos.x(), pos.y())
+            g = e.globalPosition()
+            self._drag = (self._drag[0], self._drag[1], g.x(), g.y())
             self.update()
 
     def mouseReleaseEvent(self, e):
         if self._drag is None:
             return
-        x0, y0, x1, y1 = self._drag
+        x0, y0, x1, y1 = self._drag        # already GLOBAL
         self._drag = None
-        ox, oy = self._origin.x(), self._origin.y()
-        rect = roambounds.normalize_rect(x0 + ox, y0 + oy, x1 + ox, y1 + oy)
+        rect = roambounds.normalize_rect(x0, y0, x1, y1)
         if rect is not None:
             self.on_zone(rect)             # absolute-coord rect
         self.update()
@@ -387,7 +393,8 @@ class ZoneOverlay(QWidget):
     def paintEvent(self, _e):
         from PyQt6.QtGui import QPainter, QColor
         p = QPainter(self)
-        ox, oy = self._origin.x(), self._origin.y()
+        og = self.mapToGlobal(QPoint(0, 0))   # this window's REAL origin
+        ox, oy = og.x(), og.y()
         fill = QColor(220, 60, 50, 70)
         edge = QColor(220, 60, 50, 160)
         for z in self._zones:
@@ -395,8 +402,8 @@ class ZoneOverlay(QWidget):
             p.setPen(edge)
             p.drawRect(int(z["x"] - ox), int(z["y"] - oy), int(z["w"]), int(z["h"]))
         if self._drag is not None:
-            x0, y0, x1, y1 = self._drag
-            p.fillRect(int(min(x0, x1)), int(min(y0, y1)),
+            x0, y0, x1, y1 = self._drag        # global -> local for this window
+            p.fillRect(int(min(x0, x1) - ox), int(min(y0, y1) - oy),
                        int(abs(x1 - x0)), int(abs(y1 - y0)), fill)
         p.end()
 
@@ -453,7 +460,8 @@ class Pet(QWidget):
         cfg = petconfig.load_config()
         self._roam_area = cfg.get("roam_area")
         self._no_go = cfg.get("no_go") or []
-        self._zone_overlay = None            # open ZoneOverlay widget, or None
+        self._zone_overlays = []             # one open ZoneOverlay per monitor
+        self._zone_overlay = None            # back-compat handle (first overlay)
         _pal = os.environ.get("CLAUDLET_PALETTE") or cfg.get("palette", "auto")
         _rng = random.Random()
         self._palette = petconfig.resolve_palette(_pal, _rng.random(), _rng.random())
@@ -1909,22 +1917,33 @@ class Pet(QWidget):
         self._handle_event({"cmd": "motion", "motion": name, "dur": dur})
 
     def _enter_zone_edit(self):
-        if self._zone_overlay is not None:
+        if self._zone_overlays:
             return
         def _add(rect):
             self._no_go.append(rect)
         def _done():
+            # finishing on ANY monitor's overlay tears down the whole session;
+            # null each _on_done first so their closeEvent doesn't re-enter here.
+            overlays, self._zone_overlays = self._zone_overlays, []
             self._zone_overlay = None
-        self._zone_overlay = ZoneOverlay(self.screen_rect, self._no_go, _add, _done)
-        self._zone_overlay.show()
-        self._zone_overlay.raise_()
-        self._zone_overlay.activateWindow()
+            for ov in overlays:
+                ov._on_done = None
+                ov.close()
+        # One un-clampable overlay per monitor (a single union-sized window gets
+        # clamped to one screen by the WM, landing zones on the wrong monitor).
+        self._zone_overlays = [ZoneOverlay(g, self._no_go, _add, _done)
+                               for g in self._screens]
+        self._zone_overlay = self._zone_overlays[0]   # back-compat handle
+        for ov in self._zone_overlays:
+            ov.show()
+            ov.raise_()
+            ov.activateWindow()
 
     def _clear_zones(self):
         self._no_go = []
-        if self._zone_overlay is not None:
-            self._zone_overlay._zones = []
-            self._zone_overlay.update()
+        for ov in self._zone_overlays:
+            ov._zones = []
+            ov.update()
 
     def _toggle_float(self):
         # off -> clear (restores gravity); on -> float mode
@@ -2200,6 +2219,11 @@ class Pet(QWidget):
             c.close()
         self._companions = []
         self._departing = []
+        for ov in getattr(self, "_zone_overlays", []):
+            ov._on_done = None
+            ov.close()
+        self._zone_overlays = []
+        self._zone_overlay = None
         self._stop_cursor_feed()
         for plugin in (getattr(self, "_activate_plugin", None),):
             if plugin:
