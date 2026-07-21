@@ -117,7 +117,7 @@ def _sin(frame, period, amp, phase=0.0):
 
 
 def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
-                  energy=1.0, palette=None):
+                  energy=1.0, palette=None, happy=False, pocket=False):
     """Draw the creature. All coordinates are in art pixels * u.
 
     visor="up" pushes a VR-headset up onto the head (auto mode while not actively
@@ -354,6 +354,17 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         W = w * sx
         H = h * sy
         p.fillRect(QRectF(ox + X * u, oy + Y * u, W * u + 0.5, H * u + 0.5), color)
+
+    # 주머니 빼꼼: 화면에 가로 틈을 내고 고개만 내민 연출. 슬릿 아래는 클립해
+    # 안 그려지고(투명), 립/손은 함수 끝에서 틈 위로 덧그린다. 표정/프롭은 현재
+    # 상태 그대로라 고민/작업/완료 표정이 주머니에서도 보인다.
+    POCKET_LIP = 10.2
+    if pocket:
+        p.setClipRect(QRectF(ox - 4 * u, oy - 6 * u,
+                             (GRID_W + 8) * u, (POCKET_LIP + 6) * u))
+
+    if happy:
+        eyes = "happy"          # 상태 무관 웃는 눈 (쓰다듬기 반응)
 
     p.save()
     # face direction of travel: mirror the BODY only. Props/text (drawn after the
@@ -689,6 +700,20 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
             p.drawText(QRectF(bx - pad, by, tw + 2 * pad, th + pad),
                        Qt.AlignmentFlag.AlignCenter, text)
             p.setPen(Qt.PenStyle.NoPen)
+
+    if pocket:
+        p.setClipping(False)
+        slit_y = oy + POCKET_LIP * u
+        # 화면에 낸 가로 틈: 어두운 입구 + 앞쪽 밝은 립 + 아래 그림자
+        p.fillRect(QRectF(ox - 4 * u, slit_y, (GRID_W + 8) * u, 0.9 * u), EYE)
+        p.fillRect(QRectF(ox - 4 * u, slit_y + 0.9 * u, (GRID_W + 8) * u, 0.6 * u), ORANGE_L)
+        p.fillRect(QRectF(ox - 4 * u, slit_y + 1.5 * u, (GRID_W + 8) * u, 0.3 * u), ORANGE_D)
+        # 립을 잡은 두 손 (립 위에 얹혀 도드라지게: 어두운 윤곽 + 밝은 손등)
+        hy = slit_y - 1.1 * u
+        for hx in (ox + 6.6 * u, ox + 13.0 * u):
+            p.fillRect(QRectF(hx - 0.25 * u, hy - 0.25 * u, 2.9 * u, 1.9 * u), EYE)   # 윤곽
+            p.fillRect(QRectF(hx, hy, 2.4 * u, 1.4 * u), ORANGE)                      # 손
+            p.fillRect(QRectF(hx, hy, 2.4 * u, 0.45 * u), ORANGE_L)                   # 손등 하이라이트
 
 
 # ---------- standalone mockup renderer ----------
