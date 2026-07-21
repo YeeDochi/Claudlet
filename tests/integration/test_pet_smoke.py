@@ -1124,20 +1124,41 @@ def test_cursor_feed_parsed_and_used():
         p._cleanup()
 
 
-def test_floating_follow_tracks_x_and_y():
+def test_petting_reaction_activates_and_expires(pet):
+    # 왕복 호버를 seam(_maybe_pet)으로 먹인다: 판정은 순수함수, 발동/반응은 pet.
+    pet.claude_state = "idle"
+    base = time.monotonic()
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+        pet._maybe_pet(float(x), base + i * 0.1)
+    assert pet.snapshot()["petted"] is True
+    pet._pet_react_until = base            # 이미 지난 시점 -> 만료
+    assert pet.snapshot()["petted"] is False
+
+
+def test_petting_works_even_when_sleeping(pet):
+    # 자는 펫도 쓰다듬으면 반응(하트+방긋). "언제든" 발동.
+    pet.claude_state = "sleeping"
+    now = time.monotonic()
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+        pet._maybe_pet(float(x), now + i * 0.1)
+    assert pet.snapshot()["petted"] is True
+
+
+def test_pocket_stays_put_ignoring_follow():
+    # 주머니 빼꼼(float 대체)은 제자리 고정 — follow가 켜져 있어도 커서를 안 쫓는다.
     p = P.Pet(session_id="m11")
     try:
         p.mode = "roam"
         p._follow = True
         p._floating = True
+        p.claude_state = "idle"
         p.x = float(p.screen_rect.right() - p.w)
         p.y = float(p.screen_rect.bottom() - p.h)
-        start_y = p.y
+        start = (p.x, p.y)
         for _ in range(3):
             p._tick()
-        # unlike grounded follow (x only), floating follow also moves in y
-        assert p.y != start_y
-        assert p.snapshot()["render"] == "float"
+        assert (p.x, p.y) == start          # 안 움직임
+        assert p.snapshot()["floating"] is True
     finally:
         p._cleanup()
 

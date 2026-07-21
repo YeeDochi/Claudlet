@@ -27,8 +27,8 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
-from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect
+from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion, QPainterPath
+from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
 from claudlet.core import creature as C
@@ -40,6 +40,7 @@ from claudlet.core import hostinfo
 from claudlet.core import petconfig
 from claudlet.core import physics
 from claudlet.core import follow_nav
+from claudlet.core import petting
 from claudlet.core import idle_engine
 from claudlet.core.idle_engine import IdleEnergy
 from claudlet.platform import geom
@@ -97,13 +98,13 @@ _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 # right-click / tray menu UI strings, per language
 UI = {
     "ko": {"follow": "커서 따라오기", "motions": "모션",
-           "float": "둥둥 띄우기 (중력 끄기)", "quiet": "조용히 (알림 끔)",
+           "float": "주머니 쏙 (고개만 빼꼼)", "quiet": "조용히 (알림 끔)",
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
-           "float": "Float (no gravity)", "quiet": "Quiet (mute)",
+           "float": "Pocket (peek out)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
@@ -123,6 +124,8 @@ MOTION_MENU = [
 # creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
 # used to land the FEET on a window's top edge when perching (not the window box).
 FOOT_Y = 89
+
+PET_REACT_SEC = 1.5                     # 쓰다듬기 하트 반응 지속(초)
 
 # follow-mode navigation thresholds (jump reach, alignment, strain margins)
 # live in core/follow_nav.py -- the pure planner the follow branch delegates to.
@@ -509,6 +512,11 @@ class Pet(QWidget):
         # float is a MODE, not a render override: suspends gravity so the pet
         # hovers, while its normal animation keeps playing. Cleared by `stop`.
         self._floating = False
+        # 쓰다듬기: 버튼 없는 호버 왕복 감지 -> 하트+행복 표정 반응
+        self._hover_samples = []         # [(t, cursor_x)] 최근 호버
+        self._pet_react_until = 0.0      # 하트 반응 종료 시각(monotonic)
+        self._last_pet_fire = None       # 쿨다운 기준
+        self.setMouseTracking(True)      # 버튼 없이도 mouseMoveEvent 수신
         # follow mode: walk toward the mouse cursor until toggled off
         self._follow = False
         self._follow_jump = False        # airborne on a follow-aimed jump
@@ -678,6 +686,8 @@ class Pet(QWidget):
             "facing": self.facing,                            # 1 right, -1 left
             "motion": self._motion,                           # forced motion or None
             "floating": self._floating,
+            "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
+
             "following": self._follow,
             "contained": self._contain.wid if self._contain else None,
             "companions": len(self._companions),
@@ -726,24 +736,11 @@ class Pet(QWidget):
             self._physics()
         elif motion_active:
             pass                            # transient motion already set the render
-        elif following and floating:
-            # floating + follow: no gravity, so glide to the cursor in x AND y.
-            curx, cury = self._cursor_pos()
-            tx = min(max(curx - self.w / 2.0, self.screen_rect.left()),
-                     self.screen_rect.right() - self.w)
-            ty = min(max(cury - self.h / 2.0, self.screen_rect.top()),
-                     self.screen_rect.bottom() - self.h)
-            dx, dy = tx - self.x, ty - self.y
-            dist = (dx * dx + dy * dy) ** 0.5
-            step = 5.0                     # constant glide (no speed-up when far)
-            if abs(dx) > 1.0:
-                self.facing = 1 if dx > 0 else -1
-            if dist <= step:
-                self.x, self.y = tx, ty
-            else:
-                self.x += dx / dist * step
-                self.y += dy / dist * step
-            self._render_state = "float"
+        elif floating:
+            # 주머니 빼꼼: 제자리에 틈을 내고 고개만 내민다. 중력·로밍 정지,
+            # 커서도 따라가지 않는다(follow보다 우선). 표정은 라이브 상태 그대로
+            # 두고, paintEvent가 pocket=True로 립/손을 덧그린다.
+            self._render_state = eff
         elif following:
             # grounded follow: plan ONE move toward the cursor's place each
             # tick -- walk the current surface, launch an aimed ballistic jump
@@ -777,10 +774,6 @@ class Pet(QWidget):
                     self._screen_bottom_at(self.x + self.w / 2.0),
                     curx, cury)
                 self._apply_follow_intent(intent, left, right, floor)
-        elif floating:
-            # hover in place (no gravity): show the floaty pose when idle,
-            # otherwise keep the live Claude-activity animation.
-            self._render_state = "float" if eff in ("idle", "sleeping") else eff
         elif roaming:
             self._roam()
             # _roam's own push-out only guards its ENTRY into this tick; the
@@ -1743,11 +1736,47 @@ class Pet(QWidget):
         # pushed up onto the head for every other state.
         vis = "up" if getattr(self, "_auto", False) and \
             state not in AUTO_STATES else None
+        now = time.monotonic()
+        petted = now < self._pet_react_until
+        pocket = self._floating and self.mode not in ("held", "thrown")
         # facing handled inside draw_creature (body mirrors, text upright)
         C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
                         facing=self.facing, visor=vis, energy=self.idle_energy.value,
-                        palette=self._palette)
+                        palette=self._palette, happy=petted, pocket=pocket)
+        if petted:
+            self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
         p.end()
+
+    def _draw_hearts(self, p, age):
+        # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
+        # (창 안)에서 살짝 떠오르며 페이드. age 0..1. 크고 뚜렷하게.
+        p.setPen(Qt.PenStyle.NoPen)
+        cx = self.w // 2
+        for i, off in enumerate((-4.5 * U, 4.5 * U, 0)):
+            phase = age + i * 0.18
+            if phase >= 1.0:
+                continue
+            rise = phase * 3.5 * U
+            alpha = max(0, int(235 * (1.0 - phase)))
+            col = QColor(233, 70, 96, alpha)
+            s = (1.6 if i < 2 else 1.1) * U          # 옆 큰 하트 2 + 중앙 작은 것
+            hx = cx + off
+            hy = (PAD_Y + 3) * U - rise              # 머리 옆 높이에서 시작
+            self._heart(p, hx, hy, s, col)
+
+    @staticmethod
+    def _heart(p, cx, cy, s, col):
+        # 픽셀 하트: 위 두 돌기(원) + 아래 삼각형
+        p.setBrush(col)
+        r = s * 0.55
+        p.drawEllipse(QRectF(cx - r, cy - r, r * 1.15, r * 1.15))
+        p.drawEllipse(QRectF(cx + r * 0.0 - 0.15 * s, cy - r, r * 1.15, r * 1.15))
+        path = QPainterPath()
+        path.moveTo(cx - r, cy - r * 0.15)
+        path.lineTo(cx + r, cy - r * 0.15)
+        path.lineTo(cx, cy + s * 0.7)
+        path.closeSubpath()
+        p.fillPath(path, col)
 
     # ---------- interaction ----------
     def mousePressEvent(self, e):
@@ -1766,6 +1795,9 @@ class Pet(QWidget):
             self._menu(e.globalPosition().toPoint())
 
     def mouseMoveEvent(self, e):
+        if e.buttons() == Qt.MouseButton.NoButton:
+            self._maybe_pet(e.position().x(), time.monotonic())   # 호버 = 쓰다듬기
+            return
         if self._press_global is None:
             return
         g = e.globalPosition().toPoint()
@@ -1819,6 +1851,21 @@ class Pet(QWidget):
                 self.vx, self.vy = vx, vy
                 self.mode = "thrown"
         self._press_global = None
+
+    def _maybe_pet(self, x, now):
+        # 버튼 없는 호버 x를 링버퍼에 넣고, 왕복이면 하트 반응 발동. 어느 상태에서든
+        # (자는 중이어도 쓰다듬으면 하트 뜨며 방긋 — happy 눈이 감은 눈을 덮음).
+        # 시간창(STROKE_WINDOW)이 실제 필터. 호버 이벤트가 초당 수백 개 쏟아져서
+        # 샘플수로 자르면 시간창이 너무 짧아져(반전 3회가 안 채워짐) -> 넉넉히 둔다.
+        self._hover_samples = [(t, hx) for (t, hx) in self._hover_samples
+                               if now - t <= petting.STROKE_WINDOW][-400:]
+        self._hover_samples.append((now, float(x)))
+        fired = petting.detect_stroke(self._hover_samples, now,
+                                      last_fire=self._last_pet_fire)
+        if fired:
+            self._last_pet_fire = now
+            self._pet_react_until = now + PET_REACT_SEC
+            self._hover_samples = []          # 소진(연속 오발동 방지)
 
     def _menu(self, gpos):
         m = QMenu()
