@@ -358,7 +358,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
     # 주머니 빼꼼: 화면에 가로 틈을 내고 고개만 내민 연출. 슬릿 아래는 클립해
     # 안 그려지고(투명), 립/손은 함수 끝에서 틈 위로 덧그린다. 표정/프롭은 현재
     # 상태 그대로라 고민/작업/완료 표정이 주머니에서도 보인다.
-    POCKET_LIP = 10.2
+    POCKET_LIP = 11.6         # 눈(row ~7.4)보다 넉넉히 아래 — 표정이 안 묻히게
     if pocket:
         p.setClipRect(QRectF(ox - 4 * u, oy - 6 * u,
                              (GRID_W + 8) * u, (POCKET_LIP + 6) * u))

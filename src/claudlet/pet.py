@@ -1855,11 +1855,14 @@ class Pet(QWidget):
     def _maybe_pet(self, x, now):
         # 버튼 없는 호버 x를 링버퍼에 넣고, 왕복이면 하트 반응 발동. 어느 상태에서든
         # (자는 중이어도 쓰다듬으면 하트 뜨며 방긋 — happy 눈이 감은 눈을 덮음).
+        # 시간창(STROKE_WINDOW)이 실제 필터. 호버 이벤트가 초당 수백 개 쏟아져서
+        # 샘플수로 자르면 시간창이 너무 짧아져(반전 3회가 안 채워짐) -> 넉넉히 둔다.
         self._hover_samples = [(t, hx) for (t, hx) in self._hover_samples
-                               if now - t <= petting.STROKE_WINDOW][-16:]
+                               if now - t <= petting.STROKE_WINDOW][-400:]
         self._hover_samples.append((now, float(x)))
-        if petting.detect_stroke(self._hover_samples, now,
-                                 last_fire=self._last_pet_fire):
+        fired = petting.detect_stroke(self._hover_samples, now,
+                                      last_fire=self._last_pet_fire)
+        if fired:
             self._last_pet_fire = now
             self._pet_react_until = now + PET_REACT_SEC
             self._hover_samples = []          # 소진(연속 오발동 방지)
