@@ -1124,6 +1124,32 @@ def test_cursor_feed_parsed_and_used():
         p._cleanup()
 
 
+def test_social_act_starts_with_companion_and_expires(pet, monkeypatch):
+    from claudlet.core import social
+    pet.claude_state = "idle"
+    pet.mode = "roam"
+    pet._debug_companions = 1
+    pet._sync_companion()                 # 컴패니언 1마리 스폰
+    monkeypatch.setattr(social, "should_start", lambda *a, **k: True)
+    monkeypatch.setattr(social, "pick", lambda *a, **k: "glance")
+    pet._social_start(time.monotonic())
+    assert pet.snapshot()["social"] == "glance"
+    pet._social_until = time.monotonic() - 0.01     # 만료 시점으로
+    pet._tick()
+    assert pet.snapshot()["social"] is None
+    pet._debug_companions = 0
+
+
+def test_no_social_without_companion(pet, monkeypatch):
+    from claudlet.core import social
+    pet.claude_state = "idle"
+    pet.mode = "roam"
+    pet._debug_companions = 0
+    monkeypatch.setattr(social, "should_start", lambda *a, **k: True)
+    pet._social_start(time.monotonic())
+    assert pet.snapshot()["social"] is None      # 컴패니언 없으면 발동 안 함
+
+
 def test_petting_reaction_activates_and_expires(pet):
     # 왕복 호버를 seam(_maybe_pet)으로 먹인다: 판정은 순수함수, 발동/반응은 pet.
     pet.claude_state = "idle"

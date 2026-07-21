@@ -41,6 +41,7 @@ from claudlet.core import petconfig
 from claudlet.core import physics
 from claudlet.core import follow_nav
 from claudlet.core import petting
+from claudlet.core import social
 from claudlet.core import idle_engine
 from claudlet.core.idle_engine import IdleEnergy
 from claudlet.platform import geom
@@ -491,6 +492,11 @@ class Pet(QWidget):
         self._departing = []                 # finished agents' companions waving goodbye
         self._debug_companions = 0           # test override: force >=N companions
                                              # (right-click menu), atop real agents
+        # 소셜: idle+컴패니언일 때 랜덤 합동동작(마주보기/줄서기/탑쌓기/하이파이브)
+        self._social_act = None              # 현재 act 이름 or None
+        self._social_until = 0.0             # act 종료 시각(monotonic)
+        self._social_targets = []            # arrange() 결과(컴패니언 순서)
+        self._last_social = 0.0              # 쿨다운 기준
         self._hidden_for_win = False         # hidden because our perch/host went away
         self._masked = False                 # pet clipped to a window's exposed part
         self._last_mask = None               # last applied QRegion (skip redundant sets)
@@ -691,6 +697,8 @@ class Pet(QWidget):
             "following": self._follow,
             "contained": self._contain.wid if self._contain else None,
             "companions": len(self._companions),
+            "social": self._social_act,          # 현재 소셜 act or None
+
             "departing": len(self._departing),
             "quit_armed": self._quit_timer is not None,       # SessionEnd quit pending
             "palette": self._palette,
@@ -822,6 +830,12 @@ class Pet(QWidget):
                 self.y = floor
                 self._render_state = eff
 
+        # 소셜 act: 만료되면 종료(일반 follow 복귀), 없으면 적격 시 새 act 롤
+        if self._social_act is not None and now >= self._social_until:
+            self._social_act = None
+        elif self._social_act is None:
+            self._social_start(now)
+
         self.move(int(self.x), int(self.y))
         # hide/show with the window we're riding (perched-on / contained-in)
         self._update_visibility()
@@ -832,6 +846,56 @@ class Pet(QWidget):
     def _companion(self):
         """First companion or None (accessor for tests/back-compat)."""
         return self._companions[0] if self._companions else None
+
+    def _social_active(self, now):
+        return self._social_act is not None and now < self._social_until
+
+    def _social_eligible(self):
+        return (self.claude_state in ("idle", "waiting")
+                and self.mode == "roam" and not self.dnd
+                and len(self._companions) >= 1)
+
+    def _social_start(self, now):
+        # 적격이면 확률 롤 -> act 시작(arrange로 컴패니언 목표 배치 계산·저장).
+        if not self._social_eligible():
+            return
+        if not social.should_start(random.random(),
+                                   now - self._last_social >= social.COOLDOWN):
+            return
+        act = social.pick(random.random(), len(self._companions))
+        if act is None:
+            return
+        leader = (self.x, self.y, float(self.w))
+        comps = [(c.x, c.y, float(c.w)) for c in self._companions]
+        # 탑쌓기 층 간격 = 컴패니언 높이(펫 높이 아님)라야 촘촘히 쌓인다
+        ch = float(self._companions[0].h) if self._companions else float(self.h)
+        self._social_targets = social.arrange(act, leader, comps, creature_h=ch)
+        self._social_act = act
+        self._social_until = now + social.DURATION.get(act, 2.0)
+        self._last_social = now
+
+    def _drive_social(self):
+        # act 동안 각 컴패니언을 arrange 타겟으로 직접 ease(팔로우/물리 개입 차단).
+        # x는 항상, y는 stack만(지상 act는 c.y 유지). 도착하면 facing 고정.
+        stack = self._social_act == "stack"
+        spd = COMPANION_SPEED * (2.5 if stack else 1.0)   # 탑은 층까지 닿게 빠르게
+        for c, (tx, ty, facing, pose) in zip(self._companions, self._social_targets):
+            c._contain = None
+            c._air = False
+            c.x += max(-spd, min(spd, tx - c.x))
+            if stack:
+                c.y += max(-spd, min(spd, ty - c.y))
+            if abs(tx - c.x) <= spd:
+                c.facing = facing            # 도착: act 방향으로 고정
+            elif tx != c.x:
+                c.facing = 1 if tx > c.x else -1
+            c._state = pose
+            c.frame = (c.frame + 1) % 100000
+            c.move(int(c.x), int(c.y))
+            self._occlude_companion(c)
+            if not c.isVisible():
+                c.show()
+            c.update()
 
     def _sync_companion(self):
         """Show/hide + drive the agent followers: one companion per running
@@ -888,6 +952,11 @@ class Pet(QWidget):
                 self._occlude_companion(c)
                 if not c.isVisible():
                     c.show()
+            return
+
+        # 소셜 act 진행 중: 일반 follow 대신 합동동작 배치로 몰고 복귀.
+        if self._social_active(time.monotonic()):
+            self._drive_social()
             return
 
         # Every other mode (roam AND thrown) drives each companion through the
