@@ -18,10 +18,11 @@ def test_pick_returns_an_act():
 def test_arrange_stack_piles_upward():
     leader = (100.0, 200.0, 40.0)
     comps = [(0.0, 200.0, 20.0), (0.0, 200.0, 20.0)]
-    tgts = social.arrange("stack", leader, comps, creature_h=30.0)
+    tgts = social.arrange("stack", leader, comps, creature_h=30.0, foot=44.0, head=25.0)
+    base = 200.0 + 25.0 - 44.0                            # 발이 리더 머리에 닿는 창-top
     assert tgts[0][0] == 100.0 + 40.0 / 2 - 20.0 / 2      # x 리더 중심 정렬
-    assert tgts[0][1] == 200.0 - 30.0                     # 1층
-    assert tgts[1][1] == 200.0 - 60.0                     # 2층
+    assert tgts[0][1] == base                             # 1층
+    assert tgts[1][1] == base - 30.0                      # 2층(몸통 높이만큼 위)
 
 
 def test_arrange_lineup_spaces_horizontally():

@@ -5,8 +5,8 @@ arrange로 각 컴패니언의 목표(위치/방향/포즈)를 받아 몰고 간
 """
 
 ACTS = ("glance", "lineup", "stack", "highfive")
-START_CHANCE = 0.035     # 적격 idle 틱당 발동 확률(~20fps에서 평균 1~2초에 한 번 시도)
-COOLDOWN = 6.0           # act 사이 최소 간격(초)
+START_CHANCE = 0.03      # 적격 idle 틱당 발동 확률(~20fps에서 평균 ~1.7초에 한 번 시도)
+COOLDOWN = 25.0          # act 사이 최소 간격(초)
 GAP = 6                  # 정렬/근접 간격(device px, pet.py가 넘김)
 DURATION = {"glance": 1.6, "lineup": 3.5, "stack": 3.5, "highfive": 2.0}
 
@@ -26,7 +26,7 @@ def _face(from_x, to_x):
     return 1 if to_x >= from_x else -1
 
 
-def arrange(act, leader, companions, creature_h, gap=GAP):
+def arrange(act, leader, companions, creature_h, gap=GAP, foot=0.0, head=0.0):
     """각 컴패니언의 Target=(tx, ty, facing, pose)를 companions 순서대로."""
     lx, ly, lw = leader
     lcx = lx + lw / 2.0
@@ -43,9 +43,12 @@ def arrange(act, leader, companions, creature_h, gap=GAP):
             out.append((tx, y, _face(tx + w / 2.0, lcx), "settle"))
             cur = (tx - gap) if side < 0 else (tx + w + gap)
         return out
-    if act == "stack":                        # 리더 중심 정렬 + 위로 누적(탑)
+    if act == "stack":                        # 리더 머리 위로 발이 닿게 누적(탑)
+        # base = level-0 컴패니언의 창-top: 발(foot)이 리더 머리(ly+head)에 닿음.
+        # 위 층은 몸통 높이(creature_h)만큼씩 올림(패딩 아닌 그려지는 높이).
+        base = ly + head - foot
         for k, (x, y, w) in enumerate(companions):
-            out.append((lcx - w / 2.0, ly - (k + 1) * creature_h, 1, "idle"))
+            out.append((lcx - w / 2.0, base - k * creature_h, 1, "idle"))
         return out
     if act == "highfive":                     # 가장 가까운 1마리만 붙어서 팔 듦
         near = min(range(len(companions)),

@@ -125,6 +125,9 @@ MOTION_MENU = [
 # creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
 # used to land the FEET on a window's top edge when perching (not the window box).
 FOOT_Y = 89
+# art-row geometry (creature.py:346 "crown rows 3..5 ; legs rows 12..15"):
+# crown top ~row 3, feet ~row 15.8. used to stack companions body-on-head.
+CROWN_ROW, FOOT_ROW = 3.0, 15.8
 
 PET_REACT_SEC = 1.5                     # 쓰다듬기 하트 반응 지속(초)
 
@@ -858,7 +861,7 @@ class Pet(QWidget):
         return self._social_act is not None and now < self._social_until
 
     def _social_eligible(self):
-        return (self.claude_state in ("idle", "waiting")
+        return (self.claude_state in ("idle", "sleeping")
                 and self.mode == "roam" and not self.dnd
                 and len(self._companions) >= 1)
 
@@ -874,9 +877,13 @@ class Pet(QWidget):
             return
         leader = (self.x, self.y, float(self.w))
         comps = [(c.x, c.y, float(c.w)) for c in self._companions]
-        # 탑쌓기 층 간격 = 컴패니언 높이(펫 높이 아님)라야 촘촘히 쌓인다
-        ch = float(self._companions[0].h) if self._companions else float(self.h)
-        self._social_targets = social.arrange(act, leader, comps, creature_h=ch)
+        # 탑쌓기: 스텝=컴패니언의 그려지는 몸통 높이(창 높이 아님, 패딩 제외),
+        # foot/head=발·머리 오프셋(px)이라 발이 정확히 아래 머리에 닿는다.
+        body_h = (FOOT_ROW - CROWN_ROW) * COMPANION_U        # 층 간격
+        foot = (PAD_Y + FOOT_ROW) * COMPANION_U              # 컴패니언 발(창-top부터)
+        head = (PAD_Y + CROWN_ROW) * U                       # 펫 머리(창-top부터)
+        self._social_targets = social.arrange(
+            act, leader, comps, creature_h=body_h, foot=foot, head=head)
         self._social_act = act
         self._social_until = now + social.DURATION.get(act, 2.0)
         self._last_social = now
