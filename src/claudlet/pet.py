@@ -27,7 +27,7 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
-from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion
+from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion, QPainterPath
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
@@ -1748,20 +1748,35 @@ class Pet(QWidget):
         p.end()
 
     def _draw_hearts(self, p, age):
-        # 머리 위로 떠오르며 페이드하는 하트 두어 개 (쓰다듬기 반응). age 0..1.
+        # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
+        # (창 안)에서 살짝 떠오르며 페이드. age 0..1. 크고 뚜렷하게.
         p.setPen(Qt.PenStyle.NoPen)
         cx = self.w // 2
-        for i, off in enumerate((-2 * U, 2 * U)):
-            rise = int((age + i * 0.15) % 1.0 * 22)
-            alpha = max(0, int(220 * (1.0 - age)))
-            col = QColor(217, 90, 90, alpha)
-            p.setBrush(col)
+        for i, off in enumerate((-4.5 * U, 4.5 * U, 0)):
+            phase = age + i * 0.18
+            if phase >= 1.0:
+                continue
+            rise = phase * 3.5 * U
+            alpha = max(0, int(235 * (1.0 - phase)))
+            col = QColor(233, 70, 96, alpha)
+            s = (1.6 if i < 2 else 1.1) * U          # 옆 큰 하트 2 + 중앙 작은 것
             hx = cx + off
-            hy = PAD_Y * U + 2 * U - rise
-            r = U * 0.8
-            p.drawEllipse(QRectF(hx - r, hy - r, r, r))
-            p.drawEllipse(QRectF(hx, hy - r, r, r))
-            p.drawEllipse(QRectF(hx - r * 0.9, hy - r * 0.4, 1.9 * r, r))
+            hy = (PAD_Y + 3) * U - rise              # 머리 옆 높이에서 시작
+            self._heart(p, hx, hy, s, col)
+
+    @staticmethod
+    def _heart(p, cx, cy, s, col):
+        # 픽셀 하트: 위 두 돌기(원) + 아래 삼각형
+        p.setBrush(col)
+        r = s * 0.55
+        p.drawEllipse(QRectF(cx - r, cy - r, r * 1.15, r * 1.15))
+        p.drawEllipse(QRectF(cx + r * 0.0 - 0.15 * s, cy - r, r * 1.15, r * 1.15))
+        path = QPainterPath()
+        path.moveTo(cx - r, cy - r * 0.15)
+        path.lineTo(cx + r, cy - r * 0.15)
+        path.lineTo(cx, cy + s * 0.7)
+        path.closeSubpath()
+        p.fillPath(path, col)
 
     # ---------- interaction ----------
     def mousePressEvent(self, e):

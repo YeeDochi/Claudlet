@@ -365,6 +365,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
 
     if happy:
         eyes = "happy"          # 상태 무관 웃는 눈 (쓰다듬기 반응)
+    if pocket:
+        arm = "none"            # 기본 측면 팔 끔 — 슬릿 잡은 그립 손만 남긴다
 
     p.save()
     # face direction of travel: mirror the BODY only. Props/text (drawn after the
