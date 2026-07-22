@@ -1604,3 +1604,7 @@ def test_zone_drag_captures_global_not_local_coords():
         assert {"x": 2010.0, "y": 30.0, "w": 100.0, "h": 80.0} in p._no_go
     finally:
         p._cleanup()
+
+
+def test_in_notch_defaults_false(pet):
+    assert pet.snapshot()["in_notch"] is False

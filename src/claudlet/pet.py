@@ -172,6 +172,14 @@ def _companion_flags(platform):
     return base | Qt.WindowType.WindowStaysOnTopHint
 
 
+def point_in_notch(px, py, notch):
+    """드롭 지점 (px,py) GLOBAL 이 노치 rect (x,y,w,h) 안인가. notch None -> False."""
+    if notch is None:
+        return False
+    x, y, w, h = notch
+    return x <= px < x + w and y <= py < y + h
+
+
 def _same_win(a, b):
     """Two window handles refer to the same window (by id), or both are None."""
     if a is None or b is None:
@@ -525,6 +533,7 @@ class Pet(QWidget):
         # float is a MODE, not a render override: suspends gravity so the pet
         # hovers, while its normal animation keeps playing. Cleared by `stop`.
         self._floating = False
+        self._in_notch = False        # 노치에 보관 중(주머니의 노치 재해석)
         # 쓰다듬기: 버튼 없는 호버 왕복 감지 -> 하트+행복 표정 반응
         self._hover_samples = []         # [(t, cursor_x)] 최근 호버
         self._pet_react_until = 0.0      # 하트 반응 종료 시각(monotonic)
@@ -699,6 +708,7 @@ class Pet(QWidget):
             "facing": self.facing,                            # 1 right, -1 left
             "motion": self._motion,                           # forced motion or None
             "floating": self._floating,
+            "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
 
             "following": self._follow,
