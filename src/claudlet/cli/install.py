@@ -114,25 +114,59 @@ def _importable(name):
         return False
 
 
+def _check_xcb_cursor():
+    """Qt 6.5+ needs the libxcb-cursor system lib to load the xcb platform
+    plugin. It's not a pip dep, so a fresh Linux box aborts at startup without
+    it (native core-dump, not a Python error). Best-effort: apt-install it if we
+    can, else point the user at their package manager. Returns a status note or
+    None (not Linux / already present)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    import ctypes.util
+    if ctypes.util.find_library("xcb-cursor"):
+        return None
+    import shutil
+    import subprocess
+    apt = shutil.which("apt-get")
+    if apt:
+        print("  installing libxcb-cursor0 (may prompt for sudo) ...")
+        sudo = [] if os.geteuid() == 0 else (["sudo"] if shutil.which("sudo") else [])
+        try:
+            subprocess.call([*sudo, apt, "install", "-y", "libxcb-cursor0"])
+        except Exception:
+            pass
+        if ctypes.util.find_library("xcb-cursor"):
+            return "libxcb-cursor0 installed"
+    warn("libxcb-cursor missing - Qt can't start without it. Install it:\n"
+         "      Debian/Ubuntu:  sudo apt install libxcb-cursor0\n"
+         "      Fedora:  sudo dnf install xcb-util-cursor    Arch:  sudo pacman -S xcb-util-cursor")
+    return "libxcb-cursor MISSING"
+
+
 def _check_deps():
-    """Verify runtime deps (PyQt6; +Quartz on macOS). Normally already present
-    via the package install; only a bare source checkout hits the pip fallback."""
+    """Verify runtime deps (PyQt6; +Quartz on macOS; libxcb-cursor on Linux).
+    Normally already present via the package install; only a bare source
+    checkout hits the pip fallback."""
     deps = [("PyQt6", "PyQt6")]
     if sys.platform == "darwin":
         deps.append(("Quartz", "pyobjc-framework-Quartz"))
     names = ", ".join(pip for _i, pip in deps)
     missing = [(i, pip) for i, pip in deps if not _importable(i)]
-    if not missing:
-        return "%s present" % names
-    pkgs = [pip for _i, pip in missing]
-    print("  installing %s ..." % ", ".join(pkgs))
-    _pip_install(pkgs)
-    still = [pip for i, pip in missing if not _importable(i)]
-    if still:
-        warn("could not install %s - install it with:\n      %s -m pip install %s"
-             % (", ".join(still), os.path.basename(sys.executable), " ".join(still)))
-        return "%s (%s missing)" % (names, ", ".join(still))
-    return "%s installed" % ", ".join(pkgs)
+    if missing:
+        pkgs = [pip for _i, pip in missing]
+        print("  installing %s ..." % ", ".join(pkgs))
+        _pip_install(pkgs)
+        still = [pip for i, pip in missing if not _importable(i)]
+        if still:
+            warn("could not install %s - install it with:\n      %s -m pip install %s"
+                 % (", ".join(still), os.path.basename(sys.executable), " ".join(still)))
+            status = "%s (%s missing)" % (names, ", ".join(still))
+        else:
+            status = "%s installed" % ", ".join(pkgs)
+    else:
+        status = "%s present" % names
+    xcb = _check_xcb_cursor()
+    return status + (", " + xcb if xcb else "")
 
 
 def _already_installed(install_hooks):

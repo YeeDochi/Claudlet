@@ -31,6 +31,10 @@ disabled.
 ## Requirements
 
 - Python 3 + PyQt6 — `pip install PyQt6`
+- **Linux (Wayland)**: XWayland, plus the xcb runtime lib Qt 6.5+ needs —
+  `sudo apt install libxcb-cursor0` on Debian/Ubuntu (package `xcb-util-cursor`
+  elsewhere). Without it Qt aborts at startup with "xcb-cursor0 … is needed to
+  load the Qt xcb platform plugin" (a native core-dump, not a Python error).
 - **KDE Plasma** for the full experience: `qdbus6` (window integration / click-to-focus),
   `wmctrl` (optional, hides the pet from the taskbar). XWayland if on Wayland.
 - **Windows**: nothing extra — window integration uses only the stdlib `ctypes`

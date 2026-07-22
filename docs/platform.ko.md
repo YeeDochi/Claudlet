@@ -28,6 +28,10 @@ KDE·Windows·macOS 모두 실사용 지원 대상이에요. GNOME은 창 통합
 ## 요구사항
 
 - Python 3 + PyQt6 — `pip install PyQt6`
+- **리눅스(Wayland)**: XWayland, 그리고 Qt 6.5+가 요구하는 xcb 런타임 라이브러리 —
+  Debian/Ubuntu는 `sudo apt install libxcb-cursor0`(다른 배포판은 `xcb-util-cursor`).
+  없으면 시작할 때 "xcb-cursor0 … is needed to load the Qt xcb platform plugin"
+  이라며 abort해요(파이썬 에러가 아니라 네이티브 core-dump).
 - 전체 기능엔 **KDE Plasma**: `qdbus6`(창 통합/클릭-포커스), `wmctrl`(선택, 작업표시줄에서
   펫 숨김). Wayland면 XWayland.
 - **Windows**: 추가 요구사항 없음 — 창 통합은 `src/claudlet/platform/geom/win32.py`에서 표준

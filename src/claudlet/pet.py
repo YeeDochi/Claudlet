@@ -2485,6 +2485,18 @@ def main():
         os.close(lock_fd)
         return                                # another pet for this session lives
 
+    # Qt 6.5+ aborts (native core-dump) loading the xcb plugin without the
+    # libxcb-cursor system lib. Catch it here so a fresh Linux box gets an
+    # actionable message instead of a bare crash. See docs/platform.md.
+    if os.environ.get("QT_QPA_PLATFORM") == "xcb":
+        import ctypes.util
+        if not ctypes.util.find_library("xcb-cursor"):
+            sys.stderr.write(
+                "claudlet: missing libxcb-cursor (Qt's xcb plugin needs it).\n"
+                "  Debian/Ubuntu:  sudo apt install libxcb-cursor0\n"
+                "  Fedora:  sudo dnf install xcb-util-cursor    Arch:  sudo pacman -S xcb-util-cursor\n")
+            return
+
     app = QApplication(sys.argv[:1])          # keep our flags away from Qt
     app.setApplicationName("claudlet")
     app.setDesktopFileName("claudlet")
