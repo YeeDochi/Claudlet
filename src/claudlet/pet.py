@@ -52,6 +52,7 @@ from claudlet.platform import geom
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
+NOTCH_U = 3                             # ponytail: 노치 보관 시 축소 배율. 실기 보고 조정.
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
 # Agent companion: an INDEPENDENT little creature in its own window that FOLLOWS
 # the pet while a subagent runs — see the Companion class. It only walks toward
@@ -1842,7 +1843,14 @@ class Pet(QWidget):
         petted = now < self._pet_react_until
         pocket = self._floating and self.mode not in ("held", "thrown")
         # facing handled inside draw_creature (body mirrors, text upright)
-        C.draw_creature(p, PAD_X * U, PAD_Y * U, U, state, self.frame,
+        if getattr(self, "_in_notch", False):
+            u = NOTCH_U
+            ox = (self.w - (C.GRID_W + 2 * PAD_X) * u) / 2 + PAD_X * u
+            oy = (self.h - (C.GRID_H + 2 * PAD_Y) * u) / 2 + PAD_Y * u
+        else:
+            u = U
+            ox, oy = PAD_X * U, PAD_Y * U
+        C.draw_creature(p, ox, oy, u, state, self.frame,
                         facing=self.facing, visor=vis, energy=self.idle_energy.value,
                         palette=self._palette, happy=petted, pocket=pocket)
         if petted:

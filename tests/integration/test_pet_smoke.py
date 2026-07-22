@@ -1635,3 +1635,11 @@ def test_toggle_float_off_clears_notch(pet):
     pet._floating = False
     pet._sync_float_check()
     assert pet.snapshot()["in_notch"] is False
+
+
+def test_notch_render_snapshot_stable(pet):
+    pet._notch = (656, 0, 200, 38)
+    pet._drop_test(756, 19)
+    pet.update()
+    snap = pet.snapshot()
+    assert snap["in_notch"] is True and snap["floating"] is True
