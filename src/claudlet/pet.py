@@ -62,7 +62,10 @@ PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for p
 # the pet once the gap exceeds FOLLOW_START, and stops once within FOLLOW_STOP
 # (hysteresis), like a real sidekick trailing along; no facing-based side pick
 # (that made it teleport across when the pet turned).
-COMPANION_U = 2.5                       # companion art-pixel size (half the pet's U=5)
+COMPANION_U = 3                         # companion art-pixel size (pet's U is 5).
+                                        # Integer on purpose: 2.5 split every art
+                                        # pixel 2px/3px, and (GRID_H + 2*PAD_Y)*2.5
+                                        # = 52.5 lost half a pixel to int() below.
 # Follow feel: sets off soon after the pet leaves (short START gap), dawdles at a
 # slow amble while close behind, but SPRINTS when left far behind — the "어?
 # 늦었다!" scramble: speed*(1+gap/FACTOR), capped at speed*CAP.
@@ -228,7 +231,7 @@ class Companion(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         # purely decorative: never take clicks/focus.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        # COMPANION_U may be fractional (half the pet's U) — window dims are ints
+        # int() is only a guard should COMPANION_U ever go fractional again
         self.w = int((C.GRID_W + 2 * PAD_X) * COMPANION_U)
         self.h = int((C.GRID_H + 2 * PAD_Y) * COMPANION_U)
         self.setFixedSize(self.w, self.h)
@@ -346,7 +349,9 @@ class Companion(QWidget):
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        C.draw_creature(p, PAD_X * COMPANION_U, PAD_Y * COMPANION_U,
+        # a fractional origin puts the whole grid between pixels, re-splitting
+        # every art pixel; snapped so a fractional unit can't reintroduce that
+        C.draw_creature(p, round(PAD_X * COMPANION_U), round(PAD_Y * COMPANION_U),
                         COMPANION_U, self._state, self.frame, facing=self.facing,
                         cap=self.hat, gaze=self.gaze)
         p.end()
@@ -2144,8 +2149,10 @@ class Pet(QWidget):
         # facing handled inside draw_creature (body mirrors, text upright)
         if getattr(self, "_in_notch", False):
             u = NOTCH_U
-            ox = (self.w - (C.GRID_W + 2 * PAD_X) * u) / 2 + PAD_X * u
-            oy = (self.h - (C.GRID_H + 2 * PAD_Y) * u) / 2 + PAD_Y * u
+            # centring lands on a half pixel when window and art box differ by
+            # an odd amount, shifting the grid and re-splitting every art pixel
+            ox = round((self.w - (C.GRID_W + 2 * PAD_X) * u) / 2 + PAD_X * u)
+            oy = round((self.h - (C.GRID_H + 2 * PAD_Y) * u) / 2 + PAD_Y * u)
         else:
             u = U
             ox, oy = PAD_X * U, PAD_Y * U
