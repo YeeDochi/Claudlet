@@ -118,6 +118,7 @@ UI = {
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
+           "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
            "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "float": "Pocket (peek out)", "quiet": "Quiet (mute)",
@@ -125,6 +126,7 @@ UI = {
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
            "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
+           "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
            "roam": "Roam freely", "dock_reset": "Reset dock position"},
 }
 
@@ -369,11 +371,12 @@ class ZoneOverlay(QWidget):
     read/write GLOBAL coordinates directly: capture via e.globalPosition() and
     paint via mapToGlobal(0,0) — the window's REAL origin, panel offset and all —
     never an assumed screen.topLeft()."""
-    def __init__(self, screen_rect, zones, on_zone, on_done):
+    def __init__(self, screen_rect, zones, on_zone, on_done, hint=None):
         super().__init__(None)
         self._zones = list(zones)          # absolute-coord rects, for display
         self._on_zone = on_zone
         self._on_done = on_done
+        self._hint = hint
         self._drag = None                  # (x0,y0,x1,y1) GLOBAL, in-progress
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint
                             | Qt.WindowType.WindowStaysOnTopHint
@@ -429,6 +432,13 @@ class ZoneOverlay(QWidget):
     def paintEvent(self, _e):
         from PyQt6.QtGui import QPainter, QColor
         p = QPainter(self)
+        # A Windows layered window (WA_TranslucentBackground) is click-through
+        # wherever its pixels are fully transparent, so an overlay that painted
+        # nothing never received the press that starts a zone drag — zone edit
+        # was simply dead there. (X11 hit-tests the window rect, which is why
+        # this never showed up on Linux.) The faint tint is what makes the
+        # screen-wide overlay take input at all, and it reads as "edit mode on".
+        p.fillRect(self.rect(), QColor(0, 0, 0, 18))
         og = self.mapToGlobal(QPoint(0, 0))   # this window's REAL origin
         ox, oy = og.x(), og.y()
         fill = QColor(220, 60, 50, 70)
@@ -441,6 +451,20 @@ class ZoneOverlay(QWidget):
             x0, y0, x1, y1 = self._drag        # global -> local for this window
             p.fillRect(int(min(x0, x1) - ox), int(min(y0, y1) - oy),
                        int(abs(x1 - x0)), int(abs(y1 - y0)), fill)
+        if self._hint:
+            # one-line usage banner, top-centre: the overlay has no other
+            # affordance now that it is (almost) invisible again.
+            fm = p.fontMetrics()
+            pad = 10
+            bw = fm.horizontalAdvance(self._hint) + pad * 2
+            bh = fm.height() + pad * 2
+            bx = (self.width() - bw) // 2
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(30, 30, 34, 190))
+            p.drawRoundedRect(bx, 14, bw, bh, 6, 6)
+            p.setPen(QColor(235, 235, 235))
+            p.drawText(QRect(bx, 14, bw, bh), Qt.AlignmentFlag.AlignCenter,
+                       self._hint)
         p.end()
 
 
@@ -2463,7 +2487,8 @@ class Pet(QWidget):
                 ov.close()
         # One un-clampable overlay per monitor (a single union-sized window gets
         # clamped to one screen by the WM, landing zones on the wrong monitor).
-        self._zone_overlays = [ZoneOverlay(g, self._no_go, _add, _done)
+        self._zone_overlays = [ZoneOverlay(g, self._no_go, _add, _done,
+                                           hint=self.ui.get("zone_hint"))
                                for g in self._screens]
         self._zone_overlay = self._zone_overlays[0]   # back-compat handle
         for ov in self._zone_overlays:
