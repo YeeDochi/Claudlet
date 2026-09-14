@@ -50,14 +50,31 @@ def warn(s):
     print("  %s %s" % (_c("33", "!"), s), file=sys.stderr)
 
 
+def _link_is_ours(link):
+    """True if `link` already resolves to SKILL_SRC — a symlink, or a Windows
+    directory junction. os.path.islink() can't see junctions (reparse points,
+    not symlinks), so an install that fell back to `mklink /J` looked like
+    someone else's directory to every later run, which re-warned "isn't a
+    symlink" forever. samefile() follows junctions."""
+    if os.path.islink(link):
+        return True
+    try:
+        return os.path.isdir(link) and os.path.samefile(link, SKILL_SRC)
+    except OSError:
+        return False
+
+
 def _link_skill():
     """Symlink the packaged skill into ~/.claude/skills/. Returns (path, note)."""
     os.makedirs(SKILLS_DIR, exist_ok=True)
-    if os.path.exists(SKILL_LINK) and not os.path.islink(SKILL_LINK):
-        return None, "%s exists and isn't a symlink - left as-is" % SKILL_LINK
+    if os.path.exists(SKILL_LINK) and not _link_is_ours(SKILL_LINK):
+        return None, ("%s exists and isn't a link to the claudlet skill"
+                      " - left as-is" % SKILL_LINK)
+    if os.path.islink(SKILL_LINK):
+        os.unlink(SKILL_LINK)      # refresh: a stale symlink may point at an old install
+    elif os.path.exists(SKILL_LINK):
+        return SKILL_LINK, None    # a junction already pointing at THIS skill — keep it
     try:
-        if os.path.islink(SKILL_LINK):
-            os.unlink(SKILL_LINK)
         os.symlink(SKILL_SRC, SKILL_LINK, target_is_directory=True)
         return SKILL_LINK, None
     except OSError as e:

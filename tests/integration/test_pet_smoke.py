@@ -1752,6 +1752,22 @@ def test_zone_drag_captures_global_not_local_coords():
         p._cleanup()
 
 
+def test_zone_overlay_paints_even_when_empty():
+    """An overlay with no zones and no drag in progress must NOT be fully
+    transparent. On Windows a layered window is click-through wherever its
+    pixels are transparent, so the old paint-nothing overlay took no input at
+    all — no cursor, no drag, zone edit simply didn't work. (X11 hit-tests the
+    window rect, which is why this passed unnoticed on the dev box.)"""
+    p = P.Pet(session_id="zonedim")
+    try:
+        p._no_go = []
+        p._enter_zone_edit()
+        img = p._zone_overlay.grab().toImage()      # runs paintEvent offscreen
+        assert img.pixelColor(2, img.height() - 3).alpha() > 0
+    finally:
+        p._cleanup()
+
+
 def test_in_notch_defaults_false(pet):
     assert pet.snapshot()["in_notch"] is False
 

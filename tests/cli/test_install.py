@@ -1,3 +1,5 @@
+import os
+
 from claudlet.cli import install as I
 
 
@@ -25,3 +27,32 @@ def test_install_path_does_not_call_uninstall(monkeypatch):
     monkeypatch.setattr(I, "_link_skill", lambda: (None, None))
 
     I.main([])          # no exception == install path stayed clear of uninstall
+
+
+def test_link_skill_keeps_a_junction_pointing_at_the_skill(monkeypatch, tmp_path):
+    # Windows junctions are reparse points: os.path.islink() says False, so the
+    # junction fallback's own output looked like a foreign directory to every
+    # later run, which re-warned "isn't a symlink" on each update.
+    skills = tmp_path / "skills"; skills.mkdir()
+    link = str(skills / "claudlet")
+    os.mkdir(link)                                  # stands in for the junction
+    monkeypatch.setattr(I, "SKILLS_DIR", str(skills))
+    monkeypatch.setattr(I, "SKILL_LINK", link)
+    monkeypatch.setattr(os.path, "samefile", lambda a, b: True)
+
+    assert I._link_skill() == (link, None)
+    assert os.path.isdir(link)                      # left in place, not clobbered
+
+
+def test_link_skill_warns_on_a_foreign_directory(monkeypatch, tmp_path):
+    # a plain directory (an old manual copy) that does NOT resolve to the
+    # packaged skill must still be left alone, with the warning
+    skills = tmp_path / "skills"; skills.mkdir()
+    link = str(skills / "claudlet")
+    os.mkdir(link)
+    monkeypatch.setattr(I, "SKILLS_DIR", str(skills))
+    monkeypatch.setattr(I, "SKILL_LINK", link)
+    monkeypatch.setattr(I, "SKILL_SRC", str(tmp_path / "nowhere"))
+
+    path, note = I._link_skill()
+    assert path is None and "left as-is" in note
