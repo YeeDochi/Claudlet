@@ -15,8 +15,8 @@ Public API:
     GRID_W, GRID_H : bounding size in art pixels (multiply by u for device px)
 """
 import math
-from PyQt6.QtGui import QColor
-from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtCore import QRect, QRectF
 
 # autonomous (auto/bypass mode) variants: the pet wears a visor and wanders while
 # it works, each work type keeping its own prop. `autopilot` is the generic cruise.
@@ -99,6 +99,14 @@ HAT_KINDS = ("cap", "hardhat", "beret", "tophat", "propeller", "beanie")
 
 GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props/bounce)
 
+# Rotating a pixel sprite with antialiasing off turns every edge into a
+# staircase (walk leans +-2 degrees, doze 10), so a rotated frame switches
+# antialiasing on for itself alone and flat frames stay hard-edged. This is
+# the angle below which the lean is dropped instead of smoothed: 0 keeps every
+# rotation, because flattening the big ones costs real animation - at 999 doze
+# stops leaning and reads as idle.
+SMOOTH_TILT_DEG = 0.0
+
 PALETTES = {
     "default":      {"body": "#D97757", "hi": "#ECA184", "lo": "#B0532F", "bang": "#D0402E"},
     "shiny_teal":   {"body": "#2FA88C", "hi": "#7FD9C4", "lo": "#1C7361", "bang": "#1F5F52"},
@@ -116,6 +124,39 @@ def palette_colors(palette):
 
 def _sin(frame, period, amp, phase=0.0):
     return math.sin((frame / period + phase) * 2 * math.pi) * amp
+
+
+def _r(v):
+    # half-up, not round(): round() is banker's, sending 4.5 down and 5.5 up -
+    # the half-pixel unevenness this exists to remove
+    return int(math.floor(v + 0.5))
+
+
+def _snap(x, y, w, h):
+    """Art-pixel block -> whole device pixels.
+
+    Antialiasing is off by design, so the rasteriser rounds each QRectF edge on
+    its own and the same art pixel came out 4px wide here and 6px there (the
+    old `w * u + 0.5` padding hid the seams that caused, but not the
+    unevenness). Snapping the origin and rounding the size separately keeps a
+    given art size the same number of pixels wherever it sits. Sizes never
+    reach 0, or thin highlights and the eye dashes vanish at small u.
+    """
+    return _r(x), _r(y), max(1, _r(w)), max(1, _r(h))
+
+
+def _fill(p, x, y, w, h, color):
+    p.fillRect(QRect(*_snap(x, y, w, h)), color)
+
+
+def _snap_offset(dy, u):
+    # bob/baseline_lift shift every block alike, so a fractional value drags the
+    # whole silhouette off the u-grid and its seams crawl as the frame advances
+    return _r(dy * u) / u
+
+
+def _tilt_for(tilt):
+    return 0.0 if abs(tilt) < SMOOTH_TILT_DEG else tilt
 
 
 def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
@@ -342,6 +383,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         if nod > 0.9:
             prop = "zzz"
 
+    body_dy = _snap_offset(bob + baseline_lift, u)
+
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
     arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
            "held": "up", "falling": "up", "juggle": "up", "wave": "wave",
@@ -357,10 +400,10 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         # apply squash/stretch about body center
         bcx, bcy = 10.5, 9.0
         X = bcx + (col - bcx) * sx
-        Y = bcy + (row - bcy) * sy + bob + baseline_lift
+        Y = bcy + (row - bcy) * sy + body_dy
         W = w * sx
         H = h * sy
-        p.fillRect(QRectF(ox + X * u, oy + Y * u, W * u + 0.5, H * u + 0.5), color)
+        _fill(p, ox + X * u, oy + Y * u, W * u, H * u, color)
 
     # 주머니 빼꼼: 화면에 가로 틈을 내고 고개만 내민 연출. 슬릿 아래는 클립해
     # 안 그려지고(투명), 립/손은 함수 끝에서 틈 위로 덧그린다. 표정/프롭은 현재
@@ -383,7 +426,9 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         p.translate(2 * (ox + cx * u), 0)
         p.scale(-1, 1)
     # tilt about creature center
+    tilt = _tilt_for(tilt)
     if tilt:
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.translate(ox + cx * u, oy + 10 * u)
         p.rotate(tilt)
         p.translate(-(ox + cx * u), -(oy + 10 * u))
@@ -532,8 +577,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
 
     # ---- props (screen-ish space, not tilted) ----
     def rect(col, row, w, h, color):
-        Y = row + bob + baseline_lift
-        p.fillRect(QRectF(ox + col * u, oy + Y * u, w * u + 0.5, h * u + 0.5), color)
+        Y = row + body_dy
+        _fill(p, ox + col * u, oy + Y * u, w * u, h * u, color)
 
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QFont, QPen, QPainterPath
@@ -572,8 +617,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         bxx, byy = 17.5, -0.2
         rect(bxx, byy, 3.6, 3.2, WHITE)
         # tail
-        p.fillRect(QRectF(ox + (bxx + 0.4) * u, oy + (byy + 3.0 + bob) * u,
-                          1.0 * u, 1.0 * u), WHITE)
+        _fill(p, ox + (bxx + 0.4) * u, oy + (byy + 3.0 + body_dy) * u,
+              1.0 * u, 1.0 * u, WHITE)
         # bold pixel "!" (stem + dot), centered in the bubble
         ex = bxx + 1.3
         rect(ex, byy + 0.6, 1.0, 1.5, BANG)     # stem
@@ -587,16 +632,16 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
     elif prop == "zzz":
         p.setPen(QPen(ZTXT))
         f = QFont("Sans"); f.setPointSizeF(1.2 * u); f.setBold(True); p.setFont(f)
-        p.drawText(int(ox + 18 * u), int(oy + (4.0 + bob) * u), "z")
+        p.drawText(int(ox + 18 * u), int(oy + (4.0 + body_dy) * u), "z")
         f2 = QFont("Sans"); f2.setPointSizeF(1.8 * u); f2.setBold(True); p.setFont(f2)
-        p.drawText(int(ox + 19.4 * u), int(oy + (2.2 + bob) * u), "Z")
+        p.drawText(int(ox + 19.4 * u), int(oy + (2.2 + body_dy) * u), "Z")
         p.setPen(Qt.PenStyle.NoPen)
     elif prop == "ponder":
         # slow "?" that fades in over the head
         if (frame % 90) > 20:
             p.setPen(QPen(ZTXT)); f = QFont("Sans"); f.setPointSizeF(1.8 * u)
             f.setBold(True); p.setFont(f)
-            p.drawText(int(ox + 18 * u), int(oy + (3.2 + bob) * u), "?")
+            p.drawText(int(ox + 18 * u), int(oy + (3.2 + body_dy) * u), "?")
             p.setPen(Qt.PenStyle.NoPen)
     elif prop == "magnify":
         # a magnifying glass sweeping side to side out front — dark rim for
