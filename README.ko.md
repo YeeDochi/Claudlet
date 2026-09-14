@@ -188,6 +188,8 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 
 - **[@htto0824](https://github.com/htto0824)** — 도크 배치(코너 슬롯, 여러 마리
   나란히 세우기, 드래그로 대열 이동), Windows Terminal 탭 포커스
+- **[@Rio-Kyeong](https://github.com/Rio-Kyeong)** — 아트픽셀을 정수 픽셀 그리드에
+  맞춘 렌더(선명한 테두리, bob 중에도 실루엣이 출렁이지 않음)
 
 ## 라이선스
 

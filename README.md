@@ -193,6 +193,8 @@ drive the pet straight from a prompt:
 
 - **[@htto0824](https://github.com/htto0824)** — dock placement (corner slots,
   multi-pet alignment, drag-to-move the whole row) and Windows Terminal tab focus
+- **[@Rio-Kyeong](https://github.com/Rio-Kyeong)** — art pixels snapped to the
+  whole-pixel grid (crisp edges, no silhouette wobble as the pet bobs)
 
 ## License
 
