@@ -190,6 +190,9 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
   나란히 세우기, 드래그로 대열 이동), Windows Terminal 탭 포커스
 - **[@Rio-Kyeong](https://github.com/Rio-Kyeong)** — 아트픽셀을 정수 픽셀 그리드에
   맞춘 렌더(선명한 테두리, bob 중에도 실루엣이 출렁이지 않음)
+- **[@pawprint0706](https://github.com/pawprint0706)** — Windows 픽스: 금지구역
+  편집 오버레이가 마우스 입력을 전혀 받지 못하던 문제, 스킬 링크 정션을 매번
+  경고하던 문제
 
 ## 라이선스
 

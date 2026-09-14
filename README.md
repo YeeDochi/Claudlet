@@ -195,6 +195,9 @@ drive the pet straight from a prompt:
   multi-pet alignment, drag-to-move the whole row) and Windows Terminal tab focus
 - **[@Rio-Kyeong](https://github.com/Rio-Kyeong)** — art pixels snapped to the
   whole-pixel grid (crisp edges, no silhouette wobble as the pet bobs)
+- **[@pawprint0706](https://github.com/pawprint0706)** — Windows fixes: the
+  no-go zone editor took no mouse input at all, and skill-link junctions were
+  re-warned about on every install
 
 ## License
 
