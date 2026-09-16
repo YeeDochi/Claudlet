@@ -30,7 +30,8 @@ import subprocess
 import tempfile
 import time
 
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
+                             QToolTip)
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion, QPainterPath
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
@@ -569,6 +570,15 @@ class Pet(QWidget):
         # -- every tab shares one pid, so pid-ancestry can't (see winterm.py).
         # None until the first hook event: click then just raises the window.
         self._tab_title = None
+        # Which session is this? With several pets on screen they are identical
+        # creatures, so there is no way to tell which one to close. The pet is
+        # launched from INSIDE its session, so its inherited cwd already IS the
+        # session's working directory — no hook payload needed, and no prompt
+        # text leaves the session. Shown as the hover tooltip.
+        self._cwd = os.getcwd()
+        self._project = os.path.basename(self._cwd.rstrip(os.sep)) or self._cwd
+        self.setToolTip("%s · %s" % (self._project,
+                                     str(self.session_id).split("-")[0]))
         self._companions = []                # agent followers, one per running agent
         self._departing = []                 # finished agents' companions waving goodbye
         self._throw_trail = []               # main-pet snapshots replayed by companions
@@ -903,6 +913,8 @@ class Pet(QWidget):
 
             "following": self._follow,
             "tab_title": self._tab_title,        # terminal tab we click-focus
+            "tooltip": self.toolTip(),           # which session this pet is
+            "host_wid": self._host_wid,          # window click-to-focus raises
             "contained": self._contain.wid if self._contain else None,
             "companions": len(self._companions),
             "social": self._social_act,          # 현재 소셜 act or None
@@ -1991,7 +2003,8 @@ class Pet(QWidget):
         """Remember this session's host window (matched by pid) for click-to-focus.
         Independent of visibility — focus targets the console/IDE, not the perch."""
         if self._ancestor_pids:
-            h = geom.find_host(self._wins, self._ancestor_pids)
+            h = geom.find_host(self._wins, self._ancestor_pids,
+                               project=self._project, cwd=self._cwd)
             if h is not None:
                 self._host_wid = h.wid
 
@@ -2240,6 +2253,9 @@ class Pet(QWidget):
     def mouseMoveEvent(self, e):
         if e.buttons() == Qt.MouseButton.NoButton:
             self._maybe_pet(e.position().x(), time.monotonic())   # 호버 = 쓰다듬기
+            # 어느 세션이지? frameless + 반투명 + always-on-top Tool 창은 네이티브
+            # 툴팁이 저절로 뜨지 않으므로 커서 위치에 직접 띄운다.
+            QToolTip.showText(e.globalPosition().toPoint(), self.toolTip(), self)
             return
         if self._press_global is None:
             return
@@ -2607,7 +2623,8 @@ class Pet(QWidget):
             return
         self._tray_state = st
         tray.setIcon(self._state_icon(st))
-        tray.setToolTip("claudlet — " + self.labels.get(st, st))
+        tray.setToolTip("claudlet · %s — %s"
+                        % (self._project, self.labels.get(st, st)))
 
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""

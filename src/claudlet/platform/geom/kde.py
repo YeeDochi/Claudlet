@@ -141,7 +141,8 @@ def _start_geom_script(dbus_name, safe):
         '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c))'   # visible, on this desktop
         '      ent.push({id:(""+c.internalId),'
         '        s:c.internalId+";"+(c.resourceClass||"")+";"'
-        '        +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0)});}'
+        '        +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0)'
+        '        +";"+encodeURIComponent(c.caption||"")});}'
         # workspace.stackingOrder lags a raise in this KWin (it settles AFTER
         # windowActivated fires), so a just-activated window would still look
         # buried for one click. We KNOW it is now topmost -> force it last.

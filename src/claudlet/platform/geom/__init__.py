@@ -6,11 +6,15 @@ session bus), the listing stays empty and the pet just uses the screen floor
 as before. Coordinates are X screen pixels, matching Qt's move() under
 XWayland — no remapping needed.
 """
+import os
 from collections import namedtuple
+from urllib.parse import unquote
 
 # `title` actually holds the resourceClass; `pid` is the owning process id (or
-# None when the feed predates pid reporting). Defaults keep old 6-arg callers OK.
-Win = namedtuple("Win", "wid x y w h title pid", defaults=(None,))
+# None when the feed predates pid reporting); `caption` is the window's visible
+# title, the only thing that tells two windows of ONE process apart (see
+# find_host). Defaults keep old 6-arg callers OK.
+Win = namedtuple("Win", "wid x y w h title pid caption", defaults=(None, ""))
 
 # Shell chrome / helper window classes, never perch targets. Covers both the
 # KDE feed (plasmashell, xwaylandvideobridge) and the Win32 feed: "progman" and
@@ -26,7 +30,9 @@ def parse_dump(text, min_size=40):
     """Parse a pipe-delimited window geometry feed (shared wire format used by
     the KWin script and other backends).
 
-    Format: `id;class;x,y,w,h|id;class;x,y,w,h|...`  (coords may be floats).
+    Format: `id;class;x,y,w,h;pid;caption|...`  (coords may be floats; pid and
+    caption optional). The caption is percent-encoded by the sender because
+    real window titles contain both of our delimiters ("Teams - 채팅 | ...").
     Filters shell chrome and sub-min_size junk. Pure."""
     wins = []
     for tok in text.split("|"):
@@ -52,7 +58,8 @@ def parse_dump(text, min_size=40):
         pid = None
         if len(parts) >= 4 and parts[3].strip().isdigit():
             pid = int(parts[3])
-        wins.append(Win(wid, x, y, w, h, cls, pid))
+        caption = unquote(parts[4]) if len(parts) >= 5 else ""
+        wins.append(Win(wid, x, y, w, h, cls, pid, caption))
     return wins
 
 
@@ -66,19 +73,79 @@ NON_HOST_CLASSES = EXCLUDE_CLASSES | {"cabinetwclass", "shell_traywnd",
                                       "shell_secondarytraywnd"}
 
 
-def find_host(wins, ancestor_pids):
+def project_of(caption):
+    """The project/workspace a host window's caption says it is showing, or "".
+
+    Some hosts run every window in ONE process, so pid-ancestry finds the app
+    but cannot pick OUR window — the caption is the only thing that separates
+    them. Two shapes cover the IDEs we see::
+
+        openstackit-java - telegraf.conf [openstackit-java]   name, then file
+        serafin [/home/me/IdeaProjects/serafin_v2_be]         name, then path
+
+    The leading segment (before the first dash separator or bracket) is the
+    project's DISPLAY name, which is what we compare -- whole, never as a
+    substring, because "bnk-approval" is a prefix of "bnk-approval-fe" and a
+    substring test hands one project the other's window. Pure."""
+    head = (caption or "").split(" [")[0]
+    for sep in (" \u2014 ", " \u2013 ", " - "):     # em dash, en dash, hyphen
+        head = head.split(sep)[0]
+    return head.strip()
+
+
+def bracketed_path(caption):
+    """The absolute path a caption carries in brackets, or "". Pure."""
+    if "[" not in caption or "]" not in caption:
+        return ""
+    inner = caption[caption.index("[") + 1:caption.rindex("]")].strip()
+    return inner if ("/" in inner or "\\" in inner) else ""
+
+
+def pick_by_project(wins, project, cwd):
+    """The one window among `wins` that is showing OUR project, or None.
+
+    None when nothing matches AND when several do: with two candidates we do
+    not know which is ours, and raising a coin-flip window is worse than
+    leaving the pid-chosen one alone. Pure."""
+    if not project and not cwd:
+        return None
+    hits = []
+    for w in wins:
+        cap = w.caption or ""
+        if not cap:
+            continue
+        path = bracketed_path(cap)
+        if (cwd and path and os.path.normpath(path) == os.path.normpath(cwd)) \
+                or (project and project_of(cap) == project):
+            hits.append(w)
+    return hits[0] if len(hits) == 1 else None
+
+
+def find_host(wins, ancestor_pids, project=None, cwd=None):
     """The window owned by this session's host app: the first whose pid is in
     `ancestor_pids` (the pet's Claude process and its parents — the terminal/IDE
     that owns the window is one of them), skipping shell-chrome windows that
     merely share a pid with a fake ancestor (see NON_HOST_CLASSES). None if no
-    such window matches (the caller then falls back to a class match)."""
+    such window matches (the caller then falls back to a class match).
+
+    When SEVERAL windows share that pid, the pid has told us everything it can:
+    JetBrains runs every open project in one JVM, so all of them match and the
+    first one the WM happens to list wins — every pet then points at the same
+    arbitrary project. `project`/`cwd` let the caption break that tie; an
+    ambiguous or absent caption falls back to the first match, i.e. exactly the
+    old behaviour."""
     if not ancestor_pids:
         return None
-    for w in wins:
-        if (w.pid is not None and w.pid in ancestor_pids
-                and (w.title or "").lower() not in NON_HOST_CLASSES):
-            return w
-    return None
+    owned = [w for w in wins
+             if w.pid is not None and w.pid in ancestor_pids
+             and (w.title or "").lower() not in NON_HOST_CLASSES]
+    if not owned:
+        return None
+    if len(owned) > 1:
+        mine = pick_by_project(owned, project, cwd)
+        if mine is not None:
+            return mine
+    return owned[0]
 
 
 def pick_focus_target(wins, ancestor_pids, class_subs):

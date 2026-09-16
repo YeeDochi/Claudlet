@@ -1768,6 +1768,33 @@ def test_zone_overlay_paints_even_when_empty():
         p._cleanup()
 
 
+def test_tooltip_names_the_session(pet):
+    """Several pets on screen are identical creatures — hovering one has to say
+    which session it is, or you can't tell which to close. Folder + short id,
+    taken from the pet's own inherited cwd (no hook payload, no prompt text)."""
+    import os
+    tip = pet.snapshot()["tooltip"]
+    assert os.path.basename(os.getcwd()) in tip
+    assert tip.endswith(pet.session_id.split("-")[0])
+
+
+def test_click_focus_picks_our_project_window(pet):
+    """One process, many windows (JetBrains opens every project in one JVM):
+    pid-ancestry matches them all and the first one listed used to win, so every
+    pet pointed at the same arbitrary project. The caption breaks the tie."""
+    import os
+    mine = os.path.basename(os.getcwd())
+    pet._ancestor_pids = {9}
+    pet._wins = [
+        P.geom.Win("other", 0, 0, 800, 600, "jetbrains-idea", 9,
+                   "somethingelse \u2013 a.java [somethingelse]"),
+        P.geom.Win("mine", 0, 0, 800, 600, "jetbrains-idea", 9,
+                   "%s \u2013 pet.py [%s]" % (mine, mine)),
+    ]
+    pet._update_host_wid()
+    assert pet.snapshot()["host_wid"] == "mine"
+
+
 def test_in_notch_defaults_false(pet):
     assert pet.snapshot()["in_notch"] is False
 
