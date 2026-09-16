@@ -79,3 +79,35 @@ def test_caption_survives_the_wire_with_our_delimiters_in_it():
 def test_feed_without_a_caption_still_parses():
     wins = geom.parse_dump("w1;konsole;0,0,800,600;42")
     assert wins[0].caption == "" and wins[0].pid == 42
+
+
+def test_unidentifiable_host_window_stops_flip_flopping():
+    """`wins` arrives in stacking order, so "the first pid match" moves every
+    time one of those windows is raised. With two projects open in one IDE and
+    nothing in the captions naming ours, click -> raise A -> A is topmost ->
+    the first match is now B -> next click raises B, forever. Measured on KDE:
+    the two projects alternated on every single click, which reads as the IDE
+    minimising itself. Once a window is chosen it is kept."""
+    a = _w("A", 9, "projA – x.java [projA]")
+    b = _w("B", 9, "projB – y.java [projB]")
+    # our project is open in neither, so the caption can never decide
+    first = geom.find_host([a, b], {9}, project="mine", cwd="/p/mine")
+    assert first.wid == "A"
+    # raising A puts it on top -> the feed now lists B first
+    again = geom.find_host([b, a], {9}, project="mine", cwd="/p/mine",
+                           current=first.wid)
+    assert again.wid == "A", "host window flip-flopped with the stacking order"
+
+
+def test_a_stale_sticky_choice_is_dropped():
+    # the remembered window is gone (project closed): fall back, don't return None
+    wins = [_w("A", 9, "projA – x [projA]"), _w("B", 9, "projB – y [projB]")]
+    assert geom.find_host(wins, {9}, project="mine", cwd="/p/mine",
+                          current="CLOSED").wid == "A"
+
+
+def test_the_caption_still_wins_over_a_stale_sticky_choice():
+    # stickiness is only for the case nothing identifies ours
+    wins = [_w("A", 9, "projA – x [projA]"), _w("B", 9, "mine – y [mine]")]
+    assert geom.find_host(wins, {9}, project="mine", cwd="/p/mine",
+                          current="A").wid == "B"

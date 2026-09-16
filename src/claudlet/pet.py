@@ -2004,7 +2004,8 @@ class Pet(QWidget):
         Independent of visibility — focus targets the console/IDE, not the perch."""
         if self._ancestor_pids:
             h = geom.find_host(self._wins, self._ancestor_pids,
-                               project=self._project, cwd=self._cwd)
+                               project=self._project, cwd=self._cwd,
+                               current=self._host_wid)
             if h is not None:
                 self._host_wid = h.wid
 

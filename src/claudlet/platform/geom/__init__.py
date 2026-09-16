@@ -121,7 +121,7 @@ def pick_by_project(wins, project, cwd):
     return hits[0] if len(hits) == 1 else None
 
 
-def find_host(wins, ancestor_pids, project=None, cwd=None):
+def find_host(wins, ancestor_pids, project=None, cwd=None, current=None):
     """The window owned by this session's host app: the first whose pid is in
     `ancestor_pids` (the pet's Claude process and its parents — the terminal/IDE
     that owns the window is one of them), skipping shell-chrome windows that
@@ -132,8 +132,14 @@ def find_host(wins, ancestor_pids, project=None, cwd=None):
     JetBrains runs every open project in one JVM, so all of them match and the
     first one the WM happens to list wins — every pet then points at the same
     arbitrary project. `project`/`cwd` let the caption break that tie; an
-    ambiguous or absent caption falls back to the first match, i.e. exactly the
-    old behaviour."""
+    caption cannot decide, `current` (the wid chosen last time) is kept.
+
+    That stickiness is the difference between one wrong window and a window
+    that will not sit still. `wins` arrives in STACKING order, so "the first
+    match" changes every time one of them is raised: with two projects open in
+    one IDE, click -> raise A -> A is now topmost -> the first match is B ->
+    next click raises B -> and the two flip-flop forever, which reads as the
+    IDE minimising itself every other click. Whatever we settle on, we keep."""
     if not ancestor_pids:
         return None
     owned = [w for w in wins
@@ -141,10 +147,14 @@ def find_host(wins, ancestor_pids, project=None, cwd=None):
              and (w.title or "").lower() not in NON_HOST_CLASSES]
     if not owned:
         return None
-    if len(owned) > 1:
-        mine = pick_by_project(owned, project, cwd)
-        if mine is not None:
-            return mine
+    if len(owned) == 1:
+        return owned[0]
+    mine = pick_by_project(owned, project, cwd)
+    if mine is not None:
+        return mine
+    for w in owned:                      # nothing identifies ours: hold still
+        if current is not None and w.wid == current:
+            return w
     return owned[0]
 
 
