@@ -129,6 +129,17 @@ def _start_geom_script(dbus_name, safe):
         '      return c.desktop<0||c.desktop===workspace.currentDesktop;'
         '  }catch(e){}'
         '  return true;}'                             # unknown API -> don't filter
+        # Only real top-level application windows are perch/containment targets.
+        # Everything a compositor also stacks -- panels, IME candidate windows,
+        # tooltips, and an app's leftover shadow/notification windows -- is
+        # sized like a window and passes every other filter: one KakaoTalk
+        # (Wine) install had 221 stale "KakaoTalkShadowWnd" entries, ~318px
+        # wide and stacked in a corner, so the pet perched on and hid behind
+        # things nobody can see. NET::Normal is what separates them; measured
+        # on KDE, every genuine window (browser/IDE/terminal/file manager) is
+        # normalWindow while every one of those was not. Unknown property ->
+        # don't filter, so a KWin without it behaves exactly as before.
+        'function _isTopLevel(c){return c.normalWindow!==false;}'
         'function _dump(top){'
         # stackingOrder is bottom->top, so geom.window_at's "last match
         # wins" correctly picks the TOPMOST window under the pet.
@@ -138,7 +149,7 @@ def _start_geom_script(dbus_name, safe):
         '      ?workspace.windowList():workspace.clientList());'
         '  var ent=[];'
         '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
-        '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c))'   # visible, on this desktop
+        '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c)&&_isTopLevel(c))'
         '      ent.push({id:(""+c.internalId),'
         '        s:c.internalId+";"+(c.resourceClass||"")+";"'
         '        +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0)'
