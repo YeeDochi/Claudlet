@@ -101,13 +101,43 @@ def bracketed_path(caption):
     return inner if ("/" in inner or "\\" in inner) else ""
 
 
+def project_names(cwd):
+    """Names a host window might call the project at `cwd`, most reliable first.
+
+    The folder name is the obvious one and usually right. It is not enough:
+    IntelliJ titles a window with the project's DISPLAY name, and `.idea/.name`
+    overrides that independently of the folder -- one project here lives in
+    `flavor-mcp` and shows as `flavor-mvp`, so folder-name matching could never
+    find its window. Reads a tiny file; missing or unreadable -> folder only."""
+    if not cwd:
+        return ()
+    names = []
+    folder = os.path.basename(str(cwd).rstrip("/\\"))
+    if folder:
+        names.append(folder)
+    try:
+        with open(os.path.join(cwd, ".idea", ".name"), encoding="utf-8") as f:
+            shown = f.read().strip()
+        if shown and shown not in names:
+            names.append(shown)
+    except OSError:
+        pass
+    return tuple(names)
+
+
 def pick_by_project(wins, project, cwd):
     """The one window among `wins` that is showing OUR project, or None.
+
+    `project` is a name or several (a project answers to its folder name and to
+    its IDE display name; see project_names).
 
     None when nothing matches AND when several do: with two candidates we do
     not know which is ours, and raising a coin-flip window is worse than
     leaving the pid-chosen one alone. Pure."""
-    if not project and not cwd:
+    if isinstance(project, str) or project is None:
+        project = (project,) if project else ()
+    names = {p for p in project if p}
+    if not names and not cwd:
         return None
     hits = []
     for w in wins:
@@ -116,7 +146,7 @@ def pick_by_project(wins, project, cwd):
             continue
         path = bracketed_path(cap)
         if (cwd and path and os.path.normpath(path) == os.path.normpath(cwd)) \
-                or (project and project_of(cap) == project):
+                or (names and project_of(cap) in names):
             hits.append(w)
     return hits[0] if len(hits) == 1 else None
 

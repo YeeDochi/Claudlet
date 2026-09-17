@@ -577,6 +577,10 @@ class Pet(QWidget):
         # text leaves the session. Shown as the hover tooltip.
         self._cwd = os.getcwd()
         self._project = os.path.basename(self._cwd.rstrip(os.sep)) or self._cwd
+        # ...and every other name a host window might use for it: IntelliJ
+        # titles the window with the project's DISPLAY name, which .idea/.name
+        # sets independently of the folder.
+        self._project_names = geom.project_names(self._cwd) or (self._project,)
         self.setToolTip("%s · %s" % (self._project,
                                      str(self.session_id).split("-")[0]))
         self._companions = []                # agent followers, one per running agent
@@ -2004,7 +2008,7 @@ class Pet(QWidget):
         Independent of visibility — focus targets the console/IDE, not the perch."""
         if self._ancestor_pids:
             h = geom.find_host(self._wins, self._ancestor_pids,
-                               project=self._project, cwd=self._cwd,
+                               project=self._project_names, cwd=self._cwd,
                                current=self._host_wid)
             if h is not None:
                 self._host_wid = h.wid

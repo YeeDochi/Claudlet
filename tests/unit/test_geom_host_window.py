@@ -111,3 +111,35 @@ def test_the_caption_still_wins_over_a_stale_sticky_choice():
     wins = [_w("A", 9, "projA – x [projA]"), _w("B", 9, "mine – y [mine]")]
     assert geom.find_host(wins, {9}, project="mine", cwd="/p/mine",
                           current="A").wid == "B"
+
+
+def test_project_answers_to_its_ide_display_name(tmp_path):
+    # measured: a project in the folder "flavor-mcp" shows as "flavor-mvp",
+    # because .idea/.name overrides the display name independently of the
+    # folder. Folder-name matching alone could never find that window.
+    proj = tmp_path / "flavor-mcp"
+    (proj / ".idea").mkdir(parents=True)
+    (proj / ".idea" / ".name").write_text("flavor-mvp\n", encoding="utf-8")
+    assert geom.project_names(str(proj)) == ("flavor-mcp", "flavor-mvp")
+
+
+def test_project_names_without_an_idea_dir_is_just_the_folder(tmp_path):
+    proj = tmp_path / "plain"
+    proj.mkdir()
+    assert geom.project_names(str(proj)) == ("plain",)
+    assert geom.project_names("") == ()
+
+
+def test_display_name_finds_the_window_the_folder_name_cannot():
+    wins = [_w("other", 9, "openstackit-java – x [openstackit-java]"),
+            _w("mine", 9, "flavor-mvp – NetworkController.java [flavor-mvp.osi]")]
+    # folder name alone: no match at all, so the pid fallback wins
+    assert geom.pick_by_project(wins, "flavor-mcp", "/p/flavor-mcp") is None
+    # with the display name too, our window is found
+    assert geom.pick_by_project(wins, ("flavor-mcp", "flavor-mvp"),
+                                "/p/flavor-mcp").wid == "mine"
+
+
+def test_pick_by_project_still_takes_a_plain_string():
+    wins = [_w("a", 9, IDEA)]
+    assert geom.pick_by_project(wins, "openstackit-java", "/p/x").wid == "a"
