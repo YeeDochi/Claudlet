@@ -23,6 +23,16 @@ cpet() {  # usage: cpet <subcmd> [args...]   e.g. cpet attach --standalone
   else echo "claudlet isn't installed — see the README"; return 127; fi
 }
 ```
+On Windows the session's shell is PowerShell, where that is a parse error — use
+this instead:
+```powershell
+# splatting needs @<variable>, so the rest of the args go through a variable
+function cpet { $n = "claudlet-$($args[0])"; $rest = @($args | Select-Object -Skip 1); & $n @rest }
+```
+Either way the helper only buys the source-checkout fallback. If it doesn't
+work in the shell you actually have, stop fighting it and run the console
+command directly — `claudlet-attach --standalone`, `claudlet-motion jump` —
+which is all `cpet` does once claudlet is installed.
 
 ## Routing
 
