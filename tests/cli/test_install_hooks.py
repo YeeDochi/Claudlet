@@ -166,11 +166,49 @@ def test_hook_command_source_checkout_fallback_path_exists():
     assert os.path.exists(repo_bin), repo_bin
 
 
-def test_windows_command_runs_quoted_executable_through_cmd(monkeypatch):
+def test_windows_command_is_an_unquoted_forward_slash_path(monkeypatch):
+    # The two shells a Windows hook string can land in want opposite things:
+    # Git Bash (Claude Code) eats the backslashes unless the path is quoted,
+    # PowerShell (desktop agents) reads a leading quoted string as a literal
+    # and never runs it. Forward slashes need neither quoting nor escaping, so
+    # one string satisfies both.
     monkeypatch.setattr(ih.os, "name", "nt")
-    assert ih._command(r"C:\Program Files\Claudlet\claudlet-hook.exe") == (
-        'cmd.exe /d /s /c call "C:\\Program Files\\Claudlet\\claudlet-hook.exe"'
+    assert ih._command(r"C:\Users\dev\.local\bin\claudlet-hook.EXE") == (
+        "C:/Users/dev/.local/bin/claudlet-hook.EXE"
     )
+
+
+def test_windows_command_joins_several_parts(monkeypatch):
+    monkeypatch.setattr(ih.os, "name", "nt")
+    assert ih._command(r"C:\py\python.exe", r"C:\repo\bin\claudlet-hook") == (
+        "C:/py/python.exe C:/repo/bin/claudlet-hook"
+    )
+
+
+def test_windows_command_never_reaches_cmd_exe(monkeypatch):
+    # cmd.exe /d /s /c was the previous attempt. Git Bash rewrites the /d /s /c
+    # switches as paths, so cmd received no /c at all, came up INTERACTIVE and
+    # read the hook payload off stdin as a command line -- claudlet-hook never
+    # ran, and no pet ever appeared in Claude Code on Windows.
+    monkeypatch.setattr(ih.os, "name", "nt")
+    assert "cmd.exe" not in ih._command(r"C:\bin\claudlet-hook.EXE")
+
+
+def test_windows_uses_the_real_path_when_it_has_no_space(monkeypatch):
+    monkeypatch.setattr(ih.os, "name", "nt")
+    monkeypatch.setattr(ih.shutil, "which",
+                        lambda n: r"C:\Users\dev\.local\bin\claudlet-hook.EXE")
+    assert ih.hook_command() == "C:/Users/dev/.local/bin/claudlet-hook.EXE"
+
+
+def test_windows_falls_back_to_the_bare_name_when_the_path_has_a_space(monkeypatch):
+    # "C:\Users\John Smith\..." cannot be written unquoted, and quoting is the
+    # one thing PowerShell will not run. which() already proved the console
+    # script is on PATH, so its bare name says the same thing in either shell.
+    monkeypatch.setattr(ih.os, "name", "nt")
+    monkeypatch.setattr(ih.shutil, "which",
+                        lambda n: r"C:\Users\John Smith\.local\bin\claudlet-hook.EXE")
+    assert ih.hook_command() == "claudlet-hook"
 
 
 def test_posix_command_directly_quotes_executable(monkeypatch):
