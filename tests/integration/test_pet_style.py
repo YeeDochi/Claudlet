@@ -150,3 +150,26 @@ def test_companions_wear_the_same_creature_as_the_pet():
         assert p._companions[0].avatar is p.avatar
     finally:
         p._cleanup()
+
+
+def test_companions_wear_the_pet_colour_and_follow_a_change(tmp_path, monkeypatch):
+    """A sidekick is one of the pet's own, so it is the pet's colour. And a
+    colour-only change has to reach it — the re-dress used to run only when the
+    size or the creature changed."""
+    path = _config(tmp_path, monkeypatch, avatar="claudlet",
+                   creatures={"claudlet": {"palette": "#00FFCC"}})
+    p = P.Pet(session_id="companioncolour")
+    try:
+        p._debug_companions = 1
+        p._sync_companion()
+        assert p._companions[0].palette == p._palette
+        assert p._palette["body"] == "#00FFCC"
+
+        path.write_text(json.dumps(
+            {"avatar": "claudlet",
+             "creatures": {"claudlet": {"palette": "#FF00AA"}}}), encoding="utf-8")
+        p._handle_event({"cmd": "restyle"})
+        assert p._palette["body"] == "#FF00AA"
+        assert p._companions[0].palette == p._palette
+    finally:
+        p._cleanup()

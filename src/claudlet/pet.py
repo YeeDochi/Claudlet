@@ -257,9 +257,10 @@ class Companion(QWidget):
     Not user-grabbable (WA_TransparentForMouseEvents); the driving lives in
     Pet._sync_companion, which owns the window feed and screen bounds."""
 
-    def __init__(self, u=COMPANION_U, avatar=None):
+    def __init__(self, u=COMPANION_U, avatar=None, palette=None):
         super().__init__()
         self.u = u
+        self.palette = palette      # the pet's colour; a sidekick is one of ITS own
         self.setWindowFlags(_companion_flags(sys.platform))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
@@ -404,7 +405,7 @@ class Companion(QWidget):
         # every art pixel; snapped so a fractional unit can't reintroduce that
         self.avatar.draw(p, round(PAD_X * self.u), round(PAD_Y * self.u),
                          self.u, self._state, self.frame, facing=self.facing,
-                         cap=self.hat, gaze=self.gaze)
+                         cap=self.hat, gaze=self.gaze, palette=self.palette)
         p.end()
 
 
@@ -993,9 +994,13 @@ class Pet(QWidget):
         self._apply_style(cfg)
         if (self.u, self.avatar.name) != before:
             self._resize_to_avatar()
-            for c in self._companions + self._departing:
-                c.avatar = self.avatar
-                c.rescale(_companion_scale(self.u))
+        # Companions are re-dressed ALWAYS, not only when the size or creature
+        # changed: a colour-only change left the sidekicks in the old colour.
+        for c in self._companions + self._departing:
+            c.avatar = self.avatar
+            c.palette = self._palette
+            c.rescale(_companion_scale(self.u))
+            c.update()
         self.update()
 
     def _arm_quit(self):
@@ -1292,7 +1297,7 @@ class Pet(QWidget):
             self._throw_recording = False
             return
         while len(self._companions) < n:             # a new agent started
-            c = Companion(_companion_scale(self.u), self.avatar)
+            c = Companion(_companion_scale(self.u), self.avatar, self._palette)
             prev = self._companions[-1] if self._companions else self
             # spawn just BEHIND the leader (opposite the pet's heading), clear of
             # its body, so it doesn't pop in on top of the pet -- then it eases
