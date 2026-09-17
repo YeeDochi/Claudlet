@@ -287,7 +287,7 @@ def _find_user_dir_by_declared_name(name):
     return None
 
 
-def export_creature(name, out=None, force=False):
+def export_creature(name, out=None, force=False, base=None):
     """Zip a creature's package so it can be shared. Returns (dest_path, None)
     or (None, error). A user creature under CREATURES_DIR is preferred over a
     same-named bundled one, since that is the one actually in effect; it is
@@ -298,12 +298,29 @@ def export_creature(name, out=None, force=False):
     if name not in avatars.available():
         return None, "unknown creature: %s" % name
     default_name = "%s.claudlet-creature.zip" % name
-    if out is None:
-        dest = os.path.abspath(default_name)
+    # A relative path typed into the settings page would otherwise resolve
+    # against the SERVER's working directory -- wherever the pet happened to be
+    # launched from -- which is unguessable from a browser. Resolve "~" and
+    # anything relative against the home directory instead, so "다운로드" means
+    # what the person typing it means.
+    # `base` is where a relative path lands. The CLI leaves it None, so "here"
+    # means the shell's directory, as any CLI should. The settings page passes
+    # the home directory instead: a browser cannot guess the server process's
+    # working directory, so "다운로드" typed there must mean ~/다운로드.
+    root = base or os.getcwd()
+
+    def _place(raw):
+        raw = os.path.expanduser(raw)
+        if not os.path.isabs(raw):
+            raw = os.path.join(root, raw)
+        return os.path.abspath(raw)
+
+    if out is None or not str(out).strip():
+        dest = os.path.join(root, default_name)
     elif out.endswith(".zip"):
-        dest = os.path.abspath(out)
+        dest = _place(out)
     else:
-        dest = os.path.abspath(os.path.join(out, default_name))
+        dest = os.path.join(_place(out), default_name)
 
     parent = os.path.dirname(dest) or "."
     if not os.path.isdir(parent):

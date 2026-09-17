@@ -724,3 +724,22 @@ def test_main_ui_app_flag_asks_for_a_chrome_less_window(monkeypatch):
     C.main(["ui", "--app", "--no-open"])
 
     assert calls[0]["app_window"] is True
+
+
+def test_export_relative_path_lands_under_the_given_base(tmp_path):
+    # the settings page passes base=~ because a browser cannot know the server
+    # process's working directory; the CLI leaves base=None and keeps meaning
+    # "here", which is what a shell user expects.
+    home = tmp_path / "home"
+    (home / "받은것").mkdir(parents=True)
+    dest, err = C.export_creature("slime", out="받은것", base=str(home))
+    assert err is None
+    assert dest == str(home / "받은것" / "slime.claudlet-creature.zip")
+    assert os.path.exists(dest)
+
+
+def test_export_expands_a_tilde_destination(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "보관").mkdir()
+    dest, err = C.export_creature("slime", out="~/보관")
+    assert err is None and dest == str(tmp_path / "보관" / "slime.claudlet-creature.zip")

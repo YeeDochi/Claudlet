@@ -277,7 +277,10 @@ def export_api(body):
     out = body.get("out") or None
     if not out:
         out = os.path.expanduser("~")
-    dest, err = configcli.export_creature(creature, out, bool(body.get("force")))
+    # from the page, a relative path means "under my home" -- the browser has
+    # no idea what directory this server was started in
+    dest, err = configcli.export_creature(creature, out, bool(body.get("force")),
+                                          base=os.path.expanduser("~"))
     if err:
         return {"error": err}
     return {"path": dest}
@@ -451,6 +454,7 @@ TEXT = {
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "reset": "기본으로", "worn": "착용 중", "notworn": "미착용",
+        "stale_page": "이 페이지는 예전 설정 서버의 것입니다 — 새로고침한 뒤 다시 시도하세요",
         "settings_of": "%s 설정",
         "visor_auto": "오토모드일 때", "visor_on": "항상", "visor_off": "안 함",
         "named": "지금은 %s — 색을 고르면 바뀝니다",
@@ -473,6 +477,7 @@ TEXT = {
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "reset": "Defaults", "worn": "worn", "notworn": "not worn",
+        "stale_page": "This page came from an earlier settings server — refresh and try again",
         "settings_of": "%s settings",
         "visor_auto": "When unattended", "visor_on": "Always", "visor_off": "Never",
         "named": "currently %s — pick a colour to change it",
@@ -584,6 +589,9 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);
                 display:flex;align-items:center;justify-content:center;z-index:50}
 .modal-backdrop[hidden]{display:none}
+.modal-actions{margin-bottom:0}
+.modal-actions .spacer{flex:1 1 auto}
+.modal-actions .acts{display:flex;align-items:center;gap:10px}
 .modal{background:var(--card);border:1px solid var(--line);border-radius:12px;
        padding:20px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto}
 /* the one pane that scrolls at rest. flex-basis 0 + min-height 0 is what keeps
@@ -705,12 +713,13 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <button id="importInspect" class="ghost">__T_import_check__</button>
     </div>
     <div id="importInfo"></div>
-    <div class="row" id="importConfirmRow" hidden>
-      <button id="importConfirm">__T_import_confirm__</button>
-      <label style="width:auto"><input type="checkbox" id="importForce"> __T_force__</label>
-    </div>
-    <div class="row">
+    <div class="row modal-actions">
       <button id="importCancel" class="ghost">__T_import_cancel__</button>
+      <span class="spacer"></span>
+      <span id="importConfirmRow" class="acts" hidden>
+        <label style="width:auto"><input type="checkbox" id="importForce"> __T_force__</label>
+        <button id="importConfirm">__T_import_confirm__</button>
+      </span>
     </div>
   </div>
 </div>
@@ -998,19 +1007,28 @@ function renderImportInfo(out) {
   el.appendChild(ul);
   $("importConfirmRow").hidden = false;
 }
+async function importPost(body) {
+  const r = await fetch("/api/import", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify(Object.assign({token: IMPORT_TOKEN}, body))});
+  if (r.status === 403) {          // this tab was served by an earlier run
+    const p = document.createElement("div");
+    p.textContent = T.stale_page;
+    $("importInfo").innerHTML = "";
+    $("importInfo").appendChild(p);
+    return null;                   // tell them; don't yank the page out from under them
+  }
+  return await r.json();
+}
 $("importInspect").addEventListener("click", async () => {
   pendingImportPath = $("importPath").value;
-  const r = await fetch("/api/import", {method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({path: pendingImportPath, token: IMPORT_TOKEN})});
-  renderImportInfo(await r.json());
+  const out = await importPost({path: pendingImportPath});
+  if (out) renderImportInfo(out);
 });
 $("importConfirm").addEventListener("click", async () => {
-  const r = await fetch("/api/import", {method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({path: pendingImportPath, confirm: true,
-                          force: $("importForce").checked, token: IMPORT_TOKEN})});
-  const out = await r.json();
+  const out = await importPost({path: pendingImportPath, confirm: true,
+                                force: $("importForce").checked});
+  if (!out) return;
   if (out.error) {
     renderImportInfo(out);
     return;
