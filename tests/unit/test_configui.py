@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from claudlet.cli import configui
 from claudlet.cli import configui as U
-from claudlet.core import agents, petconfig
+from claudlet.core import agents, avatars, petconfig
 
 
 def _cfg(tmp_path, monkeypatch, **keys):
@@ -344,6 +344,104 @@ def test_current_agent_takes_only_the_body(tmp_path, monkeypatch):
     assert U.current_agent({"agent": "codex"}) == "codex"
     assert U.current_agent({}) == agents.DEFAULT
     assert U.current_agent({"agent": "nonsense"}) == agents.DEFAULT
+
+
+# ---------- export / import ----------
+
+def test_export_api_returns_the_written_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    out = U.export_api({"creature": "slime", "out": str(tmp_path)})
+    assert "error" not in out
+    assert os.path.isfile(out["path"])
+    assert out["path"] == str(tmp_path / "slime.claudlet-creature.zip")
+
+
+def test_export_api_bad_creature_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    out = U.export_api({"creature": "nonexistent-creature", "out": str(tmp_path)})
+    assert out.get("error")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_export_api_defaults_to_home_directory_when_out_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(tmp_path) if p == "~" else p)
+    out = U.export_api({"creature": "slime"})
+    assert out["path"] == str(tmp_path / "slime.claudlet-creature.zip")
+    assert os.path.isfile(out["path"])
+
+
+def _zip(path, top, files):
+    import zipfile
+    with zipfile.ZipFile(path, "w") as zf:
+        for rel, content in files.items():
+            zf.writestr("%s/%s" % (top, rel), content)
+    return path
+
+
+def test_import_api_inspect_step_writes_nothing(tmp_path, monkeypatch):
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    zpath = _zip(tmp_path / "cool.zip", "cool", {"__init__.py": "AVATAR = None\n"})
+
+    out = U.import_api({"path": str(zpath)})
+
+    assert out["name"] == "cool"
+    assert out["entries"] == ["cool/__init__.py"]
+    assert not creatures_dir.exists()
+
+
+def test_import_api_confirm_step_installs(tmp_path, monkeypatch):
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    zpath = _zip(tmp_path / "cool.zip", "cool", {"__init__.py": "AVATAR = None\n"})
+
+    out = U.import_api({"path": str(zpath), "confirm": True})
+
+    assert out["name"] == "cool"
+    assert (creatures_dir / "cool" / "__init__.py").exists()
+
+
+def test_import_api_rejects_path_traversal_and_writes_nothing(tmp_path, monkeypatch):
+    import zipfile
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    p = tmp_path / "evil.zip"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("cool/__init__.py", "AVATAR = None\n")
+        zf.writestr("cool/../../evil.py", "pwned = True\n")
+
+    out = U.import_api({"path": str(p)})
+
+    assert out.get("error") and "unsafe" in out["error"]
+    assert not creatures_dir.exists()
+
+    out2 = U.import_api({"path": str(p), "confirm": True})
+    assert out2.get("error")
+    assert not creatures_dir.exists()
+
+
+def test_import_api_rejects_dot_top_level_archive(tmp_path, monkeypatch):
+    import zipfile
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    p = tmp_path / "evil.zip"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("./pwn.py", "pwned = True\n")
+
+    out = U.import_api({"path": str(p)})
+
+    assert out.get("error")
+    assert not creatures_dir.exists()
+
+
+def test_page_inserts_entry_names_as_text_not_html():
+    pg = U.page({})
+    share = pg[pg.index("renderImportInfo("):]
+    share = share[:share.index("$(\"importInspect\")")]
+    assert "li.textContent = e" in share
+    assert "innerHTML = e" not in share
+    assert "+= e" not in share
+    assert "innerHTML += " not in pg
 
 
 def test_legacy_string_avatar_is_promoted_without_losing_the_choice(monkeypatch):

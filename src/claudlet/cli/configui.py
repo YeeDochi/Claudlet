@@ -138,6 +138,45 @@ def clean_creature_updates(body):
     return out
 
 
+def export_api(body):
+    """POST /api/export body: {"creature", "out"?, "force"?}. Thin wrapper over
+    configcli.export_creature -- all the path/validation logic lives there.
+    When `out` is empty the destination defaults to the user's home directory
+    (not the server's cwd, which the page's user never chose)."""
+    from claudlet.cli import configcli
+    creature = body.get("creature")
+    if not isinstance(creature, str) or not creature:
+        return {"error": "no creature given"}
+    out = body.get("out") or None
+    if not out:
+        out = os.path.expanduser("~")
+    dest, err = configcli.export_creature(creature, out, bool(body.get("force")))
+    if err:
+        return {"error": err}
+    return {"path": dest}
+
+
+def import_api(body):
+    """POST /api/import body: {"path"} inspects only and writes nothing;
+    {"path", "confirm": true, "force"?} actually installs. Thin wrapper over
+    configcli's inspect_creature_zip / import_creature -- the security gate
+    (path traversal, symlinks, size/entry ceilings, ...) lives there, not
+    here, so the CLI and the web page share one validator."""
+    from claudlet.cli import configcli
+    path = body.get("path")
+    if not isinstance(path, str) or not path:
+        return {"error": "no path given"}
+    if not body.get("confirm"):
+        name, entries, total, err = configcli.inspect_creature_zip(path)
+        if err:
+            return {"error": err}
+        return {"name": name, "entries": entries, "total": total}
+    name, err = configcli.import_creature(path, force=bool(body.get("force")))
+    if err:
+        return {"error": err}
+    return {"name": name}
+
+
 def apply(body, broadcast=None):
     """Save what the page posted and tell every running pet to re-dress.
 
@@ -262,6 +301,11 @@ TEXT = {
         "reverted": "%s 를 기본으로 되돌렸습니다",
         "applied_pets": " — 펫 %d마리에 반영", "applied_next": " — 다음에 뜨는 펫부터",
         "serving": "claudlet 크리처 설정: ", "stop": "(창을 닫거나 Ctrl-C 로 종료)",
+        "share": "공유", "export": "내보내기", "export_retry_force": "덮어쓰고 다시 시도",
+        "import_placeholder": "가져올 zip 경로",
+        "import_check": "확인", "import_confirm": "설치", "force": "덮어쓰기",
+        "import_will_install": "'%s' 를 설치합니다",
+        "import_installed": "'%s' 설치 완료",
     },
     "en": {
         "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
@@ -276,6 +320,11 @@ TEXT = {
         "reverted": "%s back to defaults",
         "applied_pets": " — %d pet(s) updated", "applied_next": " — from the next pet on",
         "serving": "claudlet creature settings: ", "stop": "(close the page, or Ctrl-C)",
+        "share": "Share", "export": "Export", "export_retry_force": "Overwrite and retry",
+        "import_placeholder": "path to a zip to import",
+        "import_check": "Check", "import_confirm": "Install", "force": "Overwrite",
+        "import_will_install": "Will install '%s'",
+        "import_installed": "Installed '%s'",
     },
 }
 
@@ -364,6 +413,24 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <button id="wear" class="ghost">__T_wear__</button>
       <button id="reset" class="ghost">__T_reset__</button>
       <span id="said"></span>
+    </div>
+  </section>
+  <section id="share">
+    <h2>__T_share__</h2>
+    <div class="row">
+      <button id="export" class="ghost">__T_export__</button>
+      <span id="exportResult"></span>
+    </div>
+    <div class="row">
+      <input type="text" id="importPath" placeholder="__T_import_placeholder__"
+             style="flex:1;min-width:220px;background:#0e0e12;border:1px solid var(--line);
+                    color:var(--fg);border-radius:7px;padding:8px 10px">
+      <button id="importInspect" class="ghost">__T_import_check__</button>
+    </div>
+    <div id="importInfo"></div>
+    <div class="row" id="importConfirmRow" hidden>
+      <button id="importConfirm">__T_import_confirm__</button>
+      <label style="width:auto"><input type="checkbox" id="importForce"> __T_force__</label>
     </div>
   </section>
 </main>
@@ -481,6 +548,86 @@ fetch("/api/state").then((r) => r.json()).then(fill);
 // Tell the server the page is still open. It stops when this stops, which is
 // what closing the tab looks like from its side — otherwise a settings page
 // opened from the pet's menu would leave a server running all session.
+// ---------- share: export / import a creature (paths, not uploads --
+// the server is local, so the file is already on this machine) ----------
+function renderExportResult(out) {
+  const el = $("exportResult");
+  el.innerHTML = "";
+  if (out.error) {
+    const span = document.createElement("span");
+    span.textContent = out.error;                 // untrusted text -> textContent
+    el.appendChild(span);
+    if (out.error.indexOf("--force") !== -1) {
+      el.appendChild(document.createTextNode(" "));
+      const btn = document.createElement("button");
+      btn.className = "ghost";
+      btn.textContent = T.export_retry_force;
+      btn.addEventListener("click", () => doExport(true));
+      el.appendChild(btn);
+    }
+    return;
+  }
+  const code = document.createElement("code");
+  code.textContent = out.path;                     // untrusted text -> textContent
+  el.appendChild(code);
+}
+async function doExport(force) {
+  const r = await fetch("/api/export", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({creature: editing, force: !!force})});
+  renderExportResult(await r.json());
+}
+$("export").addEventListener("click", () => doExport(false));
+
+let pendingImportPath = null;
+function renderImportInfo(out) {
+  const el = $("importInfo");
+  el.innerHTML = "";
+  if (out.error) {
+    const p = document.createElement("div");
+    p.textContent = out.error;                     // untrusted text -> textContent
+    el.appendChild(p);
+    $("importConfirmRow").hidden = true;
+    return;
+  }
+  const head = document.createElement("div");
+  head.textContent = T.import_will_install.replace("%s", out.name)
+    + " (" + out.entries.length + ", " + out.total + " bytes)";
+  el.appendChild(head);
+  const ul = document.createElement("ul");
+  for (const e of out.entries) {
+    const li = document.createElement("li");
+    li.textContent = e;                             // archive entry name -> textContent, never innerHTML
+    ul.appendChild(li);
+  }
+  el.appendChild(ul);
+  $("importConfirmRow").hidden = false;
+}
+$("importInspect").addEventListener("click", async () => {
+  pendingImportPath = $("importPath").value;
+  const r = await fetch("/api/import", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({path: pendingImportPath})});
+  renderImportInfo(await r.json());
+});
+$("importConfirm").addEventListener("click", async () => {
+  const r = await fetch("/api/import", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({path: pendingImportPath, confirm: true,
+                          force: $("importForce").checked})});
+  const out = await r.json();
+  if (out.error) {
+    renderImportInfo(out);
+    return;
+  }
+  $("importInfo").innerHTML = "";
+  const p = document.createElement("div");
+  p.textContent = T.import_installed.replace("%s", out.name);
+  $("importInfo").appendChild(p);
+  $("importConfirmRow").hidden = true;
+  fill(await (await fetch("/api/state")).json());   // new creature is now selectable
+});
+
 setInterval(() => fetch("/api/alive").catch(() => {}), __HEARTBEAT__);
 window.addEventListener("pagehide", () => {
   // best effort: shuts it down at once instead of after the idle timeout
@@ -549,12 +696,13 @@ def _handler_class(initial_agent=None):
             return self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
-            if urlparse(self.path).path == "/api/bye":
+            path = urlparse(self.path).path
+            if path == "/api/bye":
                 self._json({"ok": True})
                 self.server.last_seen = bye_last_seen(
                     time.monotonic(), self.server.idle_timeout)
                 return
-            if urlparse(self.path).path != "/api/config":
+            if path not in ("/api/config", "/api/export", "/api/import"):
                 return self._send(404, b"not found", "text/plain")
             try:
                 n = int(self.headers.get("Content-Length") or 0)
@@ -563,7 +711,11 @@ def _handler_class(initial_agent=None):
                 return self._json({"error": "bad json"}, 400)
             if not isinstance(body, dict):
                 return self._json({"error": "bad json"}, 400)
-            return self._json(apply(body))
+            if path == "/api/config":
+                return self._json(apply(body))
+            if path == "/api/export":
+                return self._json(export_api(body))
+            return self._json(import_api(body))
 
     return Handler
 
