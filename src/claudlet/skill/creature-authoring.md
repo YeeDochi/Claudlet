@@ -137,6 +137,21 @@ Take the colour from `kw["palette"]` through `creature.palette_colors()`, which
 accepts a name or a `{body, hi, lo, bang}` dict, and never hard-code your own
 colours if you want the picker to work.
 
+## A worked example
+
+`claudlet/core/avatars/slime.py` ships with the pet and is nothing like the
+built-in: no legs, no rotation, its own idea of what running unattended looks
+like. Read it alongside this. What it does differently is instructive —
+
+- **legless**: the walk cycle becomes a hop, squashed at the bottom and
+  stretched at the top, because a stride is what reads as walking and it has no
+  legs to stride with.
+- **no rotation, a shear instead**: its body is a stack of thin slabs, and
+  rotating that smears every slab edge. Leaning each slab sideways in
+  proportion to its height is both cleaner and what jelly actually does.
+- **its own unattended look**: a band across the dome rather than a visor,
+  pulled down over the eyes while working and resting on the crown otherwise.
+
 ## Checking it
 
 ```bash

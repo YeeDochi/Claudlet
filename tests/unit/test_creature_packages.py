@@ -46,7 +46,7 @@ def _install(tmp_path, monkeypatch, name, source):
 
 def test_a_dropped_in_creature_is_offered(tmp_path, monkeypatch):
     _install(tmp_path, monkeypatch, "blob", CREATURE)
-    assert avatars.available() == ["claudlet", "blob"]
+    assert "blob" in avatars.available()
     assert avatars.get("blob").name == "blob"
 
 
@@ -68,15 +68,22 @@ def test_a_creature_brings_its_own_proportions(tmp_path, monkeypatch):
 def test_a_broken_creature_is_skipped_not_fatal(tmp_path, monkeypatch):
     # someone's half-written creature must not stop the pet from starting
     _install(tmp_path, monkeypatch, "broken", "this is not python(")
-    assert avatars.available() == ["claudlet"]
+    assert "broken" not in avatars.available()
     assert avatars.get("broken").name == "claudlet"
 
 
 def test_a_creature_with_no_entry_point_is_skipped(tmp_path, monkeypatch):
     _install(tmp_path, monkeypatch, "empty", "# nothing exported\n")
-    assert avatars.available() == ["claudlet"]
+    assert "empty" not in avatars.available()
 
 
 def test_no_creatures_directory_at_all_is_fine(tmp_path, monkeypatch):
     monkeypatch.setattr(avatars, "CREATURES_DIR", str(tmp_path / "nope"))
-    assert avatars.available() == ["claudlet"]
+    assert avatars.available()[0] == "claudlet"     # bundled ones still there
+
+
+def test_a_dropped_in_creature_overrides_a_bundled_one_of_the_same_name(
+        tmp_path, monkeypatch):
+    # your own file wins: a bundled creature is a starting point, not a lock
+    _install(tmp_path, monkeypatch, "slime", CREATURE.replace('"blob"', '"slime"'))
+    assert avatars.get("slime").grid == (10, 24)     # the dropped-in one
