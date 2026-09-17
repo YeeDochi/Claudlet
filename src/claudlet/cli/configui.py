@@ -519,11 +519,27 @@ label{width:64px;color:var(--dim)}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
 input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
-input[type=text],select{flex:1;min-width:180px;background:var(--sunk);
+input[type=text]{flex:1;min-width:180px;background:var(--sunk);
                  border:1px solid var(--line);color:var(--fg);
                  border-radius:7px;padding:8px 10px;font:inherit}
-select{flex:0 1 240px}
 code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
+.picker{position:relative}
+.card-trigger{display:flex;align-items:center;gap:8px;background:var(--sunk);
+              color:var(--fg);border:1px solid var(--line);border-radius:8px;
+              padding:6px 12px;font-weight:500;min-width:160px;cursor:pointer}
+.card-trigger img{width:24px;height:24px;image-rendering:pixelated}
+.card-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:20;
+            min-width:220px;max-height:45vh;overflow-y:auto;
+            background:var(--card);border:1px solid var(--line);border-radius:10px;
+            padding:6px;display:flex;flex-direction:column;gap:4px;
+            box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.card-panel[hidden]{display:none}
+.card{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+      background:none;color:var(--fg);border:0;border-radius:7px;
+      padding:6px 8px;font:inherit;cursor:pointer}
+.card:hover,.card:focus{background:var(--sunk)}
+.card img{width:32px;height:32px;image-rendering:pixelated;flex:0 0 auto}
+.card .card-name{flex:1}
 #shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
        min-height:120px;max-height:46vh;overflow-y:auto;
        padding:14px;background:var(--sunk);border-radius:9px}
@@ -564,8 +580,13 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
   <div id="dress">
     <section id="settings">
       <div class="row">
-        <label for="pick">__T_creatures__</label>
-        <select id="pick"></select>
+        <label id="pickLabel">__T_creatures__</label>
+        <div class="picker">
+          <button type="button" id="pickTrigger" class="card-trigger"
+                  aria-haspopup="listbox" aria-expanded="false"
+                  aria-controls="pickPanel" aria-labelledby="pickLabel"></button>
+          <div id="pickPanel" class="card-panel" role="listbox" hidden></div>
+        </div>
         <button id="wearTop" class="ghost">__T_wear__</button>
         <span id="wornBadge"></span>
       </div>
@@ -677,11 +698,80 @@ function showCreature(name) {
   }
   $("isnamed").textContent = isHex ? ""
     : T.named.replace("%s", pal);
+  renderPickTrigger();
   redraw();
 }
 // One top-level tab per DETECTED agent, plus share. A single-agent machine has
 // no agent to choose between, so its one tab is named after the page itself
 // rather than showing a lone agent toggle.
+// ---------- creature dropdown: a trigger button + a scrollable card panel
+// (the old card-list look), instead of an unbounded list or a native <select>
+// that fights the fixed-size, no-page-scroll window ----------
+function pickCardEl(a) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "card";
+  btn.setAttribute("role", "option");
+  const img = document.createElement("img");
+  const q = new URLSearchParams({palette: a.colour, scale: "4",
+                                 avatar: a.name, state: "idle"});
+  img.src = "/api/preview?" + q;
+  img.alt = "";
+  btn.appendChild(img);
+  const span = document.createElement("span");
+  span.className = "card-name";
+  span.textContent = a.name;                     // untrusted text -> textContent
+  btn.appendChild(span);
+  const badge = document.createElement("span");
+  badge.className = a.selected ? "worn" : "notworn";
+  badge.textContent = a.selected ? T.worn : T.notworn;
+  btn.appendChild(badge);
+  btn.addEventListener("click", () => {
+    showCreature(a.name);                         // select for viewing, don't wear
+    closePanel(false);
+  });
+  return btn;
+}
+function renderPickPanel() {
+  const panel = $("pickPanel");
+  panel.innerHTML = "";
+  for (const a of (S.avatars || [])) panel.appendChild(pickCardEl(a));
+}
+function renderPickTrigger() {
+  const trig = $("pickTrigger");
+  trig.innerHTML = "";
+  const a = (S.avatars || []).find((x) => x.name === editing);
+  const img = document.createElement("img");
+  const q = new URLSearchParams({palette: (a && a.colour) || "auto", scale: "4",
+                                 avatar: editing, state: "idle"});
+  img.src = "/api/preview?" + q;
+  img.alt = "";
+  trig.appendChild(img);
+  const span = document.createElement("span");
+  span.textContent = editing;                     // untrusted text -> textContent
+  trig.appendChild(span);
+}
+function openPanel() {
+  renderPickPanel();
+  $("pickPanel").hidden = false;
+  $("pickTrigger").setAttribute("aria-expanded", "true");
+  document.addEventListener("click", onOutsideClick, true);
+  document.addEventListener("keydown", onPanelKeydown, true);
+}
+function closePanel(focusTrigger) {
+  $("pickPanel").hidden = true;
+  $("pickTrigger").setAttribute("aria-expanded", "false");
+  document.removeEventListener("click", onOutsideClick, true);
+  document.removeEventListener("keydown", onPanelKeydown, true);
+  if (focusTrigger) $("pickTrigger").focus();
+}
+function onOutsideClick(e) {
+  if (!$("pickPanel").contains(e.target) && e.target !== $("pickTrigger"))
+    closePanel(false);
+}
+function onPanelKeydown(e) {
+  if (e.key === "Escape") closePanel(true);
+}
 function tabRows(s) {
   const rows = (s.agents || []).map((a) => ({name: a.name, label: a.label}));
   if (!rows.length) rows.push({name: s.agent, label: T.title});
@@ -710,20 +800,19 @@ async function selectTab(name) {
 }
 function fill(s) {
   S = s;
+  closePanel(false);                      // never left open across a refill
   const rows = tabRows(s);
   if (tab !== SHARE_TAB) tab = s.agent;   // state always belongs to one agent
   paintTabs(rows);
-  // a native <select>, not a card list: an unbounded list of creatures fights
-  // the fixed-size, no-page-scroll window, a dropdown does not
-  $("pick").innerHTML = s.avatars.map((a) =>
-    `<option value="${a.name}">${a.name}</option>`).join("");
   $("scale").min = s.scale_range[0];
   $("scale").max = s.scale_range[1];
   const target = editing && s.looks[editing] ? editing : worn();
-  $("pick").value = target;
   showCreature(target);
 }
-$("pick").addEventListener("change", () => showCreature($("pick").value));
+$("pickTrigger").addEventListener("click", () => {
+  if ($("pickPanel").hidden) openPanel();
+  else closePanel(false);
+});
 // 색 입력은 브라우저에 따라 드래그 중 input 을, OS 색 대화상자를 쓰면 닫을 때
 // change 만 쏜다. 둘 다 들어야 고른 색이 바로 미리보기에 뜬다.
 for (const ev of ["input", "change"]) {

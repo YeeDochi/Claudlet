@@ -774,23 +774,36 @@ def test_icon_endpoint_serves_a_png():
 
 # ---------- the dashboard: tabs and refresh ----------
 
-def test_the_page_picks_a_creature_from_a_dropdown_not_a_card_list():
+def test_the_page_picks_a_creature_from_a_dropdown_card_panel():
     # layout stability: an unbounded card list fights a fixed-size window with
-    # no page scrollbar, so one creature is chosen from a native <select>
+    # no page scrollbar, so the cards live inside a collapsible panel behind a
+    # trigger button instead of an always-open list or a native <select>
     pg = U.page({})
-    assert '<select id="pick">' in pg
+    assert '<select id="pick">' not in pg
+    assert 'id="pickTrigger"' in pg and 'id="pickPanel"' in pg
     assert 'id="wearTop"' in pg and 'id="wornBadge"' in pg
-    assert 'class="card"' not in pg
-    assert 'id="list"' not in pg
+    assert 'aria-expanded="false"' in pg   # a real <button>, closed by default
 
 
-def test_the_dropdown_is_populated_from_every_avatar_and_shows_worn_state():
+def test_the_panel_is_populated_from_every_avatar_and_shows_worn_state():
     pg = U.page({})
-    fill_body = pg[pg.index("function fill(s) {"):pg.index("$(\"pick\").addEventListener")]
-    assert '$("pick").innerHTML = s.avatars.map' in fill_body
-    assert "<option value=" in fill_body
-    redraw_body = pg[pg.index("function redraw() {"):pg.index("function showCreature")]
-    assert 'wornBadge' in redraw_body and "T.worn" in redraw_body and "T.notworn" in redraw_body
+    card_fn = pg[pg.index("function pickCardEl("):pg.index("function renderPickPanel()")]
+    assert "a.selected" in card_fn
+    assert "T.worn" in card_fn and "T.notworn" in card_fn
+    # picking a card selects it for viewing, it does NOT wear it
+    assert "showCreature(a.name)" in card_fn
+    assert "doWear" not in card_fn
+    panel_fn = pg[pg.index("function renderPickPanel()"):pg.index("function renderPickTrigger()")]
+    assert "S.avatars" in panel_fn and "pickCardEl(a)" in panel_fn
+
+
+def test_the_panel_closes_on_pick_outside_click_escape_and_refill():
+    pg = U.page({})
+    assert "closePanel(false);" in pg[pg.index("function pickCardEl("):]
+    assert 'e.key === "Escape"' in pg and "closePanel(true)" in pg
+    assert "onOutsideClick" in pg
+    fill_fn = pg[pg.index("function fill(s) {"):pg.index('$("pickTrigger").addEventListener')]
+    assert "closePanel(false);" in fill_fn   # never left open across a refill/tab switch
 
 
 def test_the_page_has_one_tab_per_agent_plus_share():
