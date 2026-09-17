@@ -13,6 +13,7 @@ the JSON directly and re-run this command to validate.
 """
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -194,10 +195,17 @@ def render_creature_list(cfg):
 
 
 def _pick_agent(explicit):
+    """Resolve which agent `wear` targets. Returns (agent, error); error is
+    None on success. A typo'd EXPLICIT --agent must error rather than silently
+    falling back to the default agent -- that fallback used to let
+    `--agent codexx` overwrite the Claude pet's creature while reporting
+    success, exactly like an unknown creature name already does."""
     if explicit is not None:
-        return explicit if explicit in agents.AGENTS else agents.DEFAULT
+        if explicit not in agents.AGENTS:
+            return None, "unknown agent: %s" % explicit
+        return explicit, None
     det = agents.detected()
-    return det[0] if len(det) == 1 else agents.DEFAULT
+    return (det[0] if len(det) == 1 else agents.DEFAULT), None
 
 
 def cmd_wear(argv):
@@ -233,7 +241,10 @@ def cmd_wear(argv):
         print(render_creature_list(cfg))
         return 1
 
-    agent = _pick_agent(agent_arg)
+    agent, err = _pick_agent(agent_arg)
+    if err:
+        print(err)
+        return 1
     out = configui.apply({"agent": agent, "avatar": creature})
     print("%s now wears %s (%d pet(s) updated)" % (agent, creature, out.get("pets", 0)))
     return 0
@@ -242,19 +253,48 @@ def cmd_wear(argv):
 # ---------- export / import: share a creature ----------
 
 def _bundled_module_path(name):
-    """The bundled avatars/<name>.py this creature name is drawn by, or None.
-    The one irregular filename is the built-in ("claudlet" -> builtin.py);
-    every other bundled creature's module is named after itself."""
-    d = os.path.dirname(avatars.__file__)
-    fname = "builtin.py" if name == "claudlet" else name + ".py"
-    p = os.path.join(d, fname)
-    return p if os.path.isfile(p) else None
+    """The source file the bundled avatar named `name` is defined in, or None.
+    Derived from the registry entry's own `__module__` (via importlib) rather
+    than a hardcoded name->filename table, so a fifth bundled creature needs no
+    edit here -- the one irregular case (builtin.py holding the "claudlet"
+    avatar) falls out of this the same as every regular one."""
+    import importlib
+    cls = avatars.bundled().get(name)
+    if cls is None:
+        return None
+    try:
+        mod = importlib.import_module(cls.__module__)
+    except ImportError:
+        return None
+    p = getattr(mod, "__file__", None)
+    return p if p and os.path.isfile(p) else None
 
 
-def export_creature(name, out=None):
+def _find_user_dir_by_declared_name(name):
+    """A user creature directory under CREATURES_DIR whose DECLARED AVATAR.name
+    is `name`, for when the two differ (dirname != declared name)."""
+    try:
+        entries = os.listdir(avatars.CREATURES_DIR)
+    except OSError:
+        return None
+    for d in entries:
+        path = os.path.join(avatars.CREATURES_DIR, d)
+        if not os.path.isdir(path):
+            continue
+        made = avatars._load_dir(path)
+        if getattr(made, "name", None) == name:
+            return path
+    return None
+
+
+def export_creature(name, out=None, force=False):
     """Zip a creature's package so it can be shared. Returns (dest_path, None)
     or (None, error). A user creature under CREATURES_DIR is preferred over a
-    same-named bundled one, since that is the one actually in effect."""
+    same-named bundled one, since that is the one actually in effect; it is
+    looked up by directory name first, then by its declared AVATAR.name (the
+    two can differ). Refuses to overwrite an existing destination without
+    `force`, and never creates a missing destination directory -- a typo'd
+    `--out` should fail loudly, not silently invent a new folder."""
     if name not in avatars.available():
         return None, "unknown creature: %s" % name
     default_name = "%s.claudlet-creature.zip" % name
@@ -264,9 +304,16 @@ def export_creature(name, out=None):
         dest = os.path.abspath(out)
     else:
         dest = os.path.abspath(os.path.join(out, default_name))
-    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+
+    parent = os.path.dirname(dest) or "."
+    if not os.path.isdir(parent):
+        return None, "no such directory: %s" % parent
+    if os.path.exists(dest) and not force:
+        return None, "%s already exists (use --force to overwrite)" % dest
 
     user_dir = os.path.join(avatars.CREATURES_DIR, name)
+    if not os.path.isdir(user_dir):
+        user_dir = _find_user_dir_by_declared_name(name) or user_dir
     if os.path.isdir(user_dir):
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(user_dir):
@@ -292,6 +339,31 @@ def _is_symlink_entry(info):
     return stat.S_ISLNK(mode)
 
 
+def _has_control_chars(s):
+    return any(ord(c) < 0x20 or ord(c) == 0x7F for c in s)
+
+
+def _esc(s):
+    """Escape a string so it prints as one visible line -- used both as a
+    belt-and-suspenders layer when printing archive-controlled text (which
+    inspect_creature_zip already refuses to contain control characters) and
+    for names embedded in error messages."""
+    return s.encode("unicode_escape").decode("ascii")
+
+
+# A code-drawn creature (see the bundled ones) is a handful of small .py files;
+# ~10-16 KB total. These are generous multiples of that, not a measured limit
+# for "big" art -- an archive anywhere near them is not a creature anymore.
+MAX_CREATURE_ENTRIES = 200
+MAX_CREATURE_TOTAL_SIZE = 512 * 1024  # bytes, declared uncompressed total
+
+# The top-level directory name becomes a path component under CREATURES_DIR
+# (and, unescaped, part of every message shown about the import). No dot-only
+# names (`.` resolves to CREATURES_DIR itself -- see the rmtree history this
+# guards against), no leading dot, no path separators or other punctuation.
+_SAFE_TOP_NAME_RE = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+
+
 def inspect_creature_zip(zip_path):
     """Validate a creature archive WITHOUT writing anything -- this is the
     trust boundary: installing a creature means importing someone else's
@@ -305,57 +377,123 @@ def inspect_creature_zip(zip_path):
         return None, [], 0, "not a valid zip: %s" % e
     with zf:
         infos = zf.infolist()
+        if len(infos) > MAX_CREATURE_ENTRIES:
+            return None, [], 0, ("archive has %d entries, exceeds the %d-entry "
+                                 "limit for a creature" % (len(infos), MAX_CREATURE_ENTRIES))
         top_dirs = set()
         for info in infos:
+            # Control characters (including newline) first, and before ANY
+            # other check formats a message with this filename in it -- the
+            # confirmation listing this function's caller prints is otherwise
+            # attacker-controlled text an approving agent could be tricked by.
+            if _has_control_chars(info.filename):
+                return None, [], 0, "unsafe entry name in archive (control characters)"
             fn = info.filename.replace("\\", "/")
             if not fn or fn.startswith("/") or os.path.isabs(fn):
-                return None, [], 0, "unsafe path in archive: %s" % info.filename
+                return None, [], 0, "unsafe path in archive: %s" % fn
             parts = fn.split("/")
             if ".." in parts or "" in parts[:-1]:
-                return None, [], 0, "unsafe path in archive: %s" % info.filename
+                return None, [], 0, "unsafe path in archive: %s" % fn
+            if len(parts) < 2:
+                return None, [], 0, ("archive must contain exactly one top-level "
+                                     "directory (found a loose file: %s)" % fn)
+            top = parts[0]
+            if not _SAFE_TOP_NAME_RE.match(top) or top in (".", ".."):
+                return None, [], 0, ("unsafe top-level directory name in "
+                                     "archive: %s" % _esc(top))
             if _is_symlink_entry(info):
-                return None, [], 0, "archive contains a symlink: %s" % info.filename
-            top_dirs.add(parts[0])
+                return None, [], 0, "archive contains a symlink: %s" % fn
+            top_dirs.add(top)
         if len(top_dirs) != 1:
             return None, [], 0, ("archive must contain exactly one top-level "
                                  "directory (found %d)" % len(top_dirs))
         name = next(iter(top_dirs))
         entries = [i.filename for i in infos]
         total = sum(i.file_size for i in infos if not i.filename.endswith("/"))
+        if total > MAX_CREATURE_TOTAL_SIZE:
+            return None, [], 0, ("archive declares %d bytes, exceeds the %d "
+                                 "byte limit for a creature"
+                                 % (total, MAX_CREATURE_TOTAL_SIZE))
     return name, entries, total, None
 
 
 def import_creature(zip_path, dest_root=None, force=False):
     """Extract a validated creature archive into dest_root/<name>/. Returns
-    (name, None) or (None, error). Never fetches anything -- the file must
-    already be local."""
+    (declared_name, None) or (None, error). Never fetches anything -- the file
+    must already be local.
+
+    Extraction happens into a temp directory beside the target first, and the
+    real target is only ever replaced by an atomic rename at the very end --
+    so a failure partway through (or the collision check below) leaves
+    whatever was at the target before untouched, instead of the old creature
+    already being rmtree'd and the new one half-written.
+
+    After extracting, the package is loaded to read its DECLARED AVATAR.name
+    (which need not match the archive's top-level directory name). If that
+    name collides with a bundled creature, the import is refused and rolled
+    back -- otherwise the imported creature would silently shadow the bundled
+    one everywhere, with no sign of which directory did it."""
     dest_root = dest_root if dest_root is not None else avatars.CREATURES_DIR
     name, entries, total, err = inspect_creature_zip(zip_path)
     if err:
         return None, err
-    target = os.path.join(dest_root, name)
-    if os.path.isdir(target):
-        if not force:
-            return None, "creature '%s' already exists (use --force to overwrite)" % name
-        shutil.rmtree(target)
-
     dest_root_abs = os.path.abspath(dest_root)
+    target = os.path.join(dest_root_abs, name)
+    existed = os.path.isdir(target)
+    if existed and not force:
+        return None, "creature '%s' already exists (use --force to overwrite)" % name
+
     os.makedirs(dest_root_abs, exist_ok=True)
-    with zipfile.ZipFile(zip_path) as zf:
-        for info in zf.infolist():
-            if info.filename.endswith("/"):
-                continue
-            out_path = os.path.abspath(os.path.join(dest_root_abs, info.filename))
-            if not out_path.startswith(dest_root_abs + os.sep):
-                return None, "unsafe path in archive: %s" % info.filename
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            with zf.open(info) as src, open(out_path, "wb") as dst:
-                dst.write(src.read())
-    return name, None
+    tmp_target = target + ".import-tmp"
+    if os.path.exists(tmp_target):
+        shutil.rmtree(tmp_target, ignore_errors=True)
+    os.makedirs(tmp_target)
+    tmp_target_abs = os.path.abspath(tmp_target)
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            for info in zf.infolist():
+                if info.filename.endswith("/"):
+                    continue
+                # strip the archive's top-level dir -- it becomes `target`,
+                # not a directory nested inside it.
+                rel = info.filename.split("/", 1)[1]
+                out_path = os.path.abspath(os.path.join(tmp_target_abs, rel))
+                if not out_path.startswith(tmp_target_abs + os.sep):
+                    return None, "unsafe path in archive: %s" % info.filename
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                with zf.open(info) as src, open(out_path, "wb") as dst:
+                    dst.write(src.read())
+    except Exception as e:
+        shutil.rmtree(tmp_target, ignore_errors=True)
+        return None, "failed to extract archive: %s" % e
+
+    made = avatars._load_dir(tmp_target)
+    declared_name = getattr(made, "name", None)
+    if declared_name in avatars.bundled():
+        shutil.rmtree(tmp_target, ignore_errors=True)
+        return None, ("refusing to import: declared creature name '%s' "
+                      "collides with a bundled creature" % declared_name)
+
+    backup = None
+    if existed:
+        backup = target + ".import-backup"
+        if os.path.exists(backup):
+            shutil.rmtree(backup, ignore_errors=True)
+        os.rename(target, backup)
+    try:
+        os.replace(tmp_target, target)
+    except OSError as e:
+        if backup:
+            os.rename(backup, target)
+        shutil.rmtree(tmp_target, ignore_errors=True)
+        return None, "failed to install creature: %s" % e
+    if backup:
+        shutil.rmtree(backup, ignore_errors=True)
+    return declared_name or name, None
 
 
 def cmd_export(argv):
-    creature, out = None, None
+    creature, out, force = None, None, False
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -365,15 +503,18 @@ def cmd_export(argv):
         elif a.startswith("--out="):
             out = a.split("=", 1)[1]
             i += 1
+        elif a == "--force":
+            force = True
+            i += 1
         elif creature is None:
             creature = a
             i += 1
         else:
             i += 1
     if not creature:
-        print("usage: claudlet-config export <creature> [--out <path>]")
+        print("usage: claudlet-config export <creature> [--out <path>] [--force]")
         return 1
-    dest, err = export_creature(creature, out)
+    dest, err = export_creature(creature, out, force)
     if err:
         print(err)
         return 1
@@ -401,8 +542,11 @@ def cmd_import(argv):
     files = [e for e in entries if not e.endswith("/")]
     print("about to install creature '%s' from %s" % (name, path))
     print("%d file(s), %d bytes:" % (len(files), total))
+    # Entry names come straight from the archive -- untrusted data, not text
+    # we composed. inspect_creature_zip already refuses control characters, so
+    # this escape is a second, belt-and-suspenders layer.
     for e in entries:
-        print("  " + e)
+        print("  " + _esc(e))
     print("importing a creature runs its Python the next time claudlet starts.")
 
     if not yes:

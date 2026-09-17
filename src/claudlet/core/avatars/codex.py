@@ -311,6 +311,3 @@ class Codex:
         p.restore()
         C.draw_prop(p, ox, oy, u, rig["prop"], frame, state, body_dy, facing,
                     palette)
-
-
-AVATAR = Codex
