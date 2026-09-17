@@ -158,6 +158,7 @@ ANGER_CLICKS = 4                        # 이 횟수만큼 빠르게 누르면 �
 ANGER_CLICK_WINDOW = 1.2                # 연속 클릭 판정 시간(초)
 ANGER_DUR = 2.0                         # 화난 표정 지속(초)
 POCKET_WAKE_SEC = 8.0                   # 클릭 후 커서를 바라보는 시간
+TIP_REFRESH_SEC = 10.0                  # 호버 툴팁의 세션 이름을 다시 읽는 간격
 
 # follow-mode navigation thresholds (jump reach, alignment, strain margins)
 # live in core/follow_nav.py -- the pure planner the follow branch delegates to.
@@ -581,8 +582,8 @@ class Pet(QWidget):
         # titles the window with the project's DISPLAY name, which .idea/.name
         # sets independently of the folder.
         self._project_names = geom.project_names(self._cwd) or (self._project,)
-        self.setToolTip("%s · %s" % (self._project,
-                                     str(self.session_id).split("-")[0]))
+        self._tip_checked = 0.0              # last transcript read (see _session_tip)
+        self.setToolTip(self._session_tip())
         self._companions = []                # agent followers, one per running agent
         self._departing = []                 # finished agents' companions waving goodbye
         self._throw_trail = []               # main-pet snapshots replayed by companions
@@ -879,6 +880,20 @@ class Pet(QWidget):
             self._arm_quit()          # session ended -> wind down (cancellable)
         else:
             self._cancel_quit()       # any other event means the session lives on
+
+    def _session_tip(self, now=None):
+        """"<이름>(<짧은 id>)" — 호버로 이 펫이 어느 세션인지 알려준다.
+
+        이름은 Claude Code가 세션에 붙인 제목(탭에 뜨는 그것)이다. 사람이 세션을
+        알아보는 건 그 이름이지 id가 아니다. 아직 이름이 없으면(첫 프롬프트 전)
+        프로젝트 폴더로 대신한다. 제목은 대화가 진행되며 바뀌므로 다시 읽되,
+        트랜스크립트는 커질 수 있으니 호버마다 읽지 않고 간격을 둔다."""
+        now = time.monotonic() if now is None else now
+        short = str(self.session_id).split("-")[0]
+        if now - self._tip_checked >= TIP_REFRESH_SEC or not getattr(self, "_tip_name", ""):
+            self._tip_checked = now
+            self._tip_name = hostinfo.session_title(self.session_id) or self._project
+        return "%s(%s)" % (self._tip_name, short)
 
     def _arm_quit(self):
         self._cancel_quit()
@@ -2260,6 +2275,7 @@ class Pet(QWidget):
             self._maybe_pet(e.position().x(), time.monotonic())   # 호버 = 쓰다듬기
             # 어느 세션이지? frameless + 반투명 + always-on-top Tool 창은 네이티브
             # 툴팁이 저절로 뜨지 않으므로 커서 위치에 직접 띄운다.
+            self.setToolTip(self._session_tip())
             QToolTip.showText(e.globalPosition().toPoint(), self.toolTip(), self)
             return
         if self._press_global is None:
@@ -2629,7 +2645,7 @@ class Pet(QWidget):
         self._tray_state = st
         tray.setIcon(self._state_icon(st))
         tray.setToolTip("claudlet · %s — %s"
-                        % (self._project, self.labels.get(st, st)))
+                        % (self._session_tip(), self.labels.get(st, st)))
 
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""

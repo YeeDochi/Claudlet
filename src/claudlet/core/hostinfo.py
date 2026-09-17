@@ -240,3 +240,58 @@ def pet_alive(session_id, timeout=0.3):
         return False
     finally:
         s.close()
+
+
+# Claude Code names each session — the name shown on its tab — and records it in
+# the session transcript as a JSON line {"type":"ai-title","aiTitle":...}. That
+# name is what a person recognises a session BY, so it is what the pet's hover
+# tooltip should say; the session id means nothing to anyone.
+TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
+_TITLE_TAIL = 64 * 1024        # the title is re-emitted per prompt; the tail has it
+
+
+def transcript_path(session_id, root=None):
+    """This session's transcript file, or None.
+
+    Found by GLOB rather than by building the directory name: Claude Code flattens
+    the project path into that name by replacing separators with "-", which is
+    not reversible and not worth re-deriving. Session ids are unique, so the
+    file name alone finds it."""
+    import glob
+    if not session_id:
+        return None
+    root = TRANSCRIPTS if root is None else root
+    hits = glob.glob(os.path.join(root, "*", "%s.jsonl" % session_id))
+    return hits[0] if hits else None
+
+
+def session_title(session_id, root=None, tail=_TITLE_TAIL):
+    """The name Claude Code gave this session, or "" if it hasn't named it yet.
+
+    Only the tail of the transcript is read: these files reach megabytes, the
+    pet re-reads on hover, and the title is re-emitted on every prompt so the
+    last one is always near the end. Any read problem -> "" (the caller falls
+    back to the project name); never raises."""
+    import json
+    path = transcript_path(session_id, root)
+    if not path:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - tail))
+            chunk = f.read()
+    except OSError:
+        return ""
+    title = ""
+    for line in chunk.split(b"\n"):
+        if b'"ai-title"' not in line:
+            continue
+        try:
+            d = json.loads(line.decode("utf-8", "replace"))
+        except ValueError:
+            continue                      # a line cut in half by the tail seek
+        if d.get("type") == "ai-title" and d.get("aiTitle"):
+            title = str(d["aiTitle"]).strip()
+        continue
+    return title

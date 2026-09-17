@@ -1770,12 +1770,13 @@ def test_zone_overlay_paints_even_when_empty():
 
 def test_tooltip_names_the_session(pet):
     """Several pets on screen are identical creatures — hovering one has to say
-    which session it is, or you can't tell which to close. Folder + short id,
-    taken from the pet's own inherited cwd (no hook payload, no prompt text)."""
+    which session it is, or you can't tell which to close. "<name>(<short id>)",
+    the name being Claude Code's own session title; with no title yet (this
+    fixture has no transcript) the project folder stands in."""
     import os
     tip = pet.snapshot()["tooltip"]
-    assert os.path.basename(os.getcwd()) in tip
-    assert tip.endswith(pet.session_id.split("-")[0])
+    assert tip == "%s(%s)" % (os.path.basename(os.getcwd()),
+                              pet.session_id.split("-")[0])
 
 
 def test_click_focus_picks_our_project_window(pet):
