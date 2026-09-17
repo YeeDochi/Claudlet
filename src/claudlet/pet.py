@@ -30,7 +30,8 @@ import subprocess
 import tempfile
 import time
 
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
+                             QToolTip)
 from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion, QPainterPath
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
@@ -157,6 +158,8 @@ ANGER_CLICKS = 4                        # 이 횟수만큼 빠르게 누르면 �
 ANGER_CLICK_WINDOW = 1.2                # 연속 클릭 판정 시간(초)
 ANGER_DUR = 2.0                         # 화난 표정 지속(초)
 POCKET_WAKE_SEC = 8.0                   # 클릭 후 커서를 바라보는 시간
+TIP_REFRESH_SEC = 10.0                  # 호버 툴팁의 세션 이름을 다시 읽는 간격
+TIP_SHOW_MS = 2500                      # 호버 툴팁이 저절로 사라지기까지(ms)
 
 # follow-mode navigation thresholds (jump reach, alignment, strain margins)
 # live in core/follow_nav.py -- the pure planner the follow branch delegates to.
@@ -569,6 +572,19 @@ class Pet(QWidget):
         # -- every tab shares one pid, so pid-ancestry can't (see winterm.py).
         # None until the first hook event: click then just raises the window.
         self._tab_title = None
+        # Which session is this? With several pets on screen they are identical
+        # creatures, so there is no way to tell which one to close. The pet is
+        # launched from INSIDE its session, so its inherited cwd already IS the
+        # session's working directory — no hook payload needed, and no prompt
+        # text leaves the session. Shown as the hover tooltip.
+        self._cwd = os.getcwd()
+        self._project = os.path.basename(self._cwd.rstrip(os.sep)) or self._cwd
+        # ...and every other name a host window might use for it: IntelliJ
+        # titles the window with the project's DISPLAY name, which .idea/.name
+        # sets independently of the folder.
+        self._project_names = geom.project_names(self._cwd) or (self._project,)
+        self._tip_checked = 0.0              # last transcript read (see _session_tip)
+        self.setToolTip(self._session_tip())
         self._companions = []                # agent followers, one per running agent
         self._departing = []                 # finished agents' companions waving goodbye
         self._throw_trail = []               # main-pet snapshots replayed by companions
@@ -866,6 +882,20 @@ class Pet(QWidget):
         else:
             self._cancel_quit()       # any other event means the session lives on
 
+    def _session_tip(self, now=None):
+        """"<이름>(<짧은 id>)" — 호버로 이 펫이 어느 세션인지 알려준다.
+
+        이름은 Claude Code가 세션에 붙인 제목(탭에 뜨는 그것)이다. 사람이 세션을
+        알아보는 건 그 이름이지 id가 아니다. 아직 이름이 없으면(첫 프롬프트 전)
+        프로젝트 폴더로 대신한다. 제목은 대화가 진행되며 바뀌므로 다시 읽되,
+        트랜스크립트는 커질 수 있으니 호버마다 읽지 않고 간격을 둔다."""
+        now = time.monotonic() if now is None else now
+        short = str(self.session_id).split("-")[0]
+        if now - self._tip_checked >= TIP_REFRESH_SEC or not getattr(self, "_tip_name", ""):
+            self._tip_checked = now
+            self._tip_name = hostinfo.session_title(self.session_id) or self._project
+        return "%s(%s)" % (self._tip_name, short)
+
     def _arm_quit(self):
         self._cancel_quit()
         t = QTimer(self)
@@ -903,6 +933,8 @@ class Pet(QWidget):
 
             "following": self._follow,
             "tab_title": self._tab_title,        # terminal tab we click-focus
+            "tooltip": self.toolTip(),           # which session this pet is
+            "host_wid": self._host_wid,          # window click-to-focus raises
             "contained": self._contain.wid if self._contain else None,
             "companions": len(self._companions),
             "social": self._social_act,          # 현재 소셜 act or None
@@ -1991,7 +2023,9 @@ class Pet(QWidget):
         """Remember this session's host window (matched by pid) for click-to-focus.
         Independent of visibility — focus targets the console/IDE, not the perch."""
         if self._ancestor_pids:
-            h = geom.find_host(self._wins, self._ancestor_pids)
+            h = geom.find_host(self._wins, self._ancestor_pids,
+                               project=self._project_names, cwd=self._cwd,
+                               current=self._host_wid)
             if h is not None:
                 self._host_wid = h.wid
 
@@ -2240,6 +2274,14 @@ class Pet(QWidget):
     def mouseMoveEvent(self, e):
         if e.buttons() == Qt.MouseButton.NoButton:
             self._maybe_pet(e.position().x(), time.monotonic())   # 호버 = 쓰다듬기
+            # 어느 세션이지? frameless + 반투명 + always-on-top Tool 창은 네이티브
+            # 툴팁이 저절로 뜨지 않으므로 커서 위치에 직접 띄운다.
+            self.setToolTip(self._session_tip())
+            # rect 를 주면 커서가 펫 밖으로 나가는 즉시 사라진다. 안 주면 커서가
+            # 떠나도 Qt 자체 타임아웃까지 남아 허공에 떠 있다 -- 배회하는 펫에게는
+            # 펫보다 툴팁이 더 오래 보인다. 표시 시간도 짧게 건다.
+            QToolTip.showText(e.globalPosition().toPoint(), self.toolTip(),
+                              self, self.rect(), TIP_SHOW_MS)
             return
         if self._press_global is None:
             return
@@ -2607,7 +2649,8 @@ class Pet(QWidget):
             return
         self._tray_state = st
         tray.setIcon(self._state_icon(st))
-        tray.setToolTip("claudlet — " + self.labels.get(st, st))
+        tray.setToolTip("claudlet · %s — %s"
+                        % (self._session_tip(), self.labels.get(st, st)))
 
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""
