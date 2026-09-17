@@ -471,7 +471,14 @@ PAGE_TEMPLATE = """<!doctype html><meta charset="utf-8">
       --dim:#9A9AA8;--accent:#6B8AFF;--sunk:#0e0e12;--w:1080px}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
-     font:14px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif}
+     font:14px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif;
+     /* The window IS the frame: at the size we open at, everything fits and
+        only the panes scroll. A page-level scrollbar would undo the dashboard
+        feel, so the body is height-locked and the panels own their overflow.
+        Below the one-column breakpoint the lock is released (see @media) --
+        there, page scrolling is the only way the content stays reachable. */
+     height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+header{flex:0 0 auto}
 .wrap{width:100%;max-width:var(--w);margin:0 auto;padding:0 28px}
 header{border-bottom:1px solid var(--line);background:#191920}
 .bar{display:flex;align-items:baseline;gap:14px;padding:22px 0 14px}
@@ -482,30 +489,31 @@ nav.tabs button{background:none;color:var(--dim);border:0;border-bottom:2px soli
                 border-radius:8px 8px 0 0;padding:10px 18px;font-weight:600;font-size:14px}
 nav.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent);
                                     background:var(--card)}
-main{padding:24px 0 40px}
-.grid{display:grid;gap:20px;grid-template-columns:260px minmax(0,1fr);align-items:start}
-section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+main{padding:24px 0 28px;flex:1 1 auto;min-height:0;overflow:hidden}
+#dress{height:100%;display:flex;flex-direction:column}
+#share{max-height:100%;overflow-y:auto}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;
+        min-height:0;display:flex;flex-direction:column}
 h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
    text-transform:uppercase;letter-spacing:.6px}
-.card{display:flex;gap:12px;align-items:center;padding:10px;border-radius:9px;
-      border:1px solid transparent;cursor:pointer}
-.card[aria-current=true]{border-color:var(--accent);background:#1b1b24}
-.worn,.notworn{display:inline-block;margin-top:4px;padding:1px 8px;
+#settings{flex:1 1 auto;overflow-y:auto}
+.worn,.notworn{display:inline-block;padding:1px 8px;
                border-radius:999px;font-size:11px;font-weight:600}
 .worn{background:#1F7A4D;color:#DFF7EA}
 .notworn{background:#26262E;color:var(--dim)}
-.card img{width:56px;height:44px;object-fit:contain;image-rendering:pixelated}
 .row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
 label{width:64px;color:var(--dim)}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
 input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
-input[type=text]{flex:1;min-width:180px;background:var(--sunk);
+input[type=text],select{flex:1;min-width:180px;background:var(--sunk);
                  border:1px solid var(--line);color:var(--fg);
-                 border-radius:7px;padding:8px 10px}
+                 border-radius:7px;padding:8px 10px;font:inherit}
+select{flex:0 1 240px}
 code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 #shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
-       min-height:120px;padding:14px;background:var(--sunk);border-radius:9px}
+       min-height:120px;max-height:46vh;overflow-y:auto;
+       padding:14px;background:var(--sunk);border-radius:9px}
 #shots figure{margin:0;text-align:center}
 #shots img{display:block;image-rendering:pixelated}
 #shots figcaption{margin-top:6px;font-size:11px;color:var(--dim)}
@@ -520,8 +528,12 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 #said{color:var(--dim);font-size:13px;margin-left:12px}
 #importInfo ul{margin:8px 0 0;padding-left:20px;color:var(--dim);font-size:12px}
 @media (max-width:780px){
+  /* one column: the panes no longer have room to scroll inside, so hand the
+     page its scrollbar back rather than clipping content out of reach */
+  body{height:auto;overflow:visible}
+  main{overflow:visible}
+  #dress,#settings,#shots{max-height:none;overflow:visible}
   .wrap{padding:0 16px}
-  .grid{grid-template-columns:minmax(0,1fr)}
   .bar{flex-wrap:wrap;gap:8px}
   .bar p{flex-basis:100%;order:3}
   label{width:100%}
@@ -536,11 +548,14 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
   <nav class="tabs" id="tabs"></nav>
 </div></header>
 <main class="wrap">
-  <div id="dress" class="grid">
-    <section id="creatures">
-      <h2>__T_creatures__</h2><div id="list"></div>
-    </section>
+  <div id="dress">
     <section id="settings">
+      <div class="row">
+        <label for="pick">__T_creatures__</label>
+        <select id="pick"></select>
+        <button id="wearTop" class="ghost">__T_wear__</button>
+        <span id="wornBadge"></span>
+      </div>
       <h2 id="who"></h2>
       <div class="row">
         <label for="col">__T_colour__</label>
@@ -589,7 +604,12 @@ let editing = null;      // which creature the panel is showing — NOT necessar
                          // the one being worn. Looking at another creature's
                          // settings should not put it on the pet.
 let tab = null;          // an agent name, or SHARE_TAB
-const SHARE_TAB = "\\u0000share";     // can't collide with an agent name
+const SHARE_TAB = "!share";   // an agent name is a registry key ([a-z]+),
+                              // so "!" cannot collide. NOT a NUL: the HTML
+                              // parser rewrites U+0000 in an attribute to
+                              // U+FFFD, so the value read back off the
+                              // clicked button never matched and the share
+                              // tab silently fell back to the first agent.
 const $ = (id) => document.getElementById(id);
 
 function worn() {
@@ -618,10 +638,12 @@ function redraw() {
   $("shots").innerHTML = states.map((s) => shot(s, t)).join("");
   $("who").textContent = T.settings_of.replace("%s", editing);
   const isWorn = editing === worn();
-  $("wear").disabled = isWorn;
-  $("wear").textContent = isWorn ? T.worn_btn : T.wear;
-  for (const c of document.querySelectorAll(".card"))
-    c.setAttribute("aria-current", String(c.dataset.name === editing));
+  for (const b of [$("wear"), $("wearTop")]) {
+    b.disabled = isWorn;
+    b.textContent = isWorn ? T.worn_btn : T.wear;
+  }
+  $("wornBadge").className = isWorn ? "worn" : "notworn";
+  $("wornBadge").textContent = isWorn ? T.worn : T.notworn;
 }
 function showCreature(name) {
   editing = name;
@@ -678,19 +700,17 @@ function fill(s) {
   const rows = tabRows(s);
   if (tab !== SHARE_TAB) tab = s.agent;   // state always belongs to one agent
   paintTabs(rows);
-  $("list").innerHTML = s.avatars.map((a) => `
-    <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
-      <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(a.colour)}">
-      <div><div>${a.name}</div>
-        ${a.selected ? `<span class="worn">${T.worn}</span>`
-                     : `<span class="notworn">${T.notworn}</span>`}
-      </div></div>`).join("");
-  for (const card of document.querySelectorAll(".card"))
-    card.addEventListener("click", () => showCreature(card.dataset.name));
+  // a native <select>, not a card list: an unbounded list of creatures fights
+  // the fixed-size, no-page-scroll window, a dropdown does not
+  $("pick").innerHTML = s.avatars.map((a) =>
+    `<option value="${a.name}">${a.name}</option>`).join("");
   $("scale").min = s.scale_range[0];
   $("scale").max = s.scale_range[1];
-  showCreature(editing && s.looks[editing] ? editing : worn());
+  const target = editing && s.looks[editing] ? editing : worn();
+  $("pick").value = target;
+  showCreature(target);
 }
+$("pick").addEventListener("change", () => showCreature($("pick").value));
 // 색 입력은 브라우저에 따라 드래그 중 input 을, OS 색 대화상자를 쓰면 닫을 때
 // change 만 쏜다. 둘 다 들어야 고른 색이 바로 미리보기에 뜬다.
 for (const ev of ["input", "change"]) {
@@ -698,21 +718,25 @@ for (const ev of ["input", "change"]) {
   $("scale").addEventListener(ev, redraw);
 }
 async function post(body, note) {
-  for (const b of ["save", "reset", "wear"]) $(b).disabled = true;
+  for (const b of ["save", "reset", "wear", "wearTop"]) $(b).disabled = true;
   const r = await fetch("/api/config", {method: "POST",
     headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
   const out = await r.json();
   $("said").textContent = note + (out.pets
       ? T.applied_pets.replace("%d", out.pets) : T.applied_next);
-  for (const b of ["save", "reset", "wear"]) $(b).disabled = false;
+  for (const b of ["save", "reset", "wear", "wearTop"]) $(b).disabled = false;
   return out;
 }
 $("save").addEventListener("click", async () =>
   fill(await post({agent: S.agent, creature: editing, palette: $("col").value,
                    scale: +$("scale").value, visor: visorNow()},
                   T.saved.replace("%s", editing))));
-$("wear").addEventListener("click", async () =>
-  fill(await post({agent: S.agent, avatar: editing}, T.switched.replace("%s", editing))));
+async function doWear() {
+  return fill(await post({agent: S.agent, avatar: editing},
+                         T.switched.replace("%s", editing)));
+}
+$("wear").addEventListener("click", doWear);
+$("wearTop").addEventListener("click", doWear);
 $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
   fill(await post({agent: S.agent, creature: editing, palette: null, scale: null,

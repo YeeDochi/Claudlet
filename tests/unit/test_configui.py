@@ -309,7 +309,7 @@ def test_save_and_reset_js_post_the_agent_too(tmp_path, monkeypatch):
     _cfg(tmp_path, monkeypatch)
     pg = U.page({})
     save_call = pg[pg.index('$("save").addEventListener'):]
-    save_call = save_call[:save_call.index(");\n$(\"wear\")")]
+    save_call = save_call[:save_call.index("async function doWear")]
     assert "agent: S.agent" in save_call
     reset_call = pg[pg.index('$("reset").addEventListener'):]
     assert "agent: S.agent" in reset_call
@@ -767,6 +767,25 @@ def test_icon_endpoint_serves_a_png():
 
 # ---------- the dashboard: tabs and refresh ----------
 
+def test_the_page_picks_a_creature_from_a_dropdown_not_a_card_list():
+    # layout stability: an unbounded card list fights a fixed-size window with
+    # no page scrollbar, so one creature is chosen from a native <select>
+    pg = U.page({})
+    assert '<select id="pick">' in pg
+    assert 'id="wearTop"' in pg and 'id="wornBadge"' in pg
+    assert 'class="card"' not in pg
+    assert 'id="list"' not in pg
+
+
+def test_the_dropdown_is_populated_from_every_avatar_and_shows_worn_state():
+    pg = U.page({})
+    fill_body = pg[pg.index("function fill(s) {"):pg.index("$(\"pick\").addEventListener")]
+    assert '$("pick").innerHTML = s.avatars.map' in fill_body
+    assert "<option value=" in fill_body
+    redraw_body = pg[pg.index("function redraw() {"):pg.index("function showCreature")]
+    assert 'wornBadge' in redraw_body and "T.worn" in redraw_body and "T.notworn" in redraw_body
+
+
 def test_the_page_has_one_tab_per_agent_plus_share():
     pg = U.page({})
     assert 'id="tabs"' in pg
@@ -792,3 +811,20 @@ def test_refetching_state_shows_what_another_writer_changed(tmp_path, monkeypatc
     assert U.state_payload()["looks"]["claudlet"]["scale"] == 4
     _cfg(tmp_path, monkeypatch, creatures={"claudlet": {"scale": 9}})
     assert U.state_payload()["looks"]["claudlet"]["scale"] == 9
+
+
+def test_share_tab_sentinel_survives_html_attribute_parsing():
+    """The share tab's id travels through a `data-tab="..."` attribute and comes
+    back via dataset on click. A NUL there is rewritten to U+FFFD by the HTML
+    parser, so the value read back never matched and the tab silently fell back
+    to the first agent -- the sentinel must hold no character the parser touches.
+    """
+    page = configui.page({})
+    import re
+    m = re.search(r'const SHARE_TAB = "([^"]*)"', page)
+    assert m, "SHARE_TAB sentinel not found in the page"
+    sentinel = m.group(1)
+    assert "\\u0000" not in sentinel and "\x00" not in sentinel
+    assert sentinel and all(ch.isprintable() for ch in sentinel)
+    # and it cannot collide with an agent name (registry keys are lowercase words)
+    assert not sentinel.isalnum()
