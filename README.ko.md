@@ -85,6 +85,11 @@ hooks = true
 
 그 파일에 들어있는 **다른 앱의 훅은 건드리지 않아요** — claudlet은 자기 것만 손댑니다.
 
+Codex 세션의 펫은 기본으로 **codex** 크리처를 입어요. 구름 같은 머리에 터미널 화면이
+박혀 있고, 얼굴이 곧 프롬프트예요:
+
+![상태별 codex 크리처](docs/codex-creature.png)
+
 에이전트가 둘 이상 감지되면 설정 페이지(`claudlet-config`)에 에이전트 줄이 생겨서,
 Claude Code와 Codex에 **서로 다른 크리처**를 입힐 수 있어요.
 
@@ -260,13 +265,15 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 
 ### `/claudlet` 스킬
 
-`claudlet-install`이 `/claudlet` 스킬도 Claude Code에 링크해줘서, 프롬프트에서
-바로 펫을 조종할 수 있어요:
+`claudlet-install`이 `/claudlet` 스킬을 **찾은 에이전트 전부**에 링크해줘서,
+Claude Code 에서도 Codex 에서도 프롬프트로 바로 펫을 조종할 수 있어요:
 
 - `/claudlet` — **이** 세션에 펫 붙이기 (세션 활동에 반응)
 - `/claudlet standalone` — 세션에 안 붙은 장식용 펫
 - `/claudlet <모션>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (그리고 `list`, `stop`)
 - `/claudlet setting` — 겉모습: 어떤 크리처를 입힐지, 그 크리처의 색 · 크기 · 특수모드 표시
+- `/claudlet wear <크리처> [for <에이전트>]` — 크리처 갈아입히기 (이 에이전트, 또는 지정한 에이전트)
+- `/claudlet export <크리처>` / `/claudlet import <경로>` — 크리처를 zip 으로 주고받기 (가져올 땐 내용물을 먼저 보여줘요)
 - `/claudlet make <설명>` — 펫이 입을 새 크리처를 만들어줘요
 - `/claudlet config` — 설정 보기, 또는 자연어로 요청("Bash 돌 때 점프하게")하면 Claude가 대신 편집
 - `/claudlet update` — 최신 릴리즈로 업데이트 (`update latest`면 develop 최신); 버전 보여주고 단계 안내

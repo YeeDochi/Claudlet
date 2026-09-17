@@ -90,6 +90,11 @@ hooks = true
 Other apps' hook entries in those files are left alone — claudlet only ever
 touches its own.
 
+A Codex session's pet wears the **codex** creature by default — a cloud-headed
+mascot whose face is a terminal prompt:
+
+![the codex creature across states](docs/codex-creature.png)
+
 When more than one agent is detected, the settings page (`claudlet-config`) grows
 an agent row, so Claude Code and Codex can wear **different creatures**.
 
@@ -276,13 +281,15 @@ install that fails leaves the creature you already had untouched.
 
 ### The `/claudlet` skill
 
-`claudlet-install` also links a `/claudlet` skill into Claude Code, so you can
-drive the pet straight from a prompt:
+`claudlet-install` links a `/claudlet` skill into **every agent it found**, so you
+can drive the pet straight from a prompt — in Claude Code or in Codex:
 
 - `/claudlet` — attach a pet to **this** session (so it reacts to the session's activity)
 - `/claudlet standalone` — an unattached, decorative pet
 - `/claudlet <motion>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (plus `list`, `stop`)
 - `/claudlet setting` — appearance: which creature, and its colour / size / unattended look
+- `/claudlet wear <creature> [for <agent>]` — put a creature on, for this agent or a named one
+- `/claudlet export <creature>` / `/claudlet import <path>` — share a creature as a zip (an import shows you what is inside first)
 - `/claudlet make <description>` — write a new creature for the pet to wear
 - `/claudlet config` — show the config, or just ask in plain language ("jump when I run Bash") and Claude edits it for you
 - `/claudlet update` — update to the latest release (`update latest` for the tip of develop); shows your version and walks you through it
