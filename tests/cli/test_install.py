@@ -133,6 +133,45 @@ def test_unlink_skills_removes_every_detected_agents_link(tmp_path):
     assert not os.path.exists(tmp_path / ".codex" / "skills" / "claudlet")
 
 
+def test_link_skills_permission_error_on_one_agent_does_not_block_the_other(
+        tmp_path, monkeypatch):
+    # A 0o500 ~/.codex (or any OSError from makedirs/unlink/symlink) used to
+    # escape _link_skill_at uncaught, aborting _link_skills() before it ever
+    # reached the other agents.
+    _detect_both(tmp_path)
+    real_makedirs = os.makedirs
+
+    def flaky_makedirs(path, exist_ok=False):
+        if ".codex" in path:
+            raise PermissionError("no")
+        return real_makedirs(path, exist_ok=exist_ok)
+    monkeypatch.setattr(os, "makedirs", flaky_makedirs)
+
+    results = I._link_skills(home=str(tmp_path))   # must not raise
+
+    by_label = {label: (p, n) for label, p, n in results}
+    assert by_label["Codex"][0] is None and by_label["Codex"][1]
+    assert by_label["Claude Code"] == (
+        str(tmp_path / ".claude" / "skills" / "claudlet"), None)
+    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+
+
+def test_unlink_skills_survives_permission_error_on_one_agent(tmp_path, monkeypatch):
+    _detect_both(tmp_path)
+    I._link_skills(home=str(tmp_path))
+    real_unlink = os.unlink
+
+    def flaky_unlink(path):
+        if ".codex" in path:
+            raise PermissionError("no")
+        return real_unlink(path)
+    monkeypatch.setattr(os, "unlink", flaky_unlink)
+
+    I._unlink_skills(home=str(tmp_path))   # must not raise
+
+    assert not os.path.exists(tmp_path / ".claude" / "skills" / "claudlet")
+
+
 def test_link_skills_is_idempotent(tmp_path):
     _detect_both(tmp_path)
 

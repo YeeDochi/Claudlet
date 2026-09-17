@@ -66,16 +66,21 @@ def _link_is_ours(link):
 
 def _link_skill_at(link):
     """Symlink the packaged skill into `link` (a `.../skills/claudlet` path
-    under one agent's skills dir). Returns (path, note)."""
-    os.makedirs(os.path.dirname(link), exist_ok=True)
-    if os.path.exists(link) and not _link_is_ours(link):
-        return None, ("%s exists and isn't a link to the claudlet skill"
-                      " - left as-is" % link)
-    if os.path.islink(link):
-        os.unlink(link)      # refresh: a stale symlink may point at an old install
-    elif os.path.exists(link):
-        return link, None    # a junction already pointing at THIS skill — keep it
+    under one agent's skills dir). Returns (path, note).
+
+    The whole body is one try/except: `os.makedirs` and `os.unlink` can raise
+    OSError (e.g. a read-only ~/.codex) just as easily as `os.symlink` can, and
+    an unhandled one here used to escape `_link_skills()` entirely, aborting
+    every OTHER agent's link too. One agent failing must only fail that agent."""
     try:
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        if os.path.exists(link) and not _link_is_ours(link):
+            return None, ("%s exists and isn't a link to the claudlet skill"
+                          " - left as-is" % link)
+        if os.path.islink(link):
+            os.unlink(link)  # refresh: a stale symlink may point at an old install
+        elif os.path.exists(link):
+            return link, None    # a junction already pointing at THIS skill — keep it
         os.symlink(SKILL_SRC, link, target_is_directory=True)
         return link, None
     except OSError as e:
@@ -98,13 +103,15 @@ def _link_skill_junction(link):
 
 
 def _unlink_skill_at(link):
-    if os.path.islink(link):
-        os.unlink(link)
-    elif os.name == "nt" and os.path.isdir(link):
-        try:
+    """Best-effort: one agent's link failing to remove (permissions) must not
+    stop the others from being cleaned up in `_unlink_skills()`."""
+    try:
+        if os.path.islink(link):
+            os.unlink(link)
+        elif os.name == "nt" and os.path.isdir(link):
             os.rmdir(link)
-        except OSError:
-            pass
+    except OSError:
+        pass
 
 
 def _skill_link(name, home=None):
