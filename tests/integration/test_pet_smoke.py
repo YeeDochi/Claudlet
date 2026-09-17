@@ -1272,6 +1272,24 @@ def test_cursor_gaze_clamps_to_pet_bounds():
     assert P.cursor_gaze((200, 200), (100, 100), (50, 50)) == (1.0, 1.0)
 
 
+class _RecordingAvatar:
+    """An avatar that records what it was asked to paint instead of painting.
+
+    Swapped in through the same attribute a custom avatar uses, so this checks
+    the pet's real drawing path rather than a patched module function."""
+
+    def __init__(self, into, real):
+        self._into = into
+        self.name, self.grid = "recording", real.grid
+        self.states, self.hats = real.states, real.hats
+
+    def draw(self, p, ox, oy, u, state, frame, **kw):
+        self._into.update(state=state, energy=kw.get("energy"))
+
+    def set_lang(self, lang):
+        pass
+
+
 def test_pocket_click_wakes_then_returns_to_sleep(pet, monkeypatch):
     base = time.monotonic()
     pet._floating = True
@@ -1283,8 +1301,7 @@ def test_pocket_click_wakes_then_returns_to_sleep(pet, monkeypatch):
     assert pet._pocket_render_state("work_computer", base) == "work_computer"
     drawn = {}
     monkeypatch.setattr(P.time, "monotonic", lambda: base)
-    monkeypatch.setattr(P.C, "draw_creature",
-                        lambda *args, **kwargs: drawn.update(state=args[4], energy=kwargs["energy"]))
+    pet.avatar = _RecordingAvatar(drawn, pet.avatar)   # 갈아끼워 그려진 것을 받는다
     pet.grab()
     assert drawn == {"state": "idle", "energy": 1.0}
 

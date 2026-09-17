@@ -36,7 +36,7 @@ from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QReg
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
-from claudlet.core import creature as C
+from claudlet.core import avatars
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
 from claudlet.platform import focus
 from claudlet.platform import konsole
@@ -56,13 +56,32 @@ from claudlet.platform import geom
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
-NOTCH_U = 3                             # ponytail: 노치 보관 시 축소 배율. 실기 보고 조정.
+def _avatar_name():
+    """Which avatar to wear. Env only for now: a config key would be dead
+    weight until a second avatar exists, and the selector lands with it."""
+    return os.environ.get("CLAUDLET_AVATAR") or None
+
+
+def _scale(cfg):
+    """Device pixels per art pixel for this pet. Env beats config so a single
+    pet can be run oversized without touching everyone else's setting."""
+    return petconfig.clamp_scale(os.environ.get("CLAUDLET_SCALE")
+                                 or cfg.get("scale", petconfig.DEFAULT_SCALE))
+
+
+def _companion_scale(u):
+    """Companions keep their proportion to the pet (3 when the pet is 5) and
+    never shrink below the point where the art stops reading."""
+    return max(2, round(u * COMPANION_RATIO))
+
+
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
 # Agent companion: an INDEPENDENT little creature in its own window that FOLLOWS
 # the pet while a subagent runs — see the Companion class. It only walks toward
 # the pet once the gap exceeds FOLLOW_START, and stops once within FOLLOW_STOP
 # (hysteresis), like a real sidekick trailing along; no facing-based side pick
 # (that made it teleport across when the pet turned).
+COMPANION_RATIO = 0.6                   # companion scale vs the pet's (3/5)
 COMPANION_U = 3                         # companion art-pixel size (pet's U is 5).
                                         # Integer on purpose: 2.5 split every art
                                         # pixel 2px/3px, and (GRID_H + 2*PAD_Y)*2.5
@@ -118,6 +137,7 @@ UI = {
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
+           "settings": "🎨 크리처 설정…",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
            "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)"},
@@ -126,6 +146,7 @@ UI = {
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
+           "settings": "🎨 Creature settings…",
            "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
            "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
            "roam": "Roam freely", "dock_reset": "Reset dock position"},
@@ -229,17 +250,16 @@ class Companion(QWidget):
     Not user-grabbable (WA_TransparentForMouseEvents); the driving lives in
     Pet._sync_companion, which owns the window feed and screen bounds."""
 
-    def __init__(self):
+    def __init__(self, u=COMPANION_U):
         super().__init__()
+        self.u = u
         self.setWindowFlags(_companion_flags(sys.platform))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         # purely decorative: never take clicks/focus.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        # int() is only a guard should COMPANION_U ever go fractional again
-        self.w = int((C.GRID_W + 2 * PAD_X) * COMPANION_U)
-        self.h = int((C.GRID_H + 2 * PAD_Y) * COMPANION_U)
-        self.setFixedSize(self.w, self.h)
+        self.avatar = avatars.get(_avatar_name())
+        self._resize_to_avatar()
         self.x = 0.0
         self.y = 0.0
         self.frame = 0
@@ -259,7 +279,8 @@ class Companion(QWidget):
                                        # dead landing + window-entry resolution
         self._depart_until = None      # monotonic deadline of the goodbye wave
         self._reunite_ticks = 0        # ticks spent separated, trying to walk back
-        self.hat = random.choice(C.HAT_KINDS)   # each sidekick gets its own hat
+        self.hat = (random.choice(self.avatar.hats)   # each sidekick gets its own hat
+                    if self.avatar.hats else None)
 
     def depart_tick(self):
         """One tick of the goodbye: stand and celebrate ('다 됐다!' bubble) until
@@ -351,14 +372,29 @@ class Companion(QWidget):
         super().showEvent(e)
         _macos_keep_visible(self)      # stop AppKit hiding it on app deactivate
 
+    def _resize_to_avatar(self):
+        gw, gh = self.avatar.grid
+        # int() is only a guard should the scale ever go fractional again
+        self.w = int((gw + 2 * PAD_X) * self.u)
+        self.h = int((gh + 2 * PAD_Y) * self.u)
+        self.setFixedSize(self.w, self.h)
+
+    def rescale(self, u):
+        """The pet's scale changed — follow it, keeping our proportion."""
+        if u == self.u:
+            return
+        self.u = u
+        self._resize_to_avatar()
+        self.update()
+
     def paintEvent(self, _e):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         # a fractional origin puts the whole grid between pixels, re-splitting
         # every art pixel; snapped so a fractional unit can't reintroduce that
-        C.draw_creature(p, round(PAD_X * COMPANION_U), round(PAD_Y * COMPANION_U),
-                        COMPANION_U, self._state, self.frame, facing=self.facing,
-                        cap=self.hat, gaze=self.gaze)
+        self.avatar.draw(p, round(PAD_X * self.u), round(PAD_Y * self.u),
+                         self.u, self._state, self.frame, facing=self.facing,
+                         cap=self.hat, gaze=self.gaze)
         p.end()
 
 
@@ -499,9 +535,10 @@ class Pet(QWidget):
         self.setWindowTitle(self._wtitle)
         self.port_file = hostinfo.session_port_file(session_id)
 
-        self.w = (C.GRID_W + 2 * PAD_X) * U
-        self.h = (C.GRID_H + 2 * PAD_Y) * U
-        self.setFixedSize(self.w, self.h)
+        cfg = petconfig.load_config()
+        self.avatar = avatars.get(_avatar_name())
+        self.u = _scale(cfg)
+        self._resize_to_avatar()
 
         primary = QApplication.primaryScreen().availableGeometry()
         # Roam across ALL monitors: screen_rect is the union of every screen's
@@ -517,7 +554,6 @@ class Pet(QWidget):
 
         self.frame = 0
         self.facing = 1
-        cfg = petconfig.load_config()
         # 도크: 모니터 코너에 붙어 서고, 여러 마리는 슬롯 번호대로 옆에 나란히.
         # 슬롯은 프로세스 간 잠금으로 잡으므로 세션마다 뜬 펫들이 서로를 몰라도
         # 자리가 겹치지 않는다. 슬롯을 못 잡으면(런타임 디렉터리 문제) 0번으로
@@ -540,16 +576,15 @@ class Pet(QWidget):
         self._no_go = cfg.get("no_go") or []
         self._zone_overlays = []             # one open ZoneOverlay per monitor
         self._zone_overlay = None            # back-compat handle (first overlay)
-        _pal = os.environ.get("CLAUDLET_PALETTE") or cfg.get("palette", "auto")
-        _rng = random.Random()
-        self._palette = petconfig.resolve_palette(_pal, _rng.random(), _rng.random())
+        self._palette_roll = (random.random(), random.random())
+        self._apply_style(cfg)
         self.engine = StateEngine(is_focused=self._is_focused,
                                   tool_states=cfg["tool_states"],
                                   event_states=cfg["event_states"],
                                   raw_events=cfg["raw_events"])
         # language for user-facing strings (speech bubbles, tray, menus)
         self.lang = petconfig.resolve_lang(cfg.get("lang", "auto"))
-        C.set_lang(self.lang)
+        self.avatar.set_lang(self.lang)
         self.labels = STATE_LABELS[self.lang]
         self.ui = UI[self.lang]
         self.claude_state = "sleeping"       # last state the engine reported
@@ -825,6 +860,10 @@ class Pet(QWidget):
             return
         # 형제 펫이 드래그로 대열을 옮겼다는 통지. 같은 offset을 공유해야 간격이
         # 유지되므로 받은 값을 그대로 반영한다(config는 옮긴 쪽이 이미 저장했다).
+        if ev.get("cmd") == "restyle":
+            # 설정이 바뀌었다 (claudlet-config ui). 재시작 없이 다시 입는다.
+            self._restyle()
+            return
         if ev.get("cmd") == "dock":
             off = ev.get("offset")
             if isinstance(off, dict):
@@ -896,6 +935,34 @@ class Pet(QWidget):
             self._tip_name = hostinfo.session_title(self.session_id) or self._project
         return "%s(%s)" % (self._tip_name, short)
 
+    def _resize_to_avatar(self):
+        """Window size follows the avatar's art box and the current scale."""
+        gw, gh = self.avatar.grid
+        self.w = (gw + 2 * PAD_X) * self.u
+        self.h = (gh + 2 * PAD_Y) * self.u
+        self.setFixedSize(self.w, self.h)
+
+    def _apply_style(self, cfg):
+        """Palette and scale from config. The shiny roll is drawn ONCE per pet
+        (in __init__) and reused here, so re-reading the config can't re-roll a
+        shiny away mid-life."""
+        pal = os.environ.get("CLAUDLET_PALETTE") or cfg.get("palette", "auto")
+        self._palette = petconfig.resolve_palette(pal, *self._palette_roll)
+        self.u = _scale(cfg)
+
+    def _restyle(self):
+        """A settings change landed (claudlet-config ui). Re-read and re-dress
+        without restarting: colour applies on the next paint, a new scale needs
+        the window resized and the pet nudged back inside the screen."""
+        cfg = petconfig.load_config()
+        before = self.u
+        self._apply_style(cfg)
+        if self.u != before:
+            self._resize_to_avatar()
+            for c in self._companions + self._departing:
+                c.rescale(_companion_scale(self.u))
+        self.update()
+
     def _arm_quit(self):
         self._cancel_quit()
         t = QTimer(self)
@@ -942,6 +1009,9 @@ class Pet(QWidget):
             "departing": len(self._departing),
             "quit_armed": self._quit_timer is not None,       # SessionEnd quit pending
             "palette": self._palette,
+            "scale": self.u,                     # device px per art pixel
+            "size": (self.w, self.h),
+            "avatar": self.avatar.name,
             "hidden": self._hidden_for_win,                   # occluded away entirely
             "masked": self._masked,                           # clipped to exposed sliver
             "no_go": len(self._no_go),
@@ -1128,9 +1198,9 @@ class Pet(QWidget):
         comps = [(c.x, c.y, float(c.w)) for c in self._companions]
         # 탑쌓기: 스텝=컴패니언의 그려지는 몸통 높이(창 높이 아님, 패딩 제외),
         # foot/head=발·머리 오프셋(px)이라 발이 정확히 아래 머리에 닿는다.
-        body_h = (FOOT_ROW - CROWN_ROW) * COMPANION_U        # 층 간격
-        foot = (PAD_Y + FOOT_ROW) * COMPANION_U              # 컴패니언 발(창-top부터)
-        head = (PAD_Y + CROWN_ROW) * U                       # 펫 머리(창-top부터)
+        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u)   # 층 간격
+        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u)  # 컴패니언 발(창-top부터)
+        head = (PAD_Y + CROWN_ROW) * self.u                  # 펫 머리(창-top부터)
         self._social_targets = social.arrange(
             act, leader, comps, creature_h=body_h, foot=foot, head=head)
         self._social_act = act
@@ -1184,7 +1254,7 @@ class Pet(QWidget):
             self._throw_recording = False
             return
         while len(self._companions) < n:             # a new agent started
-            c = Companion()
+            c = Companion(_companion_scale(self.u))
             prev = self._companions[-1] if self._companions else self
             # spawn just BEHIND the leader (opposite the pet's heading), clear of
             # its body, so it doesn't pop in on top of the pet -- then it eases
@@ -1280,7 +1350,7 @@ class Pet(QWidget):
         # follow_nav.plan_move + physics.advance walk / jump between windows /
         # drop IN to sit with it / climb down / fall. Thrown motion returned
         # above after replaying the main pet's recorded trajectory.
-        ratio = COMPANION_U / float(U)
+        ratio = _companion_scale(self.u) / float(self.u)
         scr = self.screen_rect
         leader = self
         for c in self._companions:
@@ -1375,7 +1445,7 @@ class Pet(QWidget):
             c._air = False
             c._follow_jump = False
             c._moving = False
-            c._state = pose if pose in C.STATES else "falling"
+            c._state = pose if pose in self.avatar.states else "falling"
             c.frame = (c.frame + 1) % 100000
             c.move(int(c.x), int(c.y))
             self._occlude_companion(c)
@@ -1388,9 +1458,9 @@ class Pet(QWidget):
         return True
 
     def _drive_pocket_stack(self):
-        body_h = (FOOT_ROW - CROWN_ROW) * COMPANION_U
-        foot = (PAD_Y + FOOT_ROW) * COMPANION_U
-        head = (PAD_Y + CROWN_ROW) * U
+        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u)
+        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u)
+        head = (PAD_Y + CROWN_ROW) * self.u
         targets = social.arrange_pocket(
             (self.x, self.y, float(self.w)),
             [(c.x, c.y, float(c.w)) for c in self._companions],
@@ -1415,7 +1485,7 @@ class Pet(QWidget):
         (self.h - FOOT_Y), while foot_y is the companion's TRUE drawn foot
         (FOOT_Y*ratio) so a resolved position lands the DRAWN feet on the
         surface. box.w is the real companion width, for the screen/edge clamps."""
-        foot = FOOT_Y * (COMPANION_U / float(U))
+        foot = FOOT_Y * (_companion_scale(self.u) / float(self.u))
         return follow_nav.Box(c.w, (self.h - FOOT_Y) + foot, foot)
 
     def _companion_bounds(self, c):
@@ -2206,17 +2276,19 @@ class Pet(QWidget):
         ) if pocket or self._follow else (0.0, 0.0)
         # facing handled inside draw_creature (body mirrors, text upright)
         if getattr(self, "_in_notch", False):
-            u = NOTCH_U
+            u = _companion_scale(self.u)   # 노치에서는 축소해 그린다
             # centring lands on a half pixel when window and art box differ by
             # an odd amount, shifting the grid and re-splitting every art pixel
-            ox = round((self.w - (C.GRID_W + 2 * PAD_X) * u) / 2 + PAD_X * u)
-            oy = round((self.h - (C.GRID_H + 2 * PAD_Y) * u) / 2 + PAD_Y * u)
+            gw, gh = self.avatar.grid
+            ox = round((self.w - (gw + 2 * PAD_X) * u) / 2 + PAD_X * u)
+            oy = round((self.h - (gh + 2 * PAD_Y) * u) / 2 + PAD_Y * u)
         else:
-            u = U
-            ox, oy = PAD_X * U, PAD_Y * U
-        C.draw_creature(p, ox, oy, u, state, self.frame,
-                        facing=self.facing, visor=vis, energy=energy,
-                        palette=self._palette, happy=petted, pocket=pocket, gaze=gaze)
+            u = self.u
+            ox, oy = PAD_X * self.u, PAD_Y * self.u
+        self.avatar.draw(p, ox, oy, u, state, self.frame,
+                         facing=self.facing, visor=vis, energy=energy,
+                         palette=self._palette, happy=petted, pocket=pocket,
+                         gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
         p.end()
@@ -2226,16 +2298,16 @@ class Pet(QWidget):
         # (창 안)에서 살짝 떠오르며 페이드. age 0..1. 크고 뚜렷하게.
         p.setPen(Qt.PenStyle.NoPen)
         cx = self.w // 2
-        for i, off in enumerate((-4.5 * U, 4.5 * U, 0)):
+        for i, off in enumerate((-4.5 * self.u, 4.5 * self.u, 0)):
             phase = age + i * 0.18
             if phase >= 1.0:
                 continue
-            rise = phase * 3.5 * U
+            rise = phase * 3.5 * self.u
             alpha = max(0, int(235 * (1.0 - phase)))
             col = QColor(233, 70, 96, alpha)
-            s = (1.6 if i < 2 else 1.1) * U          # 옆 큰 하트 2 + 중앙 작은 것
+            s = (1.6 if i < 2 else 1.1) * self.u     # 옆 큰 하트 2 + 중앙 작은 것
             hx = cx + off
-            hy = (PAD_Y + 3) * U - rise              # 머리 옆 높이에서 시작
+            hy = (PAD_Y + 3) * self.u - rise              # 머리 옆 높이에서 시작
             self._heart(p, hx, hy, s, col)
 
     @staticmethod
@@ -2448,6 +2520,8 @@ class Pet(QWidget):
             a_comp_del = QAction(self.ui["comp_del"], m)
             m.addAction(a_comp_del)
         m.addSeparator()
+        a_settings = QAction(self.ui["settings"], m)
+        m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
         m.addAction(a_zone_edit)
         a_zone_clear = None
@@ -2479,6 +2553,8 @@ class Pet(QWidget):
             self._spawn_test_companion(+1)
         elif a_comp_del is not None and chosen == a_comp_del:
             self._spawn_test_companion(-1)
+        elif chosen == a_settings:
+            self._open_settings()
         elif chosen == a_zone_edit:
             self._enter_zone_edit()
         elif a_zone_clear is not None and chosen == a_zone_clear:
@@ -2501,6 +2577,26 @@ class Pet(QWidget):
         self.dnd = not self.dnd
         if getattr(self, "_act_dnd", None) is not None:
             self._act_dnd.setChecked(self.dnd)
+
+    def _open_settings(self):
+        """크리처 설정 페이지를 띄운다 (claudlet-config ui).
+
+        별도 프로세스로 detach 한다 — 서버를 이 안에서 돌리면 펫의 이벤트 루프가
+        멈춰 크리처가 얼어붙는다. 실패해도 조용히 넘어간다: 설정 창이 안 뜨는
+        것이 펫이 죽는 것보다 낫다."""
+        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui"]
+        kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL}
+        if hasattr(os, "setsid"):
+            kw["start_new_session"] = True          # POSIX: 펫과 함께 죽지 않게
+        env = dict(os.environ)
+        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
+        env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
+        env.pop("QT_QPA_PLATFORM", None)   # 펫은 xcb 를 강제한다; 미리보기는 offscreen
+        try:
+            subprocess.Popen(cmd, env=env, **kw)
+        except OSError:
+            pass
 
     def _spawn_test_companion(self, delta):
         """Test helper (right-click menu): make a companion appear/disappear
@@ -2655,7 +2751,7 @@ class Pet(QWidget):
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""
         u = 2
-        cw, ch = C.GRID_W * u, C.GRID_H * u
+        cw, ch = self.avatar.grid[0] * u, self.avatar.grid[1] * u
         side = max(cw, ch)
         pm = QPixmap(side, side)
         pm.fill(QColor(0, 0, 0, 0))
@@ -2663,7 +2759,7 @@ class Pet(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         ox = (side - cw) // 2
         oy = (side - ch) // 2
-        C.draw_creature(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
+        self.avatar.draw(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
         p.end()
         return QIcon(pm)
 

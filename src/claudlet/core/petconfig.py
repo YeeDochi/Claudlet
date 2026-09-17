@@ -100,8 +100,10 @@ def _clean(raw):
         lang = "auto"
 
     palette = raw.get("palette")
-    if palette not in _PALETTE_NAMES:
+    # a name from the table, or "#RRGGBB" for a colour the user picked
+    if palette not in _PALETTE_NAMES and derive_palette(palette) is None:
         palette = "auto"
+    scale = clamp_scale(raw.get("scale"))
 
     def _rect(v):
         if not isinstance(v, dict):
@@ -123,6 +125,7 @@ def _clean(raw):
     return {"tool_states": tools, "event_states": events,
             "raw_events": raw_events, "lang": lang,
             "roam_area": roam_area, "no_go": no_go, "palette": palette,
+            "scale": scale,
             "dock": _clean_dock(raw.get("dock"))}
 
 
@@ -151,6 +154,62 @@ def resolve_lang(value):
     return "ko" if loc.lower().startswith("ko") else "en"
 
 
+# Device pixels per art pixel. Integers only: a fractional scale splits art
+# pixels across device pixels, which is exactly the silhouette wobble v1.7.1
+# removed. The range is what stays legible on one end and fits a screen on the
+# other.
+DEFAULT_SCALE = 5
+MIN_SCALE, MAX_SCALE = 2, 12
+
+
+def clamp_scale(value):
+    """A usable integer scale from whatever the config holds. Pure."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_SCALE
+    return max(MIN_SCALE, min(MAX_SCALE, n))
+
+
+def _hex_to_rgb(h):
+    if not isinstance(h, str):
+        return None
+    h = h.strip()
+    if not h.startswith("#") or len(h) != 7:
+        return None
+    try:
+        return tuple(int(h[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+    except ValueError:
+        return None
+
+
+def derive_palette(base):
+    """A four-colour creature palette from one colour, or None if unusable.
+
+    The renderer wants body/highlight/shade/accent, but asking a person for
+    four colours asks them to keep four in harmony. Moving LIGHTNESS only --
+    hue and saturation untouched -- keeps them a family whatever colour is
+    picked; the amounts come from the hand-tuned palettes, whose highlights and
+    shades sit about this far from their body colour.
+
+    The hand-tuned palettes themselves are NOT re-derived. Running this on
+    `default`'s body misses its accent by a long way: #D0402E is a red alert
+    colour, not a darkened body. Keeping the existing creatures pixel-identical
+    beats a tidier rule. Pure."""
+    import colorsys
+    rgb = _hex_to_rgb(base)
+    if rgb is None:
+        return None
+    h, l, sat = colorsys.rgb_to_hls(*rgb)
+
+    def shift(dl):
+        r, g, b = colorsys.hls_to_rgb(h, max(0.0, min(1.0, l + dl)), sat)
+        return "#%02X%02X%02X" % (round(r * 255), round(g * 255), round(b * 255))
+
+    return {"body": shift(0.0), "hi": shift(0.16),
+            "lo": shift(-0.16), "bang": shift(-0.21)}
+
+
 def resolve_palette(config_value, roll, pick=0.0):
     """Map a config palette value to a concrete palette name.
 
@@ -164,12 +223,17 @@ def resolve_palette(config_value, roll, pick=0.0):
         return "default"
     if config_value in ("default",) + SHINY_PALETTES:
         return config_value
+    if isinstance(config_value, str) and config_value.startswith("#"):
+        # a colour the user picked: derived here rather than named. Returns the
+        # palette itself, which the renderer accepts in place of a name.
+        return derive_palette(config_value) or "default"
     return "default"
 
 
 def _empty_config():
     return {"tool_states": {}, "event_states": {}, "raw_events": {},
             "lang": "auto", "roam_area": None, "no_go": [], "palette": "auto",
+            "scale": DEFAULT_SCALE,
             "dock": default_dock()}
 
 
@@ -187,6 +251,42 @@ def load_config(path=None):
     return _clean(raw)
 
 
+def _read_raw(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_raw(raw, path):
+    """Replace config.json atomically. Silent on failure: not remembering a
+    setting beats taking the pet down."""
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)      # 반쯤 쓰인 config를 다른 펫이 읽지 않도록
+        return True
+    except OSError:
+        return False
+
+
+def save_keys(updates, path=None):
+    """Merge top-level keys into config.json and return the cleaned config.
+
+    Read-modify-write, like save_dock: the settings UI writes two keys and must
+    not erase the tools/events a user wrote by hand."""
+    path = path or config_path()
+    raw = _read_raw(path)
+    raw.update(updates)
+    _write_raw(raw, path)
+    return _clean(raw)
+
+
 def save_dock(updates, path=None):
     """config.json의 `dock` 하위 키만 병합해 저장하고 저장된 dock 섹션을 돌려준다.
 
@@ -196,24 +296,9 @@ def save_dock(updates, path=None):
     위치를 못 기억하는 것이 펫이 죽는 것보다 낫다.
     """
     path = path or config_path()
-    try:
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
-        if not isinstance(raw, dict):
-            raw = {}
-    except (OSError, ValueError):
-        raw = {}
+    raw = _read_raw(path)
     merged = dict(raw.get("dock") or {})
     merged.update(updates)
     raw["dock"] = merged
-    cleaned = _clean_dock(merged)
-    try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        tmp = "%s.%d.tmp" % (path, os.getpid())
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, path)          # 반쯤 쓰인 config를 다른 펫이 읽지 않도록
-    except OSError:
-        pass
-    return cleaned
+    _write_raw(raw, path)
+    return _clean_dock(merged)

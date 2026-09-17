@@ -178,6 +178,12 @@ def main(argv=None):
         created = init_config(path)
         print(("created " if created else "already exists: ") + path)
         return 0
+    if arg == "ui":
+        # 크리처 설정 페이지. 미리보기를 진짜 렌더러로 그려 주므로 별도 프로세스
+        # (여기)에서 Qt를 offscreen으로 띄운다.
+        from claudlet.cli import configui
+        configui.serve(open_browser="--no-open" not in argv)
+        return 0
     if arg == "open":
         print("opening " + open_config())
         return 0
