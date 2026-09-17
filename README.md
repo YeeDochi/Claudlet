@@ -62,6 +62,36 @@ pipx install claudlet
 claudlet-install      # registers the hooks + /claudlet skill (idempotent)
 ```
 
+### Other agents (Codex)
+
+claudlet isn't Claude-Code-only. `claudlet-install` (and `claudlet-install-hooks`)
+registers hooks for **every agent it finds** — Claude Code via
+`~/.claude/settings.json`, Codex via `~/.codex/hooks.json`. Narrow it when you
+want just one:
+
+```bash
+claudlet-install-hooks --agent codex          # only Codex
+claudlet-install-hooks --agent claude,codex   # both, explicitly
+claudlet-install-hooks --remove --agent codex # unhook just Codex
+```
+
+Codex runs hooks only when `~/.codex/config.toml` has:
+
+```toml
+[features]
+hooks = true
+```
+
+Other apps' hook entries in those files are left alone — claudlet only ever
+touches its own.
+
+When more than one agent is detected, the settings page (`claudlet-config`) grows
+an agent row, so Claude Code and Codex can wear **different creatures**.
+
+One difference worth knowing: Codex sends no `Notification` event, so the states
+Claude Code drives through it (permission prompt, idle nudge) don't fire for
+Codex — its own `PermissionRequest` covers the permission case instead.
+
 Check your version with `claudlet-version` (installed vs latest release). Update
 to the newest **release** with `pipx upgrade claudlet && claudlet-install`, or to
 the tip of **develop** (edge) with `pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install`.
@@ -206,7 +236,7 @@ writing your own.
 | `claudlet-version` | Show the installed version vs the latest PyPI release. |
 | `claudlet-attach` | Attach a pet to the current Claude Code session. |
 | `claudlet-motion <name>` | Play a motion on running pets (`jump`, `wave`, … ; `stop`, `list`). |
-| `claudlet-install-hooks` | Just the hooks half of `claudlet-install` (`--remove` to undo). |
+| `claudlet-install-hooks` | Just the hooks half of `claudlet-install`, for every detected agent (`--agent codex` to narrow, `--remove` to undo). |
 | `claudlet-macos-diag` | Print raw macOS window coordinates (perch troubleshooting). |
 | `claudlet-hook` | Internal — invoked by Claude Code's hooks, not by you. |
 

@@ -60,6 +60,34 @@ pipx install claudlet
 claudlet-install      # 훅 + /claudlet 스킬 등록 (idempotent)
 ```
 
+### 다른 에이전트 (Codex)
+
+claudlet은 Claude Code 전용이 아니에요. `claudlet-install`(과
+`claudlet-install-hooks`)은 **찾은 에이전트 전부**에 훅을 걸어요 — Claude Code는
+`~/.claude/settings.json`, Codex는 `~/.codex/hooks.json`. 하나만 걸고 싶으면:
+
+```bash
+claudlet-install-hooks --agent codex          # Codex만
+claudlet-install-hooks --agent claude,codex   # 둘 다, 명시적으로
+claudlet-install-hooks --remove --agent codex # Codex 훅만 제거
+```
+
+Codex는 `~/.codex/config.toml`에 이게 있어야 훅을 실행해요:
+
+```toml
+[features]
+hooks = true
+```
+
+그 파일에 들어있는 **다른 앱의 훅은 건드리지 않아요** — claudlet은 자기 것만 손댑니다.
+
+에이전트가 둘 이상 감지되면 설정 페이지(`claudlet-config`)에 에이전트 줄이 생겨서,
+Claude Code와 Codex에 **서로 다른 크리처**를 입힐 수 있어요.
+
+알아둘 차이 하나: Codex는 `Notification` 이벤트를 안 보내요. 그래서 Claude Code가
+그걸로 띄우던 상태(권한 요청·유휴 알림)는 Codex에선 안 떠요 — 대신 Codex의
+`PermissionRequest`가 권한 쪽을 맡습니다.
+
 버전 확인은 `claudlet-version` (설치본 vs 최신 릴리즈). **릴리즈** 최신으로는
 `pipx upgrade claudlet && claudlet-install`, **develop**(엣지) 최신으로는
 `pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install`.
@@ -196,7 +224,7 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 | `claudlet-version` | 설치된 버전 vs PyPI 최신 릴리즈 표시. |
 | `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
 | `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
-| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만 (`--remove`로 취소). |
+| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만, 감지된 에이전트 전부에 (`--agent codex`로 좁히기, `--remove`로 취소). |
 | `claudlet-macos-diag` | macOS 창 좌표 원본 출력 (perch 문제 진단). |
 | `claudlet-hook` | 내부용 — Claude Code 훅이 호출, 직접 쓰는 게 아님. |
 
