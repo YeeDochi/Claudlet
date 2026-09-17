@@ -994,8 +994,16 @@ class Pet(QWidget):
         cfg = petconfig.load_config()
         before = (self.u, self.avatar.name)
         want = _avatar_name(cfg, self.agent)
-        if want and want != self.avatar.name:
-            self.avatar = avatars.get(want)     # 크리처를 갈아입는다
+        # Compare against the RESOLVED avatar's name, not the requested one: an
+        # unresolvable name (e.g. a registry default whose creature package
+        # isn't installed) falls back to the same built-in every time, and
+        # comparing the raw request against self.avatar.name would never
+        # match -- re-running avatars.get() (a registry rescan) on every
+        # restyle forever instead of settling once resolved.
+        if want:
+            resolved = avatars.get(want)
+            if resolved.name != self.avatar.name:
+                self.avatar = resolved          # 크리처를 갈아입는다
         self._apply_style(cfg)
         if (self.u, self.avatar.name) != before:
             self._resize_to_avatar()
@@ -2636,7 +2644,8 @@ class Pet(QWidget):
         별도 프로세스로 detach 한다 — 서버를 이 안에서 돌리면 펫의 이벤트 루프가
         멈춰 크리처가 얼어붙는다. 실패해도 조용히 넘어간다: 설정 창이 안 뜨는
         것이 펫이 죽는 것보다 낫다."""
-        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui"]
+        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui",
+               "--agent", self.agent]
         kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
               "stderr": subprocess.DEVNULL}
         if hasattr(os, "setsid"):

@@ -35,10 +35,13 @@ AGENTS = {
         # Measured from the codex 0.147.0 native binary's strings, corroborated
         # by Codex's own plugin hooks.json (which registers SessionEnd). No
         # Notification, no StopFailure. Adds PermissionRequest (its "may I?"
-        # prompt) and the subagent/compaction events Claude Code also has.
+        # prompt). SubagentStop is kept (state_engine.handle branches on it),
+        # but SubagentStart and PreCompact are deliberately left out: neither
+        # reaches any branch in state_engine.handle, so registering them would
+        # only spawn a Python process per event for nothing.
         "events": ["SessionStart", "SessionEnd", "UserPromptSubmit",
                    "PreToolUse", "PostToolUse", "PermissionRequest", "Stop",
-                   "SubagentStart", "SubagentStop", "PreCompact"],
+                   "SubagentStop"],
         "tool_events": ["PreToolUse", "PostToolUse"],
         "avatar": "codex",
         # The only tool_name values evidenced on this version are "exec" (the

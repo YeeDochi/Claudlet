@@ -194,15 +194,22 @@ def _already_installed(install_hooks):
     BEFORE install_hooks.main() runs (which registers them and would make every
     run look installed). `is_ours` also matches the pre-rename claude-pet
     markers, so upgrading from an old version still counts as an update. Any
-    read error -> treat as a fresh install (show both links; harmless)."""
-    try:
-        for name in agents.detected():
+    read error -> treat that agent as not-yet-installed (harmless) rather than
+    aborting the whole check -- a corrupt file for one agent must not block
+    detection (or later installation) for the others."""
+    for name in agents.detected():
+        try:
             s = install_hooks.load(agents.settings_path(name))
+        except BaseException:
+            # install_hooks.load() raises SystemExit (not just Exception) on a
+            # corrupt/unreadable settings file.
+            continue
+        try:
             for groups in s.get("hooks", {}).values():
                 if any(install_hooks.is_ours(g) for g in groups):
                     return True
-    except Exception:
-        pass
+        except Exception:
+            continue
     return False
 
 

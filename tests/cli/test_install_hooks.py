@@ -150,3 +150,46 @@ def test_install_with_nothing_detected_writes_nothing(tmp_path, capsys):
     ih.main([], home=home)
     assert not list(tmp_path.iterdir())
     assert "no agent" in capsys.readouterr().out.lower()
+
+
+def test_hook_command_source_checkout_fallback_path_exists():
+    # hook_command()'s fallback (used when the `claudlet-hook` console script
+    # isn't on PATH, e.g. a source checkout) computes <repo>/bin/claudlet-hook
+    # by walking up from this file. If a future house-move of install_hooks.py
+    # changes the nesting depth without updating the dirname count, this must
+    # fail loudly here instead of silently registering hooks that 404 on
+    # every single event with ModuleNotFoundError.
+    repo_bin = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(ih.__file__))))),
+        "bin", "claudlet-hook")
+    assert os.path.exists(repo_bin), repo_bin
+
+
+def test_remove_on_a_never_installed_agent_creates_nothing(tmp_path):
+    # Removing hooks for an agent that has no settings file must not CREATE
+    # one -- "--remove" should never leave a fresh {} file (or its directory)
+    # behind for an agent that was never configured.
+    home = _home_with(tmp_path, "codex")
+    ih.main(["--remove", "--agent", "codex"], home=home)
+    assert not (tmp_path / ".codex" / "hooks.json").exists()
+
+
+def test_remove_sweeps_orphaned_events_the_registry_no_longer_lists(tmp_path):
+    # If an agent's event list is ever narrowed (as codex's was: SubagentStart
+    # and PreCompact dropped), --remove must still clear a claudlet group
+    # living under an event the CURRENT registry no longer declares, or it
+    # would keep firing after an "uninstall".
+    home = _home_with(tmp_path, "codex")
+    path = tmp_path / ".codex" / "hooks.json"
+    path.write_text(json.dumps({"hooks": {
+        "SubagentStart": [{"hooks": [
+            {"type": "command", "command": "claudlet-hook SubagentStart --agent codex"}]}],
+        "Stop": [{"hooks": [
+            {"type": "command", "command": "claudlet-hook Stop --agent codex"}]}],
+    }}))
+
+    ih.main(["--remove", "--agent", "codex"], home=home)
+
+    data = json.loads(path.read_text())
+    assert "hooks" not in data

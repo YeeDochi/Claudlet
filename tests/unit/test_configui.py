@@ -256,6 +256,50 @@ def test_wearing_a_creature_writes_only_that_agents_key(monkeypatch):
     assert saved["avatar"] == {"claude": "claudlet", "codex": "slime"}
 
 
+def test_save_and_reset_js_post_the_agent_too(tmp_path, monkeypatch):
+    # The "wear" button already posted {agent: S.agent, ...}; save/reset did
+    # not, so current_agent() fell back to the default agent and the page
+    # snapped back to it after every save/reset on a non-default agent.
+    _cfg(tmp_path, monkeypatch)
+    pg = U.page({})
+    save_call = pg[pg.index('$("save").addEventListener'):]
+    save_call = save_call[:save_call.index(");\n$(\"wear\")")]
+    assert "agent: S.agent" in save_call
+    reset_call = pg[pg.index('$("reset").addEventListener'):]
+    assert "agent: S.agent" in reset_call
+
+
+def test_serve_initial_agent_seeds_the_first_state_response(monkeypatch):
+    # pet.py threads its own self.agent through `configcli ui --agent ...`
+    # into configui.serve(agent=...); the FIRST /api/state fetch (no query
+    # string yet) must reflect it, or a Codex pet's settings page would still
+    # open showing Claude.
+    import threading
+    import urllib.request
+    from http.server import HTTPServer
+
+    monkeypatch.setattr(agents, "detected", lambda home=None: ["claude", "codex"])
+    srv = HTTPServer(("127.0.0.1", 0), U._handler_class(initial_agent="codex"))
+    srv.timeout = 5
+    t = threading.Thread(target=srv.handle_request, daemon=True)
+    t.start()
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:%d/api/state" % srv.server_port, timeout=5) as r:
+            data = json.loads(r.read())
+        assert data["agent"] == "codex"
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+
+
+def test_current_agent_takes_only_the_body(tmp_path, monkeypatch):
+    # the `cfg` parameter was unused dead weight
+    assert U.current_agent({"agent": "codex"}) == "codex"
+    assert U.current_agent({}) == agents.DEFAULT
+    assert U.current_agent({"agent": "nonsense"}) == agents.DEFAULT
+
+
 def test_legacy_string_avatar_is_promoted_without_losing_the_choice(monkeypatch):
     saved = {}
     monkeypatch.setattr(agents, "detected", lambda home=None: ["claude", "codex"])

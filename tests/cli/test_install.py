@@ -1,3 +1,4 @@
+import json
 import os
 
 from claudlet.cli import install as I
@@ -42,6 +43,30 @@ def test_link_skill_keeps_a_junction_pointing_at_the_skill(monkeypatch, tmp_path
 
     assert I._link_skill() == (link, None)
     assert os.path.isdir(link)                      # left in place, not clobbered
+
+
+def test_already_installed_survives_a_corrupt_file_for_one_agent(monkeypatch, tmp_path):
+    # install_hooks.load() raises SystemExit (a BaseException, not caught by a
+    # plain `except Exception`) on a corrupt/unreadable settings file. One bad
+    # ~/.codex/hooks.json must not abort detection for claude too, or
+    # claudlet-install would die before the Claude Code hooks got installed.
+    from claudlet.cli import install_hooks
+
+    home = tmp_path
+    os.makedirs(home / ".claude", exist_ok=True)
+    (home / ".claude" / "settings.json").write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "command", "command": "claudlet-hook Stop"}]}]
+    }}))
+    os.makedirs(home / ".codex", exist_ok=True)
+    (home / ".codex" / "hooks.json").write_text("{ not json")
+
+    monkeypatch.setattr("claudlet.core.agents.detected",
+                        lambda home=None: ["claude", "codex"])
+    monkeypatch.setattr("claudlet.core.agents.settings_path",
+                        lambda name, home=None: str(tmp_path / ("." + name) /
+                            ("settings.json" if name == "claude" else "hooks.json")))
+
+    assert I._already_installed(install_hooks) is True   # claude's hook still found
 
 
 def test_link_skill_warns_on_a_foreign_directory(monkeypatch, tmp_path):

@@ -48,7 +48,7 @@ def _agent_rows(cfg, current):
             for n in det]
 
 
-def current_agent(body, cfg):
+def current_agent(body):
     """Which agent the page is dressing. The page posts it; absent (or unknown)
     means the default agent, which is also what a single-agent machine has."""
     a = (body or {}).get("agent")
@@ -127,7 +127,7 @@ def apply(body, broadcast=None):
     `broadcast` is injectable so tests don't reach for sockets. Returns the
     payload the page redraws from, plus how many pets took it."""
     cfg = petconfig.load_config()
-    agent = current_agent(body, cfg)
+    agent = current_agent(body)
     # which creature is worn is a top-level choice; how it LOOKS is stored under
     # that creature, so picking a colour for the slime cannot repaint claudlet.
     top = {}
@@ -451,15 +451,15 @@ async function post(body, note) {
   return out;
 }
 $("save").addEventListener("click", async () =>
-  fill(await post({creature: editing, palette: $("col").value,
+  fill(await post({agent: S.agent, creature: editing, palette: $("col").value,
                    scale: +$("scale").value, visor: visorNow()},
                   T.saved.replace("%s", editing))));
 $("wear").addEventListener("click", async () =>
   fill(await post({agent: S.agent, avatar: editing}, T.switched.replace("%s", editing))));
 $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
-  fill(await post({creature: editing, palette: null, scale: null, visor: null},
-                  T.reverted.replace("%s", editing))));
+  fill(await post({agent: S.agent, creature: editing, palette: null, scale: null,
+                   visor: null}, T.reverted.replace("%s", editing))));
 fetch("/api/state").then((r) => r.json()).then(fill);
 // Tell the server the page is still open. It stops when this stops, which is
 // what closing the tab looks like from its side — otherwise a settings page
@@ -484,7 +484,7 @@ def page(cfg=None):
     return out
 
 
-def _handler_class():
+def _handler_class(initial_agent=None):
     from http.server import BaseHTTPRequestHandler
     from urllib.parse import parse_qs, urlparse
 
@@ -517,7 +517,8 @@ def _handler_class():
                 return self._json({"ok": True})
             if u.path == "/api/state":
                 q = parse_qs(u.query)
-                return self._json(state_payload(agent=q.get("agent", [None])[0]))
+                agent = q.get("agent", [None])[0] or initial_agent
+                return self._json(state_payload(agent=agent))
             if u.path == "/api/preview":
                 q = parse_qs(u.query)
                 png = render_png(q.get("palette", ["auto"])[0],
@@ -547,13 +548,17 @@ def _handler_class():
     return Handler
 
 
-def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT):
+def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None):
     """Run the settings page for as long as it is open. Returns the URL.
+
+    `agent` is which agent's pet opened this page (optional; defaults to
+    the registry default agent, the prior behaviour) -- so a right-click on a
+    Codex pet opens on Codex instead of always on Claude.
 
     Stops on Ctrl-C, and on its own once the page has stopped saying it is
     there — which is what closing the tab looks like from here."""
     from http.server import HTTPServer
-    srv = HTTPServer(("127.0.0.1", 0), _handler_class())
+    srv = HTTPServer(("127.0.0.1", 0), _handler_class(agent))
     srv.timeout = 5                     # wake up often enough to notice silence
     srv.last_seen = time.monotonic()
     url = "http://127.0.0.1:%d/" % srv.server_port

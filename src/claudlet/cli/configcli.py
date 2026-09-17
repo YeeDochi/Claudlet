@@ -182,7 +182,13 @@ def main(argv=None):
         # 크리처 설정 페이지. 미리보기를 진짜 렌더러로 그려 주므로 별도 프로세스
         # (여기)에서 Qt를 offscreen으로 띄운다.
         from claudlet.cli import configui
-        configui.serve(open_browser="--no-open" not in argv)
+        agent = None
+        for i, a in enumerate(argv):
+            if a == "--agent" and i + 1 < len(argv):
+                agent = argv[i + 1]
+            elif a.startswith("--agent="):
+                agent = a.split("=", 1)[1]
+        configui.serve(open_browser="--no-open" not in argv, agent=agent)
         return 0
     if arg == "open":
         print("opening " + open_config())

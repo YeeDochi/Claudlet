@@ -39,7 +39,8 @@ def hook_command():
     if exe:
         return _quote(exe)
     repo_bin = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))),
         "bin", "claudlet-hook")
     if os.path.exists(repo_bin):
         if os.name == "nt":
@@ -129,9 +130,16 @@ def targets(argv, home=None):
 def install_for(agent, path, remove=False):
     """Register (or drop) our hook groups in one agent's config file."""
     spec = agents.get(agent)
+    if remove and not os.path.exists(path):
+        return          # nothing installed for this agent -- don't create the file
     s = load(path)
     hooks = s.get("hooks", {})
-    for ev in spec["events"]:
+    # On remove, sweep every event the FILE lists too, not just what the
+    # current registry declares: if an agent's event list is ever narrowed,
+    # a claudlet group under a dropped event would otherwise survive
+    # `--remove` and keep firing.
+    events = (set(spec["events"]) | set(hooks)) if remove else spec["events"]
+    for ev in events:
         # drop any existing claudlet groups first (idempotent)
         hooks[ev] = [g for g in hooks.get(ev, []) if not is_ours(g)]
         if not remove:

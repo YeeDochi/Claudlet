@@ -77,7 +77,7 @@ def build_message(argv, data, title=None):
     the caller reads it off the console and passes it in.
     """
     event = (argv[1] if len(argv) > 1 else "") or data.get("hook_event_name", "")
-    msg = {"event": event, "session": data.get("session_id") or "default"}
+    msg = {"event": event, "session": session_of(data)}
     if title:
         msg["title"] = title
     for key in ("tool_name", "notification_type", "error_type",
@@ -109,10 +109,6 @@ def build_message(argv, data, title=None):
         msg["bg_agents"] = sum(1 for b in running
                                if b.get("type") == "subagent")          # other agents
     return json.dumps(msg) + "\n"
-
-
-def sock_for(data):
-    return hostinfo.read_session_port(data.get("session_id") or "default")
 
 
 def resolve_claude_pid(start_pid, proc_info, max_hops=32, needle="claude"):

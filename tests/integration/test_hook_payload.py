@@ -31,14 +31,6 @@ def test_missing_fields_omitted():
     assert "tool_name" not in msg
 
 
-def test_sock_for_uses_session(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    assert mod.sock_for({"session_id": "xyz"}) is None       # no pet running yet
-    (tmp_path / "claudlet-xyz.port").write_text("54321")
-    assert mod.sock_for({"session_id": "xyz"}) == 54321
-    assert mod.sock_for({}) is None
-
-
 def _run_main(monkeypatch, session_id, pet_alive_result, launch_calls, sent):
     monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: pet_alive_result)
     monkeypatch.setattr(mod, "_launch_pet",
@@ -285,3 +277,19 @@ def test_build_message_still_carries_event_and_session():
     msg = json.loads(line)
     assert msg["event"] == "PreToolUse" and msg["session"] == "s1"
     assert msg["tool_name"] == "shell"
+
+
+def test_build_message_uses_session_of_for_a_codex_payload_with_no_session_id():
+    # main() keys the port file with session_of(data) (which falls back to the
+    # transcript's rollout UUID for Codex, which sends no session_id). If
+    # build_message used data.get("session_id") or "default" instead, the pet
+    # would be found by its real uuid while every message told the engine the
+    # session was "default" -- two different rules for "which session is this".
+    uuid = "01a0acb1-0899-7763-8512-b9d0b28c1f02"
+    data = {"transcript_path":
+            "/home/u/.codex/sessions/2026/09/17/rollout-2026-09-17T09-07-58-%s.jsonl" % uuid,
+            "tool_name": "exec"}
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "PreToolUse", "--agent", "codex"], data))
+    assert msg["session"] == uuid
+    assert msg["session"] == mod.session_of(data)

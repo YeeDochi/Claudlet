@@ -41,8 +41,11 @@ def test_codex_event_set_matches_what_codex_supports():
     ev = agents.AGENTS["codex"]["events"]
     for present in ("SessionStart", "SessionEnd", "UserPromptSubmit",
                     "PreToolUse", "PostToolUse", "PermissionRequest",
-                    "Stop", "SubagentStart", "SubagentStop", "PreCompact"):
+                    "Stop", "SubagentStop"):
         assert present in ev, present
-    for missing in ("Notification", "StopFailure"):
+    # SubagentStart and PreCompact are deliberately left out: neither reaches
+    # any branch in state_engine.handle, so registering them would only spawn
+    # a Python process per event for nothing.
+    for missing in ("Notification", "StopFailure", "SubagentStart", "PreCompact"):
         assert missing not in ev, missing
     assert agents.AGENTS["codex"]["raw_events"]["PermissionRequest"] == "attention"

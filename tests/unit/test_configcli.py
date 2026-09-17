@@ -152,3 +152,29 @@ def test_main_open_invokes_launcher(tmp_path, monkeypatch):
 
     assert rc == 0
     assert launched == [os.path.abspath(str(cfg))]
+
+
+def test_main_ui_threads_the_agent_flag_through_to_configui(monkeypatch):
+    # A pet right-clicked on a Codex pet must open the settings page already
+    # showing Codex, not always the default agent -- see pet.py's
+    # _open_settings, which passes `--agent <self.agent>` into this command.
+    calls = []
+    from claudlet.cli import configui
+    monkeypatch.setattr(configui, "serve",
+                        lambda **kw: calls.append(kw) or "http://x")
+
+    rc = C.main(["ui", "--agent", "codex", "--no-open"])
+
+    assert rc == 0
+    assert calls == [{"open_browser": False, "agent": "codex"}]
+
+
+def test_main_ui_agent_flag_is_optional(monkeypatch):
+    calls = []
+    from claudlet.cli import configui
+    monkeypatch.setattr(configui, "serve",
+                        lambda **kw: calls.append(kw) or "http://x")
+
+    C.main(["ui"])
+
+    assert calls == [{"open_browser": True, "agent": None}]

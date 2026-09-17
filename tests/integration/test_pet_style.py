@@ -102,6 +102,24 @@ def test_restyle_keeps_the_shiny_a_pet_was_born_with(tmp_path, monkeypatch):
         p._cleanup()
 
 
+def test_restyle_settles_an_unresolvable_avatar_name(tmp_path, monkeypatch):
+    # An agent's registry default can name a creature package that isn't
+    # shipped in this repo (only in the author's ~/.config/claudlet/creatures/).
+    # Comparing the REQUESTED name against self.avatar.name can never match in
+    # that case, so avatars.get() (a registry rescan) used to re-run on every
+    # restyle forever. Comparing the RESOLVED avatar's name instead settles:
+    # once fallen back to the built-in, a second restyle leaves p.avatar alone.
+    _config(tmp_path, monkeypatch, avatar="no-such-creature-package")
+    p = P.Pet(session_id="unresolvable")
+    try:
+        first = p.avatar
+        assert first.name == "claudlet"          # unresolvable name falls back
+        p._handle_event({"cmd": "restyle"})
+        assert p.avatar is first                 # settled: no needless re-swap
+    finally:
+        p._cleanup()
+
+
 def test_the_floor_line_follows_the_scale(tmp_path, monkeypatch):
     """The foot line was pinned to the default scale, so an enlarged pet stood
     with the floor running through the middle of its body."""
