@@ -866,14 +866,15 @@ def test_refetching_state_shows_what_another_writer_changed(tmp_path, monkeypatc
 # ---------- export/import moved onto the creature row (no more Share tab) ----------
 
 def test_export_and_import_buttons_flank_the_dropdown_trigger():
+    # mockup layout: import (inward arrow) sits OUTSIDE the dropdown, to its
+    # left; export (outward arrow) sits INSIDE the wide bar, at its right
+    # end, after the trigger -- the reverse of the old arrangement
     pg = U.page({})
-    picker = pg[pg.index('<div class="picker">'):pg.index('id="pickPanel"')]
-    # import (inward arrow) above-left, export (outward arrow) immediately
-    # left of the trigger -- both before pickTrigger in DOM order
-    assert picker.index('id="importBtn"') < picker.index('id="exportBtn"')
-    assert picker.index('id="exportBtn"') < picker.index('id="pickTrigger"')
-    assert "corner-btn" in picker[:picker.index('id="exportBtn"')]
-    assert "<svg" in picker
+    row = pg[pg.index('<div class="row creature-row">'):pg.index('id="pickPanel"')]
+    assert row.index('id="importBtn"') < row.index('<div class="picker">')
+    bar = row[row.index('<div class="dropdown-bar">'):]
+    assert bar.index('id="pickTrigger"') < bar.index('id="exportBtn"')
+    assert "<svg" in row
 
 
 def test_export_and_import_buttons_carry_localised_title_and_aria_label():
@@ -881,11 +882,11 @@ def test_export_and_import_buttons_carry_localised_title_and_aria_label():
     for pg, export_label, import_label in (
             (ko, U.TEXT["ko"]["export"], U.TEXT["ko"]["import"]),
             (en, U.TEXT["en"]["export"], U.TEXT["en"]["import"])):
-        picker = pg[pg.index('<div class="picker">'):pg.index('id="pickPanel"')]
-        assert ('title="%s"' % export_label) in picker
-        assert ('aria-label="%s"' % export_label) in picker
-        assert ('title="%s"' % import_label) in picker
-        assert ('aria-label="%s"' % import_label) in picker
+        row = pg[pg.index('<div class="row creature-row">'):pg.index('id="pickPanel"')]
+        assert ('title="%s"' % export_label) in row
+        assert ('aria-label="%s"' % export_label) in row
+        assert ('title="%s"' % import_label) in row
+        assert ('aria-label="%s"' % import_label) in row
 
 
 def test_export_click_posts_the_creature_being_viewed_with_optional_destination():

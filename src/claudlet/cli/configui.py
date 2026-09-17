@@ -517,26 +517,32 @@ body{margin:0;background:var(--bg);color:var(--fg);
 header{flex:0 0 auto}
 .wrap{width:100%;max-width:var(--w);margin:0 auto;padding:0 28px}
 header{border-bottom:1px solid var(--line);background:#191920}
-.bar{display:flex;align-items:baseline;gap:14px;padding:22px 0 14px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+        overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    padding:14px 0}
 h1{margin:0;font-size:18px;letter-spacing:.2px}
-.bar p{margin:0;color:var(--dim);font-size:13px;flex:1;min-width:0}
 nav.tabs{display:flex;gap:4px}
 nav.tabs button{background:none;color:var(--dim);border:0;border-bottom:2px solid transparent;
                 border-radius:8px 8px 0 0;padding:10px 18px;font-weight:600;font-size:14px}
 nav.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent);
                                     background:var(--card)}
-main{padding:24px 0 28px;flex:1 1 auto;min-height:0;overflow:hidden}
-#dress{height:100%;display:flex;flex-direction:column}
+main{padding:16px 0 28px;flex:1 1 auto;min-height:0;overflow:hidden}
+/* the only pane that scrolls at rest is the preview box (#shots); every other
+   row here (creature bar, worn/wear line, colour/size/visor line) always
+   stays on screen -- that's the point of this layout. */
+#dress{height:100%;display:flex;flex-direction:column;gap:12px;min-height:0}
 section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;
         min-height:0;display:flex;flex-direction:column}
 h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
    text-transform:uppercase;letter-spacing:.6px}
-#settings{flex:1 1 auto;overflow-y:auto}
+#settings{flex:1 1 auto;overflow:hidden}
 .worn,.notworn{display:inline-block;padding:1px 8px;
                border-radius:999px;font-size:11px;font-weight:600}
 .worn{background:#1F7A4D;color:#DFF7EA}
 .notworn{background:#26262E;color:var(--dim)}
-.row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;
+    flex:0 0 auto}
 label{width:64px;color:var(--dim)}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
@@ -545,11 +551,18 @@ input[type=text]{flex:1;min-width:180px;background:var(--sunk);
                  border:1px solid var(--line);color:var(--fg);
                  border-radius:7px;padding:8px 10px;font:inherit}
 code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
-.picker{position:relative}
-.card-trigger{display:flex;align-items:center;gap:8px;background:var(--sunk);
-              color:var(--fg);border:1px solid var(--line);border-radius:8px;
-              padding:6px 12px;font-weight:500;min-width:160px;cursor:pointer}
-.card-trigger img{width:24px;height:24px;image-rendering:pixelated}
+/* creature row: a standalone import button to the LEFT, then one wide bar
+   (the dropdown trigger + the export button) spanning the rest of the row */
+.creature-row{margin-bottom:0}
+.picker{position:relative;flex:1 1 auto;min-width:0}
+.dropdown-bar{display:flex;align-items:center;gap:6px;background:var(--sunk);
+             border:1px solid var(--line);border-radius:8px;padding:4px 4px 4px 10px}
+.dropdown-bar .icon-btn{border:0}
+.card-trigger{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;
+              background:none;color:var(--fg);border:0;
+              padding:6px 4px;font-weight:500;cursor:pointer;text-align:left}
+.card-trigger img{width:24px;height:24px;image-rendering:pixelated;flex:0 0 auto}
+.card-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:20;
             min-width:220px;max-height:45vh;overflow-y:auto;
             background:var(--card);border:1px solid var(--line);border-radius:10px;
@@ -566,14 +579,13 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
           color:var(--dim);padding:6px;display:inline-flex;cursor:pointer}
 .icon-btn svg{display:block}
 .icon-btn:hover{color:var(--fg);border-color:var(--accent)}
-.corner-btn{position:absolute;top:-26px;left:0;padding:3px;border-radius:6px}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);
                 display:flex;align-items:center;justify-content:center;z-index:50}
 .modal-backdrop[hidden]{display:none}
 .modal{background:var(--card);border:1px solid var(--line);border-radius:12px;
        padding:20px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto}
 #shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
-       min-height:120px;max-height:46vh;overflow-y:auto;
+       flex:1 1 auto;min-height:120px;overflow-y:auto;
        padding:14px;background:var(--sunk);border-radius:9px}
 #shots figure{margin:0;text-align:center}
 #shots img{display:block;image-rendering:pixelated}
@@ -595,34 +607,45 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
   main{overflow:visible}
   #dress,#settings,#shots{max-height:none;overflow:visible}
   .wrap{padding:0 16px}
-  .bar{flex-wrap:wrap;gap:8px}
-  .bar p{flex-basis:100%;order:3}
   label{width:100%}
 }
 </style>
 <header><div class="wrap">
+  <h1 class="sr-only">__T_title__</h1>
+  <p class="sr-only">__T_lead__</p>
   <div class="bar">
-    <h1>__T_title__</h1>
-    <p>__T_lead__</p>
-    <button id="refresh" class="ghost">__T_refresh__</button>
+    <nav class="tabs" id="tabs"></nav>
+    <button type="button" id="refresh" class="icon-btn"
+            title="__T_refresh__" aria-label="__T_refresh__">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+        <path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+        <path d="M3 21v-5h5"/>
+      </svg>
+    </button>
   </div>
-  <nav class="tabs" id="tabs"></nav>
 </div></header>
 <main class="wrap">
   <div id="dress">
-    <section id="settings">
-      <div class="row">
-        <label id="pickLabel">__T_creatures__</label>
-        <div class="picker">
-          <button type="button" id="importBtn" class="icon-btn corner-btn"
-                  title="__T_import__" aria-label="__T_import__">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
-                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                 stroke-linejoin="round">
-              <path d="M12 13V3M12 13l4-4M12 13l-4-4"/>
-              <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
-            </svg>
-          </button>
+    <div class="row creature-row">
+      <button type="button" id="importBtn" class="icon-btn"
+              title="__T_import__" aria-label="__T_import__">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round">
+          <path d="M12 13V3M12 13l4-4M12 13l-4-4"/>
+          <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
+        </svg>
+      </button>
+      <div class="picker">
+        <span id="pickLabel" class="sr-only">__T_creatures__</span>
+        <div class="dropdown-bar">
+          <button type="button" id="pickTrigger" class="card-trigger"
+                  aria-haspopup="listbox" aria-expanded="false"
+                  aria-controls="pickPanel" aria-labelledby="pickLabel"></button>
           <button type="button" id="exportBtn" class="icon-btn"
                   title="__T_export__" aria-label="__T_export__">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
@@ -632,46 +655,41 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
               <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
             </svg>
           </button>
-          <button type="button" id="pickTrigger" class="card-trigger"
-                  aria-haspopup="listbox" aria-expanded="false"
-                  aria-controls="pickPanel" aria-labelledby="pickLabel"></button>
-          <div id="pickPanel" class="card-panel" role="listbox" hidden></div>
         </div>
-        <button id="wearTop" class="ghost">__T_wear__</button>
-        <span id="wornBadge"></span>
+        <div id="pickPanel" class="card-panel" role="listbox" hidden></div>
       </div>
-      <div class="row" id="exportResultRow">
-        <span id="exportResult"></span>
+    </div>
+    <div class="row" id="exportResultRow">
+      <span id="exportResult"></span>
+    </div>
+    <details id="exportMore">
+      <summary>__T_export_dest__</summary>
+      <div class="row">
+        <input type="text" id="exportOut" placeholder="__T_export_dest_placeholder__">
       </div>
-      <details id="exportMore">
-        <summary>__T_export_dest__</summary>
-        <div class="row">
-          <input type="text" id="exportOut" placeholder="__T_export_dest_placeholder__">
-        </div>
-      </details>
+    </details>
+    <section id="settings">
       <h2 id="who"></h2>
-      <div class="row">
-        <label for="col">__T_colour__</label>
-        <input type="color" id="col">
-        <code id="hex"></code>
-        <span id="isnamed" style="color:var(--dim)"></span>
-      </div>
-      <div class="row">
-        <label for="scale">__T_size__</label>
-        <input type="range" id="scale" min="2" max="12" step="1">
-        <code id="scaleval"></code>
-      </div>
-      <div class="row">
-        <label>__T_special__</label>
-        <div id="visor" class="seg"></div>
-      </div>
-      <div id="shots"></div>
-      <div class="row" style="margin:18px 0 0">
+      <div class="row" id="wornRow">
+        <span id="wornBadge"></span>
+        <button id="wearTop" class="ghost">__T_wear__</button>
         <button id="save">__T_save__</button>
         <button id="wear" class="ghost">__T_wear__</button>
         <button id="reset" class="ghost">__T_reset__</button>
         <span id="said"></span>
       </div>
+      <div class="row" id="colorSizeRow">
+        <label for="col">__T_colour__</label>
+        <input type="color" id="col">
+        <code id="hex"></code>
+        <span id="isnamed" style="color:var(--dim)"></span>
+        <label for="scale">__T_size__</label>
+        <input type="range" id="scale" min="2" max="12" step="1">
+        <code id="scaleval"></code>
+        <label>__T_special__</label>
+        <div id="visor" class="seg"></div>
+      </div>
+      <div id="shots"></div>
     </section>
   </div>
 </main>
