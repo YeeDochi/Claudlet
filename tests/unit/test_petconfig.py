@@ -225,3 +225,31 @@ def test_a_creature_setting_always_wins():
     cfg = petconfig._clean({"palette": "#4A90D9",
                             "creatures": {"slime": {"palette": "#FF0000"}}})
     assert petconfig.for_creature(cfg, "slime", _Slime)["palette"] == "#FF0000"
+
+
+def test_avatar_accepts_a_per_agent_map(tmp_path):
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text('{"avatar": {"claude": "claudlet", "codex": "codex"}}')
+    cfg = petconfig.load_config(str(cfg_file))     # load_config(path=None)
+    assert cfg["avatar"] == {"claude": "claudlet", "codex": "codex"}
+
+
+def test_avatar_for_resolves_map_string_and_missing():
+    m = {"avatar": {"claude": "claudlet", "codex": "codex"}}
+    assert petconfig.avatar_for(m, "codex") == "codex"
+    assert petconfig.avatar_for(m, "claude") == "claudlet"
+    # agent absent from the map -> that agent's registry default
+    assert petconfig.avatar_for(m, "gemini") is None
+
+    s = {"avatar": "slime"}          # legacy single choice = every agent
+    assert petconfig.avatar_for(s, "codex") == "slime"
+    assert petconfig.avatar_for(s, "claude") == "slime"
+
+    assert petconfig.avatar_for({}, "claude") is None
+
+
+def test_avatar_map_entries_must_be_strings():
+    cleaned = petconfig.clean_avatar({"claude": "claudlet", "codex": 5, 7: "x"})
+    assert cleaned == {"claude": "claudlet"}
+    assert petconfig.clean_avatar("slime") == "slime"
+    assert petconfig.clean_avatar(17) is None

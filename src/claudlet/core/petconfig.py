@@ -104,8 +104,7 @@ def _clean(raw):
     if palette not in _PALETTE_NAMES and derive_palette(palette) is None:
         palette = "auto"
     scale = clamp_scale(raw.get("scale"))
-    avatar = raw.get("avatar")
-    avatar = avatar if isinstance(avatar, str) and avatar else None
+    avatar = clean_avatar(raw.get("avatar"))
     creatures = _clean_creatures(raw.get("creatures"))
 
     def _rect(v):
@@ -377,3 +376,26 @@ def save_dock(updates, path=None):
     raw["dock"] = merged
     _write_raw(raw, path)
     return _clean_dock(merged)
+
+
+def clean_avatar(raw):
+    """The worn creature: one name for every agent (legacy), or a per-agent map
+    {"claude": "claudlet", "codex": "codex"}. Junk entries are dropped rather
+    than failing the whole config."""
+    if isinstance(raw, str) and raw:
+        return raw
+    if isinstance(raw, dict):
+        out = {k: v for k, v in raw.items()
+               if isinstance(k, str) and isinstance(v, str) and v}
+        return out or None
+    return None
+
+
+def avatar_for(cfg, agent):
+    """Creature this agent's pet wears per the user's config, or None when the
+    user has not chosen -- the caller then falls back to the agent's registry
+    default and finally to the built-in."""
+    a = (cfg or {}).get("avatar")
+    if isinstance(a, dict):
+        return a.get(agent)
+    return a if isinstance(a, str) and a else None

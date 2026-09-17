@@ -57,12 +57,13 @@ from claudlet.platform import geom
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
-def _avatar_name(cfg=None):
+def _avatar_name(cfg=None, agent=None):
     """Which creature to wear. Env beats config so one pet can be run as
-    somebody else without changing everyone's setting. An unknown name falls
-    back to the built-in inside avatars.get()."""
+    somebody else; then the user's choice for THIS agent; then the agent's own
+    default creature. An unknown name falls back inside avatars.get()."""
     return (os.environ.get("CLAUDLET_AVATAR")
-            or (cfg or {}).get("avatar")
+            or petconfig.avatar_for(cfg or {}, agent)
+            or (agents.get(agent)["avatar"] if agent else None)
             or None)
 
 
@@ -551,7 +552,7 @@ class Pet(QWidget):
         self.port_file = hostinfo.session_port_file(session_id)
 
         cfg = petconfig.load_config()
-        self.avatar = avatars.get(_avatar_name(cfg))
+        self.avatar = avatars.get(_avatar_name(cfg, self.agent))
         self.u = petconfig.for_creature(cfg, self.avatar.name, self.avatar)["scale"]
         self._visor_mode = petconfig.DEFAULT_VISOR
         self._resize_to_avatar()
@@ -992,7 +993,7 @@ class Pet(QWidget):
         the window resized and the pet nudged back inside the screen."""
         cfg = petconfig.load_config()
         before = (self.u, self.avatar.name)
-        want = _avatar_name(cfg)
+        want = _avatar_name(cfg, self.agent)
         if want and want != self.avatar.name:
             self.avatar = avatars.get(want)     # 크리처를 갈아입는다
         self._apply_style(cfg)
