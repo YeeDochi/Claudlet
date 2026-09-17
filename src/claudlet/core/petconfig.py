@@ -251,6 +251,42 @@ def load_config(path=None):
     return _clean(raw)
 
 
+def _read_raw(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_raw(raw, path):
+    """Replace config.json atomically. Silent on failure: not remembering a
+    setting beats taking the pet down."""
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        os.replace(tmp, path)      # 반쯤 쓰인 config를 다른 펫이 읽지 않도록
+        return True
+    except OSError:
+        return False
+
+
+def save_keys(updates, path=None):
+    """Merge top-level keys into config.json and return the cleaned config.
+
+    Read-modify-write, like save_dock: the settings UI writes two keys and must
+    not erase the tools/events a user wrote by hand."""
+    path = path or config_path()
+    raw = _read_raw(path)
+    raw.update(updates)
+    _write_raw(raw, path)
+    return _clean(raw)
+
+
 def save_dock(updates, path=None):
     """config.json의 `dock` 하위 키만 병합해 저장하고 저장된 dock 섹션을 돌려준다.
 
@@ -260,24 +296,9 @@ def save_dock(updates, path=None):
     위치를 못 기억하는 것이 펫이 죽는 것보다 낫다.
     """
     path = path or config_path()
-    try:
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
-        if not isinstance(raw, dict):
-            raw = {}
-    except (OSError, ValueError):
-        raw = {}
+    raw = _read_raw(path)
     merged = dict(raw.get("dock") or {})
     merged.update(updates)
     raw["dock"] = merged
-    cleaned = _clean_dock(merged)
-    try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        tmp = "%s.%d.tmp" % (path, os.getpid())
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(raw, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, path)          # 반쯤 쓰인 config를 다른 펫이 읽지 않도록
-    except OSError:
-        pass
-    return cleaned
+    _write_raw(raw, path)
+    return _clean_dock(merged)
