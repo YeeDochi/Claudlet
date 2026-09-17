@@ -36,7 +36,7 @@ from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QReg
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
-from claudlet.core import creature as C
+from claudlet.core import avatars
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
 from claudlet.platform import focus
 from claudlet.platform import konsole
@@ -57,6 +57,12 @@ from claudlet.platform import geom
 # ---- config ----
 U = 5                                   # art-pixel size in device px
 NOTCH_U = 3                             # ponytail: 노치 보관 시 축소 배율. 실기 보고 조정.
+def _avatar_name():
+    """Which avatar to wear. Env only for now: a config key would be dead
+    weight until a second avatar exists, and the selector lands with it."""
+    return os.environ.get("CLAUDLET_AVATAR") or None
+
+
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
 # Agent companion: an INDEPENDENT little creature in its own window that FOLLOWS
 # the pet while a subagent runs — see the Companion class. It only walks toward
@@ -237,8 +243,10 @@ class Companion(QWidget):
         # purely decorative: never take clicks/focus.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         # int() is only a guard should COMPANION_U ever go fractional again
-        self.w = int((C.GRID_W + 2 * PAD_X) * COMPANION_U)
-        self.h = int((C.GRID_H + 2 * PAD_Y) * COMPANION_U)
+        self.avatar = avatars.get(_avatar_name())
+        gw, gh = self.avatar.grid
+        self.w = int((gw + 2 * PAD_X) * COMPANION_U)
+        self.h = int((gh + 2 * PAD_Y) * COMPANION_U)
         self.setFixedSize(self.w, self.h)
         self.x = 0.0
         self.y = 0.0
@@ -259,7 +267,8 @@ class Companion(QWidget):
                                        # dead landing + window-entry resolution
         self._depart_until = None      # monotonic deadline of the goodbye wave
         self._reunite_ticks = 0        # ticks spent separated, trying to walk back
-        self.hat = random.choice(C.HAT_KINDS)   # each sidekick gets its own hat
+        self.hat = (random.choice(self.avatar.hats)   # each sidekick gets its own hat
+                    if self.avatar.hats else None)
 
     def depart_tick(self):
         """One tick of the goodbye: stand and celebrate ('다 됐다!' bubble) until
@@ -356,9 +365,9 @@ class Companion(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         # a fractional origin puts the whole grid between pixels, re-splitting
         # every art pixel; snapped so a fractional unit can't reintroduce that
-        C.draw_creature(p, round(PAD_X * COMPANION_U), round(PAD_Y * COMPANION_U),
-                        COMPANION_U, self._state, self.frame, facing=self.facing,
-                        cap=self.hat, gaze=self.gaze)
+        self.avatar.draw(p, round(PAD_X * COMPANION_U), round(PAD_Y * COMPANION_U),
+                         COMPANION_U, self._state, self.frame, facing=self.facing,
+                         cap=self.hat, gaze=self.gaze)
         p.end()
 
 
@@ -499,8 +508,10 @@ class Pet(QWidget):
         self.setWindowTitle(self._wtitle)
         self.port_file = hostinfo.session_port_file(session_id)
 
-        self.w = (C.GRID_W + 2 * PAD_X) * U
-        self.h = (C.GRID_H + 2 * PAD_Y) * U
+        self.avatar = avatars.get(_avatar_name())
+        gw, gh = self.avatar.grid
+        self.w = (gw + 2 * PAD_X) * U
+        self.h = (gh + 2 * PAD_Y) * U
         self.setFixedSize(self.w, self.h)
 
         primary = QApplication.primaryScreen().availableGeometry()
@@ -549,7 +560,7 @@ class Pet(QWidget):
                                   raw_events=cfg["raw_events"])
         # language for user-facing strings (speech bubbles, tray, menus)
         self.lang = petconfig.resolve_lang(cfg.get("lang", "auto"))
-        C.set_lang(self.lang)
+        self.avatar.set_lang(self.lang)
         self.labels = STATE_LABELS[self.lang]
         self.ui = UI[self.lang]
         self.claude_state = "sleeping"       # last state the engine reported
@@ -1375,7 +1386,7 @@ class Pet(QWidget):
             c._air = False
             c._follow_jump = False
             c._moving = False
-            c._state = pose if pose in C.STATES else "falling"
+            c._state = pose if pose in self.avatar.states else "falling"
             c.frame = (c.frame + 1) % 100000
             c.move(int(c.x), int(c.y))
             self._occlude_companion(c)
@@ -2209,14 +2220,16 @@ class Pet(QWidget):
             u = NOTCH_U
             # centring lands on a half pixel when window and art box differ by
             # an odd amount, shifting the grid and re-splitting every art pixel
-            ox = round((self.w - (C.GRID_W + 2 * PAD_X) * u) / 2 + PAD_X * u)
-            oy = round((self.h - (C.GRID_H + 2 * PAD_Y) * u) / 2 + PAD_Y * u)
+            gw, gh = self.avatar.grid
+            ox = round((self.w - (gw + 2 * PAD_X) * u) / 2 + PAD_X * u)
+            oy = round((self.h - (gh + 2 * PAD_Y) * u) / 2 + PAD_Y * u)
         else:
             u = U
             ox, oy = PAD_X * U, PAD_Y * U
-        C.draw_creature(p, ox, oy, u, state, self.frame,
-                        facing=self.facing, visor=vis, energy=energy,
-                        palette=self._palette, happy=petted, pocket=pocket, gaze=gaze)
+        self.avatar.draw(p, ox, oy, u, state, self.frame,
+                         facing=self.facing, visor=vis, energy=energy,
+                         palette=self._palette, happy=petted, pocket=pocket,
+                         gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
         p.end()
@@ -2655,7 +2668,7 @@ class Pet(QWidget):
     def _state_icon(self, state):
         """Render one representative frame of `state` into a tray QIcon."""
         u = 2
-        cw, ch = C.GRID_W * u, C.GRID_H * u
+        cw, ch = self.avatar.grid[0] * u, self.avatar.grid[1] * u
         side = max(cw, ch)
         pm = QPixmap(side, side)
         pm.fill(QColor(0, 0, 0, 0))
@@ -2663,7 +2676,7 @@ class Pet(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         ox = (side - cw) // 2
         oy = (side - ch) // 2
-        C.draw_creature(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
+        self.avatar.draw(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
         p.end()
         return QIcon(pm)
 
