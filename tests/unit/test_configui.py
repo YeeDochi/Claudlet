@@ -208,6 +208,52 @@ def test_the_server_stops_once_the_page_stops_saying_it_is_open():
     assert alive["v"] is False, "settings server outlived its page"
 
 
+def test_bye_last_seen_leaves_a_grace_window_not_instant_death():
+    # a page REFRESH fires the same pagehide -> bye as a real close; killing
+    # the server at once (old last_seen=0.0) stranded the refresh on a dead
+    # port. bye_last_seen must leave `grace` seconds of runway instead.
+    now = 1000.0
+    ls = U.bye_last_seen(now, idle_timeout=90.0, grace=5.0)
+    assert ls == now - 85.0
+    assert 0 < now - ls < 90.0          # some life left, not none, not more
+
+
+def test_bye_last_seen_clamps_when_grace_exceeds_timeout():
+    # a huge grace must not read as MORE time left than the server ever had
+    assert U.bye_last_seen(1000.0, idle_timeout=2.0, grace=5.0) == 1000.0
+
+
+def test_a_refresh_survives_but_a_real_close_still_dies():
+    # simulate what the handler does on bye: a refresh's next request lands
+    # inside the grace window and revives the server; a real close, with no
+    # further request, still expires within grace of the original timeout.
+    import threading
+    import time
+    import urllib.request
+    from http.server import HTTPServer
+
+    srv = HTTPServer(("127.0.0.1", 0), U._handler_class())
+    srv.timeout = 0.2
+    srv.idle_timeout = 1.0
+    srv.last_seen = time.monotonic()
+    url = "http://127.0.0.1:%d" % srv.server_port
+
+    def serve_until_dead():
+        while time.monotonic() - srv.last_seen < srv.idle_timeout:
+            srv.handle_request()
+        srv.server_close()
+
+    t = threading.Thread(target=serve_until_dead, daemon=True)
+    t.start()
+    # a "refresh": bye, then immediately a follow-up request (a real browser
+    # would fetch /api/state next)
+    urllib.request.urlopen(url + "/api/bye", timeout=5).read()
+    urllib.request.urlopen(url + "/api/state", timeout=5).read()   # revives it
+    assert t.is_alive(), "a refresh's bye should not have killed the server"
+    t.join(timeout=10)
+    assert not t.is_alive(), "server should still expire eventually"
+
+
 def test_the_page_sends_a_heartbeat_and_a_goodbye():
     pg = U.page({})
     assert "/api/alive" in pg and str(U.HEARTBEAT_MS) in pg

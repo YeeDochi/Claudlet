@@ -31,6 +31,23 @@ from claudlet.core import agents, avatars, hostinfo, petconfig
 IDLE_TIMEOUT = 90.0
 HEARTBEAT_MS = 25000
 
+# A page refresh fires the same `pagehide` -> /api/bye as a real tab close.
+# Killing the server at once (the old `last_seen = 0.0`) left a refresh
+# stranded on a dead port. Instead `bye` leaves this many seconds of runway:
+# enough for the refreshed page's next request (a heartbeat or /api/state) to
+# arrive and revive the server before the idle timeout would have hit anyway.
+# A real close never sends another request, so it still dies within the grace.
+BYE_GRACE = 4.0
+
+
+def bye_last_seen(now, idle_timeout, grace=BYE_GRACE):
+    """`last_seen` to record on a `bye` beacon. Pure: leaves `grace` seconds
+    before `idle_timeout` fires, rather than expiring the server immediately.
+    Clamped so a grace bigger than the timeout can't push `elapsed` negative
+    (which would read as MORE time left than the server ever had)."""
+    elapsed = max(0.0, idle_timeout - grace)
+    return now - elapsed
+
 PREVIEW_STATES = ("idle", "work_computer", "celebrate", "sleeping")
 
 
@@ -513,8 +530,10 @@ def _handler_class(initial_agent=None):
             if u.path == "/api/alive":
                 return self._json({"ok": True})     # the page is still open
             if u.path == "/api/bye":
-                self.server.last_seen = 0.0         # tab closed: stop now
-                return self._json({"ok": True})
+                self._json({"ok": True})
+                self.server.last_seen = bye_last_seen(
+                    time.monotonic(), self.server.idle_timeout)
+                return
             if u.path == "/api/state":
                 q = parse_qs(u.query)
                 agent = q.get("agent", [None])[0] or initial_agent
@@ -532,7 +551,8 @@ def _handler_class(initial_agent=None):
         def do_POST(self):
             if urlparse(self.path).path == "/api/bye":
                 self._json({"ok": True})
-                self.server.last_seen = 0.0         # sendBeacon posts
+                self.server.last_seen = bye_last_seen(
+                    time.monotonic(), self.server.idle_timeout)
                 return
             if urlparse(self.path).path != "/api/config":
                 return self._send(404, b"not found", "text/plain")
@@ -561,6 +581,7 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None):
     srv = HTTPServer(("127.0.0.1", 0), _handler_class(agent))
     srv.timeout = 5                     # wake up often enough to notice silence
     srv.last_seen = time.monotonic()
+    srv.idle_timeout = idle_timeout     # read by the bye handler's grace calc
     url = "http://127.0.0.1:%d/" % srv.server_port
     t = texts()
     print(t["serving"] + url)
