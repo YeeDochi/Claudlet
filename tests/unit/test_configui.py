@@ -806,7 +806,9 @@ def test_the_page_picks_a_creature_from_a_dropdown_card_panel():
     pg = U.page({})
     assert '<select id="pick">' not in pg
     assert 'id="pickTrigger"' in pg and 'id="pickPanel"' in pg
-    assert 'id="wearTop"' in pg and 'id="wornBadge"' in pg
+    assert 'id="wornBadge"' in pg
+    # exactly one apply button: the panel used to carry a duplicate of it
+    assert pg.count('id="wear"') == 1 and 'id="wearTop"' not in pg
     assert 'aria-expanded="false"' in pg   # a real <button>, closed by default
 
 

@@ -449,7 +449,7 @@ TEXT = {
         "title": "크리처", "lead": "색과 크기를 정합니다. 저장하면 떠 있는 펫에 바로 반영됩니다.",
         "refresh": "새로고침",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
-        "save": "저장", "wear": "이 크리처 입히기", "worn_btn": "입고 있음",
+        "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "reset": "기본으로", "worn": "착용 중", "notworn": "미착용",
         "settings_of": "%s 설정",
         "visor_auto": "오토모드일 때", "visor_on": "항상", "visor_off": "안 함",
@@ -471,7 +471,7 @@ TEXT = {
         "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
         "refresh": "Refresh",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
-        "save": "Save", "wear": "Wear this one", "worn_btn": "Worn",
+        "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "reset": "Defaults", "worn": "worn", "notworn": "not worn",
         "settings_of": "%s settings",
         "visor_auto": "When unattended", "visor_on": "Always", "visor_off": "Never",
@@ -677,7 +677,6 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <h2 id="who"></h2>
       <div class="row" id="wornRow">
         <span id="wornBadge"></span>
-        <button id="wearTop" class="ghost">__T_wear__</button>
         <button id="save">__T_save__</button>
         <button id="wear" class="ghost">__T_wear__</button>
         <button id="reset" class="ghost">__T_reset__</button>
@@ -751,7 +750,7 @@ function redraw() {
   $("shots").innerHTML = states.map((s) => shot(s, t)).join("");
   $("who").textContent = T.settings_of.replace("%s", editing);
   const isWorn = editing === worn();
-  for (const b of [$("wear"), $("wearTop")]) {
+  for (const b of [$("wear")]) {
     b.disabled = isWorn;
     b.textContent = isWorn ? T.worn_btn : T.wear;
   }
@@ -891,13 +890,13 @@ for (const ev of ["input", "change"]) {
   $("scale").addEventListener(ev, redraw);
 }
 async function post(body, note) {
-  for (const b of ["save", "reset", "wear", "wearTop"]) $(b).disabled = true;
+  for (const b of ["save", "reset", "wear"]) $(b).disabled = true;
   const r = await fetch("/api/config", {method: "POST",
     headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
   const out = await r.json();
   $("said").textContent = note + (out.pets
       ? T.applied_pets.replace("%d", out.pets) : T.applied_next);
-  for (const b of ["save", "reset", "wear", "wearTop"]) $(b).disabled = false;
+  for (const b of ["save", "reset", "wear"]) $(b).disabled = false;
   return out;
 }
 $("save").addEventListener("click", async () =>
@@ -909,7 +908,6 @@ async function doWear() {
                          T.switched.replace("%s", editing)));
 }
 $("wear").addEventListener("click", doWear);
-$("wearTop").addEventListener("click", doWear);
 $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
   fill(await post({agent: S.agent, creature: editing, palette: null, scale: null,
