@@ -19,13 +19,20 @@ from claudlet.core import agents
 
 
 def _quote(path):
-    # Always quote, even with no spaces: Claude Code runs hook commands
-    # through bash even on Windows, and an unquoted "C:\Users\..." loses
-    # every backslash there (bash treats "\U", "\g", etc. as escapes of the
-    # next literal char). Double quotes keep bash from touching backslashes
-    # (its escape rules inside "" only apply to \, $, `, ", newline) while
-    # still being valid, unremarkable quoting for cmd.exe and POSIX sh.
+    # Always quote, even with no spaces: an unquoted Windows path loses its
+    # backslashes when a Unix-like shell interprets it.
     return f'"{path}"'
+
+
+def _command(*parts):
+    quoted = " ".join(_quote(part) for part in parts)
+    if os.name == "nt":
+        # Desktop agents execute hook strings through PowerShell, where a
+        # quoted executable path is only a string unless prefixed with `&`.
+        # Routing through cmd.exe also works when the host uses cmd or bash,
+        # and keeps paths containing spaces executable in every Windows host.
+        return f"cmd.exe /d /s /c call {quoted}"
+    return quoted
 
 
 def hook_command():
@@ -37,16 +44,16 @@ def hook_command():
     from which() runs directly."""
     exe = shutil.which("claudlet-hook")
     if exe:
-        return _quote(exe)
+        return _command(exe)
     repo_bin = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))),
         "bin", "claudlet-hook")
     if os.path.exists(repo_bin):
         if os.name == "nt":
-            return f"{_quote(sys.executable)} {_quote(repo_bin)}"
-        return _quote(repo_bin)
-    return f"{_quote(sys.executable)} -m claudlet.cli.hook"
+            return _command(sys.executable, repo_bin)
+        return _command(repo_bin)
+    return f"{_command(sys.executable)} -m claudlet.cli.hook"
 
 
 HOOK_CMD = hook_command()

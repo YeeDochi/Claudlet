@@ -166,6 +166,20 @@ def test_hook_command_source_checkout_fallback_path_exists():
     assert os.path.exists(repo_bin), repo_bin
 
 
+def test_windows_command_runs_quoted_executable_through_cmd(monkeypatch):
+    monkeypatch.setattr(ih.os, "name", "nt")
+    assert ih._command(r"C:\Program Files\Claudlet\claudlet-hook.exe") == (
+        'cmd.exe /d /s /c call "C:\\Program Files\\Claudlet\\claudlet-hook.exe"'
+    )
+
+
+def test_posix_command_directly_quotes_executable(monkeypatch):
+    monkeypatch.setattr(ih.os, "name", "posix")
+    assert ih._command("/opt/Claudlet Pet/claudlet-hook") == (
+        '"/opt/Claudlet Pet/claudlet-hook"'
+    )
+
+
 def test_remove_on_a_never_installed_agent_creates_nothing(tmp_path):
     # Removing hooks for an agent that has no settings file must not CREATE
     # one -- "--remove" should never leave a fresh {} file (or its directory)
