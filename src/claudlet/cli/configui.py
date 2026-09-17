@@ -506,7 +506,7 @@ PAGE_TEMPLATE = """<!doctype html><meta charset="utf-8">
 :root{color-scheme:dark;--bg:#16161a;--card:#212128;--line:#33333d;--fg:#ECECF0;
       --dim:#9A9AA8;--accent:#6B8AFF;--sunk:#0e0e12;--w:1080px}
 *{box-sizing:border-box}
-body{margin:0;min-width:760px;background:var(--bg);color:var(--fg);
+body{margin:0;background:var(--bg);color:var(--fg);
      font:14px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif;
      /* The window IS the frame: at the size we open at, everything fits and
         only the panes scroll. A page-level scrollbar would undo the dashboard
@@ -606,11 +606,9 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 #said{color:var(--dim);font-size:13px;margin-left:12px}
 #importInfo ul{margin:8px 0 0;padding-left:20px;color:var(--dim);font-size:12px}
 @media (max-width:780px){
-  /* one column: the panes no longer have room to scroll inside, so hand the
-     page its scrollbar back rather than clipping content out of reach */
-  body{height:auto;min-width:0;overflow:visible}
-  main{overflow:visible}
-  #dress,#settings,#shots{max-height:none;overflow:visible}
+  /* narrow window: TIGHTEN the chrome, never release the height lock. Letting
+     the page scroll here is what made the previews spill out of their box and
+     down the page -- the preview keeps its own scrollbar at every width. */
   .wrap{padding:0 16px}
   label{width:100%}
 }
