@@ -665,7 +665,8 @@ def test_serve_attaches_to_a_running_settings_server_instead_of_a_second_one():
 
 def test_browser_command_opens_an_app_window_with_the_first_browser_found():
     which = {"chromium": "/usr/bin/chromium"}.get
-    cmd = U.browser_command("http://127.0.0.1:8770/", which=which, size=(900, 700))
+    cmd = U.browser_command("http://127.0.0.1:8770/", which=which, size=(900, 700),
+                            profile_dir="/fake/claudlet/chrome-profile")
     assert cmd[:3] == ["/usr/bin/chromium", "--app=http://127.0.0.1:8770/",
                        "--window-size=900,700"]
     # the window must carry our own identity, or a desktop attributes it to
@@ -675,6 +676,30 @@ def test_browser_command_opens_an_app_window_with_the_first_browser_found():
     # and on a Wayland session with an X server also present, let Chrome pick
     # Wayland instead of silently falling back to X11
     assert "--ozone-platform-hint=auto" in cmd
+
+
+def test_browser_command_uses_its_own_chrome_profile_not_the_running_one():
+    # verified live: without --user-data-dir, an already-running Chrome just
+    # hands the URL to itself and exits -- no process carrying --app= exists
+    # afterward, and every flag here (window size, class) is silently ignored
+    which = {"chromium": "/usr/bin/chromium"}.get
+    cmd = U.browser_command("http://x/", which=which,
+                            profile_dir="/home/user/.cache/claudlet/chrome-profile")
+    assert "--user-data-dir=/home/user/.cache/claudlet/chrome-profile" in cmd
+    assert "--no-first-run" in cmd
+    assert "--no-default-browser-check" in cmd
+
+
+def test_chrome_profile_dir_is_claudlet_owned_not_the_users_default(tmp_path):
+    d = U.chrome_profile_dir(cache_home=str(tmp_path))
+    assert d == str(tmp_path / "claudlet" / "chrome-profile")
+    # never the real default profile a running Chrome already uses
+    assert "google-chrome" not in d and "chromium" not in d.split(os.sep)[-1]
+
+
+def test_chrome_profile_dir_defaults_under_xdg_cache_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    assert U.chrome_profile_dir() == str(tmp_path / "claudlet" / "chrome-profile")
 
 
 def test_browser_command_prefers_the_earlier_browser_in_the_list():
@@ -806,13 +831,18 @@ def test_the_panel_closes_on_pick_outside_click_escape_and_refill():
     assert "closePanel(false);" in fill_fn   # never left open across a refill/tab switch
 
 
-def test_the_page_has_one_tab_per_agent_plus_share():
+def test_the_page_has_one_tab_per_detected_agent_and_no_share_tab():
     pg = U.page({})
     assert 'id="tabs"' in pg
-    assert "function tabRows" in pg and "SHARE_TAB" in pg
+    assert "function tabRows" in pg
+    assert "SHARE_TAB" not in pg
+    assert 'id="share"' not in pg
     # tabs come from the detected agents in the state payload, so a third
-    # agent appears with no code change
-    assert "(s.agents || []).map" in pg
+    # agent appears with no code change; a single-agent machine (empty
+    # s.agents) gets no tab row at all, not a lone toggle
+    tabrows_fn = pg[pg.index("function tabRows("):pg.index("function paintTabs(")]
+    assert "(s.agents || []).map" in tabrows_fn
+    assert "T.title" not in tabrows_fn
 
 
 def test_refresh_re_reads_the_state_without_a_page_reload():
@@ -833,18 +863,85 @@ def test_refetching_state_shows_what_another_writer_changed(tmp_path, monkeypatc
     assert U.state_payload()["looks"]["claudlet"]["scale"] == 9
 
 
-def test_share_tab_sentinel_survives_html_attribute_parsing():
-    """The share tab's id travels through a `data-tab="..."` attribute and comes
-    back via dataset on click. A NUL there is rewritten to U+FFFD by the HTML
-    parser, so the value read back never matched and the tab silently fell back
-    to the first agent -- the sentinel must hold no character the parser touches.
-    """
-    page = configui.page({})
-    import re
-    m = re.search(r'const SHARE_TAB = "([^"]*)"', page)
-    assert m, "SHARE_TAB sentinel not found in the page"
-    sentinel = m.group(1)
-    assert "\\u0000" not in sentinel and "\x00" not in sentinel
-    assert sentinel and all(ch.isprintable() for ch in sentinel)
-    # and it cannot collide with an agent name (registry keys are lowercase words)
-    assert not sentinel.isalnum()
+# ---------- export/import moved onto the creature row (no more Share tab) ----------
+
+def test_export_and_import_buttons_flank_the_dropdown_trigger():
+    pg = U.page({})
+    picker = pg[pg.index('<div class="picker">'):pg.index('id="pickPanel"')]
+    # import (inward arrow) above-left, export (outward arrow) immediately
+    # left of the trigger -- both before pickTrigger in DOM order
+    assert picker.index('id="importBtn"') < picker.index('id="exportBtn"')
+    assert picker.index('id="exportBtn"') < picker.index('id="pickTrigger"')
+    assert "corner-btn" in picker[:picker.index('id="exportBtn"')]
+    assert "<svg" in picker
+
+
+def test_export_and_import_buttons_carry_localised_title_and_aria_label():
+    ko, en = U.page({"lang": "ko"}), U.page({"lang": "en"})
+    for pg, export_label, import_label in (
+            (ko, U.TEXT["ko"]["export"], U.TEXT["ko"]["import"]),
+            (en, U.TEXT["en"]["export"], U.TEXT["en"]["import"])):
+        picker = pg[pg.index('<div class="picker">'):pg.index('id="pickPanel"')]
+        assert ('title="%s"' % export_label) in picker
+        assert ('aria-label="%s"' % export_label) in picker
+        assert ('title="%s"' % import_label) in picker
+        assert ('aria-label="%s"' % import_label) in picker
+
+
+def test_export_click_posts_the_creature_being_viewed_with_optional_destination():
+    pg = U.page({})
+    fn = pg[pg.index("async function doExport("):pg.index('$("exportBtn")')]
+    assert "creature: editing" in fn
+    assert "exportOut" in fn        # tucked-away destination field, not required
+    assert '$("exportBtn").addEventListener("click", () => doExport(false));' in pg
+
+
+def test_import_lives_in_a_modal_with_the_same_two_step_flow():
+    pg = U.page({})
+    assert 'id="importModal" class="modal-backdrop" hidden' in pg
+    # today's flow is unchanged: path field -> inspect -> confirm row -> install
+    assert 'id="importPath"' in pg and 'id="importInspect"' in pg
+    assert 'id="importConfirmRow"' in pg and 'id="importConfirm"' in pg
+    assert 'id="importForce"' in pg
+
+
+def test_import_modal_opens_on_the_import_button_and_closes_three_ways():
+    pg = U.page({})
+    assert '$("importBtn").addEventListener("click", openImportModal);' in pg
+    fn = pg[pg.index("function closeImportModal()"):pg.index("function onImportModalKeydown")]
+    assert '$("importModal").hidden = true;' in fn
+    assert 'e.key === "Escape"' in pg and "closeImportModal()" in pg
+    assert '$("importCancel").addEventListener("click", closeImportModal);' in pg
+    backdrop = pg[pg.index('$("importModal").addEventListener("click"'):]
+    backdrop = backdrop[:backdrop.index("let pendingImportPath")]
+    assert "e.target === $(\"importModal\")" in backdrop
+
+
+def test_import_confirm_closes_the_modal_and_refreshes_state_on_success():
+    pg = U.page({})
+    confirm_fn = pg[pg.index('$("importConfirm").addEventListener('):]
+    assert "closeImportModal();" in confirm_fn
+    assert "fill(await (await fetch(\"/api/state\")).json())" in confirm_fn
+
+
+def test_the_import_token_and_no_innerHTML_trust_boundary_carries_over():
+    # the per-run token and "entry names -> textContent, never innerHTML"
+    # discipline must survive the move into the modal unchanged
+    pg = U.page({}, import_token="tok-123")
+    assert "tok-123" in pg
+    assert "token: IMPORT_TOKEN" in pg
+    share = pg[pg.index("renderImportInfo("):]
+    share = share[:share.index('$("importInspect")')]
+    assert "li.textContent = e" in share
+    assert "innerHTML = e" not in share
+    assert "innerHTML += " not in pg
+
+
+def test_share_tab_and_sentinel_are_gone():
+    pg = U.page({})
+    assert "SHARE_TAB" not in pg
+    assert 'id="share"' not in pg
+    assert "T.share" not in pg
+    assert "share" not in U.TEXT["ko"] and "share" not in U.TEXT["en"]
+
+

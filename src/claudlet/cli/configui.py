@@ -108,13 +108,23 @@ def probe_port(port, timeout=0.6):
 APP_CLASS = "claudlet"        # WM_CLASS / Wayland app_id for the app window
 
 
-def browser_command(url, which=None, size=APP_WINDOW):
+def chrome_profile_dir(cache_home=None):
+    """Where the app window's OWN Chrome profile lives. Pure string math --
+    creating the directory is the caller's job (see `launch_browser`)."""
+    base = cache_home if cache_home is not None else (
+        os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"))
+    return os.path.join(base, "claudlet", "chrome-profile")
+
+
+def browser_command(url, which=None, size=APP_WINDOW, profile_dir=None):
     """argv that opens `url` as a chrome-less app window, or None when no
     chromium-family browser is installed (then the caller opens it the ordinary
     way). `which` is injected so this is testable without the real PATH. Pure."""
     if which is None:
         import shutil
         which = shutil.which
+    if profile_dir is None:
+        profile_dir = chrome_profile_dir()
     for name in APP_BROWSERS:
         exe = which(name)
         if exe:
@@ -126,9 +136,18 @@ def browser_command(url, which=None, size=APP_WINDOW):
             # window carries no identity a desktop can match, and KDE attributes
             # it to whatever owns the display it landed on (a gamescope-provided
             # :1 shows up as "gamescope" in the task bar, icon and all).
+            # --user-data-dir: give this launch its OWN Chrome profile. Verified
+            # live: without this, if Chrome is already running with the default
+            # profile, this second invocation is just handed to the running
+            # instance (which then exits) and every flag above is silently
+            # ignored -- the window that appears belongs to the OLD process,
+            # with none of --app/--window-size/--class applied. A dedicated
+            # profile forces a genuinely separate process every time.
             return [exe, "--app=" + url,
                     "--window-size=%d,%d" % (size[0], size[1]),
                     "--class=" + APP_CLASS,
+                    "--user-data-dir=" + profile_dir,
+                    "--no-first-run", "--no-default-browser-check",
                     "--ozone-platform-hint=auto"]
     return None
 
@@ -440,7 +459,9 @@ TEXT = {
         "applied_pets": " — 펫 %d마리에 반영", "applied_next": " — 다음에 뜨는 펫부터",
         "serving": "claudlet 크리처 설정: ", "stop": "(창을 닫거나 Ctrl-C 로 종료)",
         "port_taken": "(%d 번 포트는 다른 프로그램이 쓰고 있어 다른 포트로 열었습니다)",
-        "share": "공유", "export": "내보내기", "export_retry_force": "덮어쓰고 다시 시도",
+        "export": "내보내기", "export_retry_force": "덮어쓰고 다시 시도",
+        "export_dest": "저장 위치", "export_dest_placeholder": "저장할 폴더 (기본: 홈)",
+        "import": "가져오기", "import_cancel": "취소",
         "import_placeholder": "가져올 zip 경로",
         "import_check": "확인", "import_confirm": "설치", "force": "덮어쓰기",
         "import_will_install": "'%s' 를 설치합니다",
@@ -460,7 +481,9 @@ TEXT = {
         "applied_pets": " — %d pet(s) updated", "applied_next": " — from the next pet on",
         "serving": "claudlet creature settings: ", "stop": "(close the page, or Ctrl-C)",
         "port_taken": "(port %d is taken by something else; opened on another port)",
-        "share": "Share", "export": "Export", "export_retry_force": "Overwrite and retry",
+        "export": "Export", "export_retry_force": "Overwrite and retry",
+        "export_dest": "Destination", "export_dest_placeholder": "Folder to save to (default: home)",
+        "import": "Import", "import_cancel": "Cancel",
         "import_placeholder": "path to a zip to import",
         "import_check": "Check", "import_confirm": "Install", "force": "Overwrite",
         "import_will_install": "Will install '%s'",
@@ -504,7 +527,6 @@ nav.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--ac
                                     background:var(--card)}
 main{padding:24px 0 28px;flex:1 1 auto;min-height:0;overflow:hidden}
 #dress{height:100%;display:flex;flex-direction:column}
-#share{max-height:100%;overflow-y:auto}
 section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;
         min-height:0;display:flex;flex-direction:column}
 h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
@@ -540,6 +562,16 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 .card:hover,.card:focus{background:var(--sunk)}
 .card img{width:32px;height:32px;image-rendering:pixelated;flex:0 0 auto}
 .card .card-name{flex:1}
+.icon-btn{background:none;border:1px solid var(--line);border-radius:7px;
+          color:var(--dim);padding:6px;display:inline-flex;cursor:pointer}
+.icon-btn svg{display:block}
+.icon-btn:hover{color:var(--fg);border-color:var(--accent)}
+.corner-btn{position:absolute;top:-26px;left:0;padding:3px;border-radius:6px}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);
+                display:flex;align-items:center;justify-content:center;z-index:50}
+.modal-backdrop[hidden]{display:none}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:12px;
+       padding:20px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto}
 #shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
        min-height:120px;max-height:46vh;overflow-y:auto;
        padding:14px;background:var(--sunk);border-radius:9px}
@@ -582,6 +614,24 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <div class="row">
         <label id="pickLabel">__T_creatures__</label>
         <div class="picker">
+          <button type="button" id="importBtn" class="icon-btn corner-btn"
+                  title="__T_import__" aria-label="__T_import__">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M12 13V3M12 13l4-4M12 13l-4-4"/>
+              <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
+            </svg>
+          </button>
+          <button type="button" id="exportBtn" class="icon-btn"
+                  title="__T_export__" aria-label="__T_export__">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M12 3v10M12 3l4 4M12 3l-4 4"/>
+              <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
+            </svg>
+          </button>
           <button type="button" id="pickTrigger" class="card-trigger"
                   aria-haspopup="listbox" aria-expanded="false"
                   aria-controls="pickPanel" aria-labelledby="pickLabel"></button>
@@ -590,6 +640,15 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <button id="wearTop" class="ghost">__T_wear__</button>
         <span id="wornBadge"></span>
       </div>
+      <div class="row" id="exportResultRow">
+        <span id="exportResult"></span>
+      </div>
+      <details id="exportMore">
+        <summary>__T_export_dest__</summary>
+        <div class="row">
+          <input type="text" id="exportOut" placeholder="__T_export_dest_placeholder__">
+        </div>
+      </details>
       <h2 id="who"></h2>
       <div class="row">
         <label for="col">__T_colour__</label>
@@ -615,12 +674,10 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       </div>
     </section>
   </div>
-  <section id="share" hidden>
-    <h2>__T_share__</h2>
-    <div class="row">
-      <button id="export" class="ghost">__T_export__</button>
-      <span id="exportResult"></span>
-    </div>
+</main>
+<div id="importModal" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
+    <h2 id="importModalTitle">__T_import__</h2>
     <div class="row">
       <input type="text" id="importPath" placeholder="__T_import_placeholder__">
       <button id="importInspect" class="ghost">__T_import_check__</button>
@@ -630,20 +687,17 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <button id="importConfirm">__T_import_confirm__</button>
       <label style="width:auto"><input type="checkbox" id="importForce"> __T_force__</label>
     </div>
-  </section>
-</main>
+    <div class="row">
+      <button id="importCancel" class="ghost">__T_import_cancel__</button>
+    </div>
+  </div>
+</div>
 <script>
 let S = null;
 let editing = null;      // which creature the panel is showing — NOT necessarily
                          // the one being worn. Looking at another creature's
                          // settings should not put it on the pet.
-let tab = null;          // an agent name, or SHARE_TAB
-const SHARE_TAB = "!share";   // an agent name is a registry key ([a-z]+),
-                              // so "!" cannot collide. NOT a NUL: the HTML
-                              // parser rewrites U+0000 in an attribute to
-                              // U+FFFD, so the value read back off the
-                              // clicked button never matched and the share
-                              // tab silently fell back to the first agent.
+let tab = null;          // an agent name
 const $ = (id) => document.getElementById(id);
 
 function worn() {
@@ -701,9 +755,8 @@ function showCreature(name) {
   renderPickTrigger();
   redraw();
 }
-// One top-level tab per DETECTED agent, plus share. A single-agent machine has
-// no agent to choose between, so its one tab is named after the page itself
-// rather than showing a lone agent toggle.
+// One top-level tab per DETECTED agent. A single-agent machine has no agent
+// to choose between, so it shows no tab row at all rather than a lone toggle.
 // ---------- creature dropdown: a trigger button + a scrollable card panel
 // (the old card-list look), instead of an unbounded list or a native <select>
 // that fights the fixed-size, no-page-scroll window ----------
@@ -773,10 +826,7 @@ function onPanelKeydown(e) {
   if (e.key === "Escape") closePanel(true);
 }
 function tabRows(s) {
-  const rows = (s.agents || []).map((a) => ({name: a.name, label: a.label}));
-  if (!rows.length) rows.push({name: s.agent, label: T.title});
-  rows.push({name: SHARE_TAB, label: T.share});
-  return rows;
+  return (s.agents || []).map((a) => ({name: a.name, label: a.label}));
 }
 function paintTabs(rows) {
   $("tabs").innerHTML = rows.map((r) =>
@@ -784,25 +834,20 @@ function paintTabs(rows) {
     `aria-selected="${r.name === tab}">${r.label}</button>`).join("");
   for (const b of document.querySelectorAll("#tabs button"))
     b.addEventListener("click", () => selectTab(b.dataset.tab));
-  $("dress").hidden = tab === SHARE_TAB;
-  $("share").hidden = tab !== SHARE_TAB;
 }
 async function selectTab(name) {
   const rows = tabRows(S);
+  if (!rows.length) return;
   tab = rows.some((r) => r.name === name) ? name : rows[0].name;
-  if (tab !== SHARE_TAB && tab !== S.agent) {
-    const r = await fetch("/api/state?agent=" + encodeURIComponent(tab));
-    editing = null;                       // show the new agent's creature
-    fill(await r.json());
-    return;
-  }
-  paintTabs(rows);
+  const r = await fetch("/api/state?agent=" + encodeURIComponent(tab));
+  editing = null;                       // show the new agent's creature
+  fill(await r.json());
 }
 function fill(s) {
   S = s;
   closePanel(false);                      // never left open across a refill
   const rows = tabRows(s);
-  if (tab !== SHARE_TAB) tab = s.agent;   // state always belongs to one agent
+  tab = s.agent;                          // state always belongs to one agent
   paintTabs(rows);
   $("scale").min = s.scale_range[0];
   $("scale").max = s.scale_range[1];
@@ -847,10 +892,8 @@ $("reset").addEventListener("click", async () =>
 // under the page (the CLI, another pet), and an installed app window has no
 // address bar to reload from.
 async function refresh() {
-  const keep = tab === SHARE_TAB ? SHARE_TAB : null;
   const r = await fetch("/api/state?agent=" + encodeURIComponent(S ? S.agent : ""));
   fill(await r.json());
-  if (keep) selectTab(keep);
   $("said").textContent = "";
 }
 $("refresh").addEventListener("click", refresh);
@@ -858,8 +901,10 @@ fetch("/api/state").then((r) => r.json()).then(fill);
 // Tell the server the page is still open. It stops when this stops, which is
 // what closing the tab looks like from its side — otherwise a settings page
 // opened from the pet's menu would leave a server running all session.
-// ---------- share: export / import a creature (paths, not uploads --
-// the server is local, so the file is already on this machine) ----------
+// ---------- export / import a creature (paths, not uploads -- the server is
+// local, so the file is already on this machine). Both act on `editing`, the
+// creature currently shown in the dropdown, so their controls live right next
+// to it instead of a separate tab. ----------
 function renderExportResult(out) {
   const el = $("exportResult");
   el.innerHTML = "";
@@ -884,10 +929,28 @@ function renderExportResult(out) {
 async function doExport(force) {
   const r = await fetch("/api/export", {method: "POST",
     headers: {"content-type": "application/json"},
-    body: JSON.stringify({creature: editing, force: !!force})});
+    body: JSON.stringify({creature: editing, force: !!force,
+                          out: $("exportOut").value || undefined})});
   renderExportResult(await r.json());
 }
-$("export").addEventListener("click", () => doExport(false));
+$("exportBtn").addEventListener("click", () => doExport(false));
+
+function openImportModal() {
+  $("importModal").hidden = false;
+  document.addEventListener("keydown", onImportModalKeydown, true);
+}
+function closeImportModal() {
+  $("importModal").hidden = true;
+  document.removeEventListener("keydown", onImportModalKeydown, true);
+}
+function onImportModalKeydown(e) {
+  if (e.key === "Escape") closeImportModal();
+}
+$("importBtn").addEventListener("click", openImportModal);
+$("importCancel").addEventListener("click", closeImportModal);
+$("importModal").addEventListener("click", (e) => {
+  if (e.target === $("importModal")) closeImportModal();   // backdrop click
+});
 
 let pendingImportPath = null;
 function renderImportInfo(out) {
@@ -935,6 +998,7 @@ $("importConfirm").addEventListener("click", async () => {
   p.textContent = T.import_installed.replace("%s", out.name);
   $("importInfo").appendChild(p);
   $("importConfirmRow").hidden = true;
+  closeImportModal();
   fill(await (await fetch("/api/state")).json());   // new creature is now selectable
 });
 
@@ -1121,6 +1185,10 @@ def launch_browser(url):
     try:
         if cmd:
             import subprocess
+            try:
+                os.makedirs(chrome_profile_dir(), exist_ok=True)
+            except OSError:
+                pass                     # Chrome creates it itself if needed
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
             return
