@@ -652,6 +652,31 @@ def test_probe_port_tells_free_from_ours_from_a_stranger():
         srv.server_close()
 
 
+def test_probe_port_calls_a_free_port_free_even_when_the_connect_times_out():
+    # the Windows case: a closed loopback port drops the SYN instead of
+    # refusing, so the probe times out. Deciding "free" from the connect error
+    # read that as a stranger's server, and the settings app fell back to an
+    # OS-chosen port on every launch instead of reusing its fixed one.
+    import socket
+    import urllib.error
+    import urllib.request
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    free_port = s.getsockname()[1]
+    s.close()
+
+    def timing_out(*a, **k):
+        raise urllib.error.URLError(TimeoutError("timed out"))
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = timing_out
+    try:
+        assert U.probe_port(free_port) == "free"
+    finally:
+        urllib.request.urlopen = real
+
+
 def test_serve_attaches_to_a_running_settings_server_instead_of_a_second_one():
     srv, t = _spawn(U._handler_class())
     try:

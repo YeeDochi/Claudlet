@@ -89,18 +89,37 @@ def port_plan(preferred, probe):
 
 
 def probe_port(port, timeout=0.6):
-    """Is `port` free, ours, or somebody else's? Asked over HTTP in ONE request,
-    because a bind test cannot tell our own server from a stranger's (and a
-    second connection would be eaten by a single-request server)."""
-    import urllib.error
+    """Is `port` free, ours, or somebody else's?
+
+    "Free" is decided by a bind, not by how a connection fails. Reading it off
+    the error only works on POSIX, where a closed port answers ECONNREFUSED: on
+    Windows the SYN can simply be dropped (a local filter driver is enough) and
+    the connect times out instead, which the old ConnectionRefusedError check
+    called somebody else's server. The settings app then never got its fixed
+    port, so every launch started a second server on an OS-chosen one rather
+    than attaching to the first. A bind answers the same on every OS, and costs
+    nothing on a free port -- the common case, and now the fast one.
+
+    A bind cannot tell our own server from a stranger's, so a port that is taken
+    is then asked who it is over HTTP -- ONE request, because a second
+    connection would be eaten by a single-request server.
+    """
+    import socket
     import urllib.request
+    s = socket.socket()
+    try:
+        # deliberately no SO_REUSEADDR: on Windows it would let this bind
+        # succeed on a port somebody is already serving, i.e. report "free"
+        s.bind(("127.0.0.1", port))
+        return "free"
+    except OSError:
+        pass                                   # taken -- ask who it is below
+    finally:
+        s.close()
     try:
         with urllib.request.urlopen(
                 "http://127.0.0.1:%d/api/alive" % port, timeout=timeout) as r:
             return "ours" if json.loads(r.read()).get("app") == APP_ID else "other"
-    except urllib.error.URLError as e:
-        # refused == nothing listening; anything else is somebody's server
-        return "free" if isinstance(e.reason, ConnectionRefusedError) else "other"
     except Exception:
         return "other"
 
