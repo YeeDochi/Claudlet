@@ -108,8 +108,11 @@ def test_install_writes_each_agents_own_events(tmp_path):
 
     claude = json.loads((tmp_path / ".claude" / "settings.json").read_text())
     codex = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
-    assert "SessionEnd" in claude["hooks"]
-    assert "SessionEnd" not in codex["hooks"]
+    # each agent gets ITS OWN event vocabulary, not one shared list: Claude
+    # Code has Notification/StopFailure, Codex has PermissionRequest instead.
+    assert "Notification" in claude["hooks"]
+    assert "PermissionRequest" not in claude["hooks"]
+    assert "Notification" not in codex["hooks"]
     assert "PermissionRequest" in codex["hooks"]
     # the agent travels in the command so the hook knows who it serves
     cmd = codex["hooks"]["Stop"][0]["hooks"][0]["command"]

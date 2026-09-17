@@ -36,9 +36,13 @@ def test_every_agent_declares_the_full_shape():
 
 
 def test_codex_event_set_matches_what_codex_supports():
+    # Measured from the codex 0.147.0 binary + its own hooks.json plugin
+    # (SessionEnd is registered there). No Notification, no StopFailure.
     ev = agents.AGENTS["codex"]["events"]
-    assert "PermissionRequest" in ev
-    # Codex has no SessionEnd / Notification / SubagentStop
-    for missing in ("SessionEnd", "Notification", "SubagentStop"):
-        assert missing not in ev
+    for present in ("SessionStart", "SessionEnd", "UserPromptSubmit",
+                    "PreToolUse", "PostToolUse", "PermissionRequest",
+                    "Stop", "SubagentStart", "SubagentStop", "PreCompact"):
+        assert present in ev, present
+    for missing in ("Notification", "StopFailure"):
+        assert missing not in ev, missing
     assert agents.AGENTS["codex"]["raw_events"]["PermissionRequest"] == "attention"

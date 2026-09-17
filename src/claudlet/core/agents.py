@@ -32,15 +32,21 @@ AGENTS = {
         "marker": ".codex",
         "settings": os.path.join(".codex", "hooks.json"),
         "proc": "codex",
-        # Codex fires no SessionEnd / Notification / SubagentStop, and adds
-        # PermissionRequest (its "may I?" prompt).
-        "events": ["SessionStart", "UserPromptSubmit", "PreToolUse",
-                   "PostToolUse", "PermissionRequest", "Stop"],
+        # Measured from the codex 0.147.0 native binary's strings, corroborated
+        # by Codex's own plugin hooks.json (which registers SessionEnd). No
+        # Notification, no StopFailure. Adds PermissionRequest (its "may I?"
+        # prompt) and the subagent/compaction events Claude Code also has.
+        "events": ["SessionStart", "SessionEnd", "UserPromptSubmit",
+                   "PreToolUse", "PostToolUse", "PermissionRequest", "Stop",
+                   "SubagentStart", "SubagentStop", "PreCompact"],
         "tool_events": ["PreToolUse", "PostToolUse"],
         "avatar": "codex",
-        # Codex's own tool names -> display states. Filled from REAL captured
-        # payloads in the last task; anything unmapped falls back to
-        # work_computer inside StateEngine.
+        # The only tool_name values evidenced on this version are "exec" (the
+        # shell tool -- appears in session rollouts as a custom_tool_call
+        # named "exec") and "apply_patch". Both already fall back to
+        # work_computer via StateEngine's default, so no entries are needed
+        # here yet. Add one only when a name shows up that deserves a
+        # different state (e.g. a web tool).
         "tools": {},
         "raw_events": {"PermissionRequest": "attention"},
     },
