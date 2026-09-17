@@ -166,13 +166,15 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 ```
 
 `~/.config/claudlet/creatures/<이름>/` 에 만들어지고 설정 목록에 바로 떠요. 기본으로
-두 마리가 들어 있어요:
+세 마리가 들어 있어요:
 
-![같은 상태를 각자 방식으로 — claudlet 과 slime](docs/creatures.png)
+![같은 상태를 각자 방식으로 — claudlet, astronaut, slime](docs/creatures.png)
 
-**slime** 은 다리가 없어서 걷는 대신 통통 튀고, 회전하는 대신 옆으로 밀려 기우는
-젤리예요. 그래도 고민하고, 타이핑하고, 잠들죠 — 모션과 프롭은 크리처가 아니라
-펫이 주는 거라서요. 직접 만들 거면 `slime.py` 를 같이 읽어보세요.
+**slime** 은 다리가 없어서 걷는 대신 통통 튀고, 회전하는 대신 옆으로 밀려 기울어요.
+**astronaut** 은 두 발로 서는 인간형이고, 혼자 돌아갈 때를 헤드셋 대신 **빛나는
+바이저**로 보여줘요. 둘 다 고민하고 타이핑하고 잠들죠 — 모션과 프롭은 크리처가
+아니라 펫이 주는 거라서요. 직접 만들 거면 `slime.py` 나 `astronaut.py` 를
+같이 읽어보세요.
 계약과 함정은 [creature-authoring.md](src/claudlet/skill/creature-authoring.md) 에 있어요.
 
 ## 명령어

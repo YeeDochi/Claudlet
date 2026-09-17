@@ -173,13 +173,15 @@ want>` writes one for you:
 ```
 
 It lands in `~/.config/claudlet/creatures/<name>/` and shows up in the settings
-list. Two ship with the pet:
+list. Three ship with the pet:
 
-![claudlet and slime across the same states](docs/creatures.png)
+![claudlet, astronaut and slime across the same states](docs/creatures.png)
 
-**slime** is a legless jelly blob that hops instead of walking and leans by
-shearing rather than rotating — and it still thinks, types and sleeps, because
-the motion and the props come from the pet, not from the creature. Read
+**slime** has no legs — a stride becomes a hop, and a lean is a shear rather
+than a rotation. **astronaut** is a humanoid that stands upright and answers
+the unattended flag with a lit visor instead of a headset. Both still think,
+type and sleep, because the motion and the props come from the pet, not from
+the creature. Read
 `slime.py` if you are writing your own; the contract and the pitfalls are in
 [creature-authoring.md](src/claudlet/skill/creature-authoring.md).
 

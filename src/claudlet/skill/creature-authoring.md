@@ -142,9 +142,17 @@ colours if you want the picker to work.
 
 ## A worked example
 
-`claudlet/core/avatars/slime.py` ships with the pet and is nothing like the
-built-in: no legs, no rotation, its own idea of what running unattended looks
-like. Read it alongside this. What it does differently is instructive —
+Two ship with the pet and neither is shaped like the built-in. Read them
+alongside this.
+
+`avatars/astronaut.py` is a **humanoid** — helmet, torso, two arms, two legs, a
+pack on its back. It keeps the 22x17 grid on purpose (`draw_prop` hangs the
+laptop and bubbles in those coordinates), declares `foot_row` because its boots
+end well above the built-in's, and answers the unattended flag with a lit visor
+and a blinking antenna rather than a headset.
+
+`avatars/slime.py` is a legless jelly dome. What it does differently is
+instructive —
 
 - **legless**: the walk cycle becomes a hop, squashed at the bottom and
   stretched at the top, because a stride is what reads as walking and it has no

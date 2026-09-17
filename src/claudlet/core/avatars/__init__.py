@@ -96,9 +96,10 @@ def _load_dir(path):
 def _registry():
     # imported lazily: this package is pulled in by Qt-free modules too, and
     # the built-in avatar's art module needs QtGui.
+    from claudlet.core.avatars.astronaut import Astronaut
     from claudlet.core.avatars.builtin import Claudlet
     from claudlet.core.avatars.slime import Slime
-    reg = {Claudlet.name: Claudlet, Slime.name: Slime}
+    reg = {c.name: c for c in (Claudlet, Slime, Astronaut)}
     try:
         names = sorted(os.listdir(CREATURES_DIR))
     except OSError:

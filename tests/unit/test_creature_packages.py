@@ -87,3 +87,35 @@ def test_a_dropped_in_creature_overrides_a_bundled_one_of_the_same_name(
     # your own file wins: a bundled creature is a starting point, not a lock
     _install(tmp_path, monkeypatch, "slime", CREATURE.replace('"blob"', '"slime"'))
     assert avatars.get("slime").grid == (10, 24)     # the dropped-in one
+
+
+def test_bundled_creatures_all_satisfy_the_contract(tmp_path, monkeypatch):
+    # the shipped ones are the examples people copy, so they must be exemplary:
+    # every attribute present, every declared state actually drawable
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(tmp_path / "none"))
+    for name in avatars.available():
+        av = avatars.get(name)
+        assert isinstance(av, avatars.Avatar), name
+        assert av.name == name
+        w, h = av.grid
+        assert w > 0 and h > 0, name
+        assert av.states, name
+
+
+def test_bundled_creatures_draw_every_state_they_claim(tmp_path, monkeypatch):
+    from PyQt6.QtGui import QImage, QPainter
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(tmp_path / "none"))
+    for name in avatars.available():
+        av = avatars.get(name)
+        w, h = av.grid
+        img = QImage((w + 4) * 5, (h + 4) * 5, QImage.Format.Format_ARGB32)
+        for state in av.states:
+            img.fill(0)
+            p = QPainter(img)
+            try:
+                av.draw(p, 10, 10, 5, state, 8)     # must not raise
+            finally:
+                p.end()
+            buf = bytes(img.constBits().asarray(img.sizeInBytes()))
+            assert any(b > 0 for b in buf[3::4]), "%s drew nothing for %s" % (
+                name, state)
