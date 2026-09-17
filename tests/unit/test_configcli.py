@@ -739,7 +739,12 @@ def test_export_relative_path_lands_under_the_given_base(tmp_path):
 
 
 def test_export_expands_a_tilde_destination(tmp_path, monkeypatch):
+    # HOME alone only redirects expanduser() on POSIX -- ntpath reads
+    # USERPROFILE (then HOMEDRIVE+HOMEPATH) and ignores HOME entirely, so on
+    # Windows this used to expand to the real home and fail on a directory the
+    # test never created.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "보관").mkdir()
     dest, err = C.export_creature("slime", out="~/보관")
     assert err is None and dest == str(tmp_path / "보관" / "slime.claudlet-creature.zip")
