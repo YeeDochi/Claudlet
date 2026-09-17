@@ -391,7 +391,10 @@ def state_rig(state, frame, energy=1.0, happy=False, visor=None,
     return {"bob": bob, "sx": sx, "sy": sy, "tilt": tilt, "legphase": legphase,
             "eyes": eyes, "prop": prop, "front_tap": front_tap,
             "baseline_lift": baseline_lift, "droop": droop,
-            "arm": arm, "arm_swing": arm_swing}
+            "arm": arm, "arm_swing": arm_swing,
+            # whether legphase means "mid-stride" this state, or is being
+            # reused to mean something else (jump/doze: legs tucked)
+            "walking": state in _WALKERS}
 
 
 def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
