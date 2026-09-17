@@ -10,14 +10,21 @@ stdlib only (`http.server`): a settings screen is not worth a web framework,
 and the pet must stay installable with nothing but PyQt6.
 
 Local only. The server binds 127.0.0.1 on an OS-chosen port and stops when the
-window is closed / the command is interrupted.
+window is closed / the command is interrupted. This is unauthenticated on
+loopback by design (any same-user process can already write the config files
+this page edits) -- except POST /api/import, which is the one endpoint that
+can plant and later execute new code (a creature package), so it alone is
+gated behind a per-run token: that closes the gap for a process that is
+filesystem-sandboxed but still allowed to reach loopback sockets.
 
 The request handling is split into PURE functions (`state_payload`, `apply`)
 that take and return data, so the behaviour is tested without a socket; the
 HTTP class below is a thin shell over them.
 """
+import hmac
 import json
 import os
+import secrets
 import sys
 import time
 
@@ -453,6 +460,7 @@ function shot(state, cacheBust) {
           <figcaption>${state}</figcaption></figure>`;
 }
 const T = __T_JSON__;
+const IMPORT_TOKEN = __IMPORT_TOKEN__;   // gates POST /api/import only
 const VISOR_LABEL = {auto: T.visor_auto, on: T.visor_on, off: T.visor_off};
 function visorNow() {
   const on = document.querySelector("#visor button[aria-pressed=true]");
@@ -607,14 +615,14 @@ $("importInspect").addEventListener("click", async () => {
   pendingImportPath = $("importPath").value;
   const r = await fetch("/api/import", {method: "POST",
     headers: {"content-type": "application/json"},
-    body: JSON.stringify({path: pendingImportPath})});
+    body: JSON.stringify({path: pendingImportPath, token: IMPORT_TOKEN})});
   renderImportInfo(await r.json());
 });
 $("importConfirm").addEventListener("click", async () => {
   const r = await fetch("/api/import", {method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({path: pendingImportPath, confirm: true,
-                          force: $("importForce").checked})});
+                          force: $("importForce").checked, token: IMPORT_TOKEN})});
   const out = await r.json();
   if (out.error) {
     renderImportInfo(out);
@@ -637,18 +645,22 @@ window.addEventListener("pagehide", () => {
 """
 
 
-def page(cfg=None):
+def page(cfg=None, import_token=""):
     """The page in the user's language. Built per request rather than once at
-    import: the language can change in the config while the server is up."""
+    import: the language can change in the config while the server is up.
+
+    `import_token` is embedded so the page's own JS can send it back on
+    POST /api/import -- the one endpoint that plants new code on disk."""
     t = texts(cfg)
     out = PAGE_TEMPLATE.replace("__HEARTBEAT__", str(HEARTBEAT_MS))
     out = out.replace("__T_JSON__", json.dumps(t, ensure_ascii=False))
+    out = out.replace("__IMPORT_TOKEN__", json.dumps(import_token))
     for key, val in t.items():
         out = out.replace("__T_%s__" % key, val)
     return out
 
 
-def _handler_class(initial_agent=None):
+def _handler_class(initial_agent=None, import_token=""):
     from http.server import BaseHTTPRequestHandler
     from urllib.parse import parse_qs, urlparse
 
@@ -672,7 +684,7 @@ def _handler_class(initial_agent=None):
         def do_GET(self):
             u = urlparse(self.path)
             if u.path == "/":
-                return self._send(200, page().encode("utf-8"),
+                return self._send(200, page(import_token=import_token).encode("utf-8"),
                                   "text/html; charset=utf-8")
             if u.path == "/api/alive":
                 return self._json({"ok": True})     # the page is still open
@@ -715,6 +727,13 @@ def _handler_class(initial_agent=None):
                 return self._json(apply(body))
             if path == "/api/export":
                 return self._json(export_api(body))
+            # /api/import is the one endpoint that plants (and later runs) new
+            # code on disk, so it alone requires the per-run token the page
+            # was served with -- everything else here is unauthenticated on
+            # loopback by design.
+            given = body.get("token")
+            if not isinstance(given, str) or not hmac.compare_digest(given, import_token):
+                return self._json({"error": "missing or bad token"}, 403)
             return self._json(import_api(body))
 
     return Handler
@@ -730,7 +749,8 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None):
     Stops on Ctrl-C, and on its own once the page has stopped saying it is
     there — which is what closing the tab looks like from here."""
     from http.server import HTTPServer
-    srv = HTTPServer(("127.0.0.1", 0), _handler_class(agent))
+    import_token = secrets.token_urlsafe(16)   # per-run only; never persisted
+    srv = HTTPServer(("127.0.0.1", 0), _handler_class(agent, import_token))
     srv.timeout = 5                     # wake up often enough to notice silence
     srv.last_seen = time.monotonic()
     srv.idle_timeout = idle_timeout     # read by the bye handler's grace calc

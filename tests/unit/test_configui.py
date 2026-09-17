@@ -434,6 +434,136 @@ def test_import_api_rejects_dot_top_level_archive(tmp_path, monkeypatch):
     assert not creatures_dir.exists()
 
 
+# ---------- import token gate ----------
+# /api/import is the one endpoint that plants (and later executes) new code
+# on disk, so unlike every other endpoint here it requires the per-run token
+# the page was served with. A filesystem-sandboxed-but-loopback-reachable
+# caller (e.g. Codex under bubblewrap) must not be able to use it blind.
+
+def _post(srv, path, body):
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        "http://127.0.0.1:%d%s" % (srv.server_port, path),
+        data=json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_import_inspect_refused_without_or_with_wrong_token(tmp_path, monkeypatch):
+    import threading
+    from http.server import HTTPServer
+
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    zpath = _zip(tmp_path / "cool.zip", "cool", {"__init__.py": "AVATAR = None\n"})
+
+    srv = HTTPServer(("127.0.0.1", 0), U._handler_class(import_token="right-token"))
+    srv.timeout = 5
+    try:
+        for body in ({"path": str(zpath)}, {"path": str(zpath), "token": "wrong"}):
+            t = threading.Thread(target=srv.handle_request, daemon=True)
+            t.start()
+            code, out = _post(srv, "/api/import", body)
+            t.join(timeout=5)
+            assert code == 403
+            assert out.get("error")
+            assert not creatures_dir.exists()
+    finally:
+        srv.server_close()
+
+
+def test_import_confirm_refused_without_or_with_wrong_token(tmp_path, monkeypatch):
+    import threading
+    from http.server import HTTPServer
+
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    zpath = _zip(tmp_path / "cool.zip", "cool", {"__init__.py": "AVATAR = None\n"})
+
+    srv = HTTPServer(("127.0.0.1", 0), U._handler_class(import_token="right-token"))
+    srv.timeout = 5
+    try:
+        for body in ({"path": str(zpath), "confirm": True},
+                     {"path": str(zpath), "confirm": True, "token": "wrong"}):
+            t = threading.Thread(target=srv.handle_request, daemon=True)
+            t.start()
+            code, out = _post(srv, "/api/import", body)
+            t.join(timeout=5)
+            assert code == 403
+            assert out.get("error")
+            assert not creatures_dir.exists()
+    finally:
+        srv.server_close()
+
+
+def test_import_with_the_right_token_still_works(tmp_path, monkeypatch):
+    import threading
+    from http.server import HTTPServer
+
+    creatures_dir = tmp_path / "creatures"
+    monkeypatch.setattr(avatars, "CREATURES_DIR", str(creatures_dir))
+    zpath = _zip(tmp_path / "cool.zip", "cool", {"__init__.py": "AVATAR = None\n"})
+
+    srv = HTTPServer(("127.0.0.1", 0), U._handler_class(import_token="right-token"))
+    srv.timeout = 5
+    try:
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+        code, out = _post(srv, "/api/import", {"path": str(zpath), "token": "right-token"})
+        t.join(timeout=5)
+        assert code == 200
+        assert out["name"] == "cool" and not creatures_dir.exists()   # inspect only
+
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+        code, out = _post(srv, "/api/import",
+                          {"path": str(zpath), "confirm": True, "token": "right-token"})
+        t.join(timeout=5)
+        assert code == 200
+        assert out["name"] == "cool"
+        assert (creatures_dir / "cool" / "__init__.py").exists()
+    finally:
+        srv.server_close()
+
+
+def test_the_page_carries_the_current_runs_token():
+    pg = U.page({}, import_token="a-run-specific-token")
+    assert "a-run-specific-token" in pg
+
+
+def test_two_serve_setups_do_not_share_a_token():
+    # exactly what serve() does per call: a fresh token, threaded through
+    # _handler_class into the served page
+    import secrets
+    import threading
+    import urllib.request
+    from http.server import HTTPServer
+
+    def one():
+        tok = secrets.token_urlsafe(16)
+        srv = HTTPServer(("127.0.0.1", 0), U._handler_class(import_token=tok))
+        srv.timeout = 5
+        t = threading.Thread(target=srv.handle_request, daemon=True)
+        t.start()
+        with urllib.request.urlopen(
+                "http://127.0.0.1:%d/" % srv.server_port, timeout=5) as r:
+            pg = r.read().decode("utf-8")
+        t.join(timeout=5)
+        srv.server_close()
+        return tok, pg
+
+    tok1, pg1 = one()
+    tok2, pg2 = one()
+    assert tok1 != tok2
+    assert tok1 in pg1 and tok2 not in pg1
+    assert tok2 in pg2 and tok1 not in pg2
+
+
 def test_page_inserts_entry_names_as_text_not_html():
     pg = U.page({})
     share = pg[pg.index("renderImportInfo("):]
