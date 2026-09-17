@@ -131,10 +131,13 @@ cpet attach
 ```
 `claudlet-attach` finds this session (`$CLAUDE_CODE_SESSION_ID`, else the
 newest transcript under `~/.claude/projects/`), detects the host terminal/IDE
-so click-to-focus targets the right window, skips if a pet is already attached
-(the same liveness handshake the hook uses — a bare connect can't tell a live
-pet from a reused stale port), and launches a detached pet bound to the session.
-It prints `attached to session ...` or `already attached ...`.
+and walks up to the agent process so click-to-focus targets the right window,
+skips if a pet is already attached (the same liveness handshake the hook uses —
+a bare connect can't tell a live pet from a reused stale port), and launches a
+detached pet bound to the session. It prints `attached to session ...` or
+`already attached ...`. Add `--agent <name>` for a non-Claude session (`codex`);
+without it the walk looks for Claude Code and prints `no agent pid ->
+host-window tracking off` if it can't find one.
 
 **Reactions require hooks.** The pet only reacts to this session if the
 claudlet hooks are installed (`claudlet-install`) AND this session loaded

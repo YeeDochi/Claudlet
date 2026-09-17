@@ -9,6 +9,7 @@ detached pet bound to the session.
 
     claudlet-attach                 attach to this session (env/newest transcript)
     claudlet-attach --session <id>  attach to a specific session
+    claudlet-attach --agent <name>  which agent's session this is (default: claude)
     claudlet-attach --standalone    an unattached, decorative roaming pet
 """
 import glob
@@ -16,7 +17,8 @@ import os
 import subprocess
 import sys
 
-from claudlet.core import hostinfo
+from claudlet.cli import hook
+from claudlet.core import agents, hostinfo
 
 
 def _newest_session_id():
@@ -43,6 +45,26 @@ def _launch(extra_args):
     subprocess.Popen([sys.executable, "-m", "claudlet"] + extra_args, env=env, **kw)
 
 
+def _claude_pid(agent):
+    """The agent process this pet belongs to, or 0 if it isn't in our chain.
+
+    The pet needs this for two things: the orphan reaper, and -- the reason a
+    manually attached pet used to behave differently from a hook-launched one --
+    host-window tracking. The host window is the one owned by an ANCESTOR of
+    this pid, so with 0 the pet falls back to its own ancestors and click-to-
+    focus/hide-when-covered quietly stop finding the right window.
+
+    `claudlet-attach` runs from a shell inside the session just like the hook
+    does, so the same upward walk from our parent finds the same process. Reuses
+    the hook's walk rather than repeating it, so the two can't drift.
+    """
+    try:
+        return hook.resolve_claude_pid(os.getppid(), hook._proc_info,
+                                       needle=agents.get(agent)["proc"])
+    except Exception:
+        return 0                                  # no pid -> pet's old fallback
+
+
 def _arg_value(argv, flag):
     if flag in argv:
         i = argv.index(flag)
@@ -63,14 +85,20 @@ def main(argv=None):
                   or os.environ.get("CLAUDE_CODE_SESSION_ID")
                   or _newest_session_id()
                   or "default")
+    agent = _arg_value(argv, "--agent") or agents.DEFAULT
     host = hostinfo.detect_host()
 
     if hostinfo.pet_alive(session_id):
         print("already attached to session %s (host=%s)" % (session_id, host))
         return 0
 
-    _launch(["--session", session_id, "--host", host])
-    print("attached to session %s (host=%s)" % (session_id, host))
+    claude_pid = _claude_pid(agent)
+    _launch(["--session", session_id, "--host", host, "--agent", agent,
+             "--claude-pid", str(claude_pid)])
+    print("attached to session %s (host=%s, agent=%s, %s)"
+          % (session_id, host, agent,
+             "pid=%d" % claude_pid if claude_pid
+             else "no agent pid -> host-window tracking off"))
     return 0
 
 
