@@ -397,6 +397,206 @@ def state_rig(state, frame, energy=1.0, happy=False, visor=None,
             "walking": state in _WALKERS}
 
 
+def draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0.0, facing=1,
+              palette=None):
+    """Draw the object a state carries: the laptop, the magnifier, the phone,
+    the speech bubble, the z's, the juggling balls.
+
+    Pulled out of `draw_creature` because these are OBJECTS, not body parts. A
+    creature someone else drew still thinks, still finishes a task, still falls
+    asleep — and asking whoever draws it to also draw eleven props in every
+    state is asking for a thing nobody finishes. An avatar says WHERE its prop
+    hangs; this draws WHAT hangs there. A custom avatar can override an
+    individual prop later, but it inherits the whole vocabulary by default.
+
+    Coordinates are art pixels from (ox, oy); `body_dy` is the shared bob so the
+    prop rides with the creature. Untilted on purpose — a speech bubble that
+    leans with a stumbling creature reads as a bug."""
+    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
+    # ---- props (screen-ish space, not tilted) ----
+    def rect(col, row, w, h, color):
+        Y = row + body_dy
+        _fill(p, ox + col * u, oy + Y * u, w * u, h * u, color)
+
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFont, QPen, QPainterPath
+    if prop == "bulb":
+        rect(17.5, 0.6, 3.0, 3.0, BULB)
+        rect(18.2, 0.9, 1.2, 1.2, BULB_L)
+        rect(18.3, 3.5, 1.6, 0.8, ORANGE_D)
+    elif prop == "spark":
+        rect(19.0, 6.0, 0.9, 0.9, BULB_L)
+        rect(20.0, 7.2, 0.7, 0.7, BULB)
+        rect(19.3, 8.2, 0.6, 0.6, BULB_L)
+    elif prop == "laptop":
+        # hands drawn FIRST so the screen covers them (they type behind the laptop),
+        # peeking at the sides; bright body color so the motion is visible on the dark lid
+        tapL = _sin(frame, 16, 0.5) + 0.5
+        tapR = _sin(frame, 16, 0.5, 0.5) + 0.5
+        rect(4.8, 10.4 + tapL, 2.0, 1.8, ORANGE_L)
+        rect(14.2, 10.4 + tapR, 2.0, 1.8, ORANGE_L)
+        # laptop lid (back), sitting a bit lower so more of the head shows above
+        rect(6.0, 9.8, 9.0, 3.7, QColor("#4C4C57"))      # screen frame (back)
+        rect(6.6, 10.2, 7.8, 3.0, QColor("#25252B"))     # screen back panel
+        rect(6.2, 13.2, 8.6, 0.5, QColor("#1C1C20"))     # bottom edge on the desk
+        # logo: warm white, slow blink
+        if (frame % 72) < 46:
+            rect(9.5, 11.1, 1.7, 1.2, BULB_L)
+        # intermittent thought bubble that types out . .. ...
+        cyc = frame % 150
+        if 45 <= cyc < 120:
+            n = 1 if cyc < 68 else (2 if cyc < 92 else 3)
+            rect(6.3, 0.2, 7.4, 2.4, WHITE)              # bubble
+            rect(11.6, 2.9, 1.0, 1.0, WHITE)             # trail puff
+            rect(12.4, 4.0, 0.8, 0.8, WHITE)             # trail puff (small)
+            for i in range(n):
+                rect(7.5 + i * 1.7, 1.1, 0.9, 0.9, QColor("#3A3A42"))
+    elif prop == "bang":
+        bxx, byy = 17.5, -0.2
+        rect(bxx, byy, 3.6, 3.2, WHITE)
+        # tail
+        _fill(p, ox + (bxx + 0.4) * u, oy + (byy + 3.0 + body_dy) * u,
+              1.0 * u, 1.0 * u, WHITE)
+        # bold pixel "!" (stem + dot), centered in the bubble
+        ex = bxx + 1.3
+        rect(ex, byy + 0.6, 1.0, 1.5, BANG)     # stem
+        rect(ex, byy + 2.35, 1.0, 0.75, BANG)   # dot
+    elif prop in ("dizzy", "dizzy2"):
+        yoff = 0.0 if prop == "dizzy" else 0.6
+        p.setPen(QPen(ZTXT)); f = QFont("Sans"); f.setPointSizeF(1.4 * u); f.setBold(True); p.setFont(f)
+        p.drawText(int(ox + 5 * u), int(oy + (3.0 + yoff) * u), "✦")
+        p.drawText(int(ox + 8 * u), int(oy + (2.4 + yoff) * u), "✦")
+        p.setPen(Qt.PenStyle.NoPen)
+    elif prop == "zzz":
+        p.setPen(QPen(ZTXT))
+        f = QFont("Sans"); f.setPointSizeF(1.2 * u); f.setBold(True); p.setFont(f)
+        p.drawText(int(ox + 18 * u), int(oy + (4.0 + body_dy) * u), "z")
+        f2 = QFont("Sans"); f2.setPointSizeF(1.8 * u); f2.setBold(True); p.setFont(f2)
+        p.drawText(int(ox + 19.4 * u), int(oy + (2.2 + body_dy) * u), "Z")
+        p.setPen(Qt.PenStyle.NoPen)
+    elif prop == "ponder":
+        # slow "?" that fades in over the head
+        if (frame % 90) > 20:
+            p.setPen(QPen(ZTXT)); f = QFont("Sans"); f.setPointSizeF(1.8 * u)
+            f.setBold(True); p.setFont(f)
+            p.drawText(int(ox + 18 * u), int(oy + (3.2 + body_dy) * u), "?")
+            p.setPen(Qt.PenStyle.NoPen)
+    elif prop == "magnify":
+        # a magnifying glass sweeping side to side out front — dark rim for
+        # contrast against the body, bright glass with a travelling glint.
+        mx = _sin(frame, 26, 0.7)                        # slow scanning sweep
+        rect(17.2 + mx, 5.8, 3.2, 3.2, EYE)              # dark outline rim
+        rect(17.5 + mx, 6.1, 2.6, 2.6, QColor("#D7DEE6"))  # metal ring
+        rect(18.0 + mx, 6.6, 1.6, 1.6, QColor("#8FD0EA"))  # glass
+        rect(18.2 + mx + _sin(frame, 26, 0.4, 0.25), 6.8, 0.6, 0.6, WHITE)  # glint
+        rect(19.8 + mx, 8.6, 1.8, 1.5, EYE)              # handle (grip)
+    elif prop == "phone":
+        # a handset held to the ear — earpiece + mouthpiece so it reads as a
+        # phone, a bright speaker slit, and expanding ring waves that pulse out.
+        rect(1.7, 6.0, 1.7, 3.2, QColor("#33333B"))      # handset body
+        rect(1.3, 5.6, 2.5, 1.0, QColor("#33333B"))      # earpiece
+        rect(1.3, 8.7, 2.5, 1.0, QColor("#33333B"))      # mouthpiece
+        rect(1.9, 5.8, 1.0, 0.5, QColor("#8FD0EA"))      # speaker slit
+        rw = frame % 46                                  # ring waves radiate out
+        if rw < 34:
+            step = rw // 12                              # 0,1,2 -> up from the ear
+            # radiate up-and-slightly-left but stay on-window (only col >= -1 shows)
+            rect(0.3 - step * 0.5, 4.6 - step * 1.1, 0.8, 0.8, BULB_L)
+    elif prop == "clones":
+        # two mini creatures filing out to the right, bobbing in sequence,
+        # each with a dark outline + shadow so they pop off the body.
+        for k in range(2):
+            mb = _sin(frame, 18, 0.6, phase=k * 0.5)
+            bx = 18.5 + k * 2.4
+            rect(bx - 0.2, 9.3 + mb, 2.2, 2.2, EYE)      # dark outline
+            rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
+            rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
+            rect(bx + 0.35, 10.1 + mb, 0.45, 0.55, EYE)  # eye
+            rect(bx + 0.1, 11.4, 1.6, 0.4, QColor("#00000040"))  # ground shadow
+    elif prop == "hat":
+        # party/wizard cone hat + a sparkle
+        rect(9.0, 2.0, 3.0, 0.7, QColor("#6C5CE7"))      # brim
+        rect(9.7, 0.6, 1.6, 1.6, QColor("#8E7CFF"))      # cone
+        rect(10.1, 0.1, 0.8, 0.8, BULB_L)                # pom
+        if (frame % 30) < 15:
+            rect(13.0, 1.4, 0.9, 0.9, BULB_L)            # sparkle
+    elif prop == "gear":
+        # a cog ticking over beside the head — teeth alternate N/S/E/W vs
+        # diagonal each tick so it reads as turning ("running by itself").
+        gx, gy = 18.3, 2.2
+        cog, hole = QColor("#B8BEC8"), QColor("#25252B")
+        rect(gx + 0.9, gy + 0.9, 1.7, 1.7, cog)          # hub
+        if (frame // 5) % 2 == 0:
+            rect(gx + 1.4, gy, 0.8, 0.9, cog)            # N
+            rect(gx + 1.4, gy + 2.6, 0.8, 0.9, cog)      # S
+            rect(gx, gy + 1.4, 0.9, 0.8, cog)            # W
+            rect(gx + 2.6, gy + 1.4, 0.9, 0.8, cog)      # E
+        else:
+            rect(gx + 0.4, gy + 0.4, 0.85, 0.85, cog)    # NW
+            rect(gx + 2.2, gy + 0.4, 0.85, 0.85, cog)    # NE
+            rect(gx + 0.4, gy + 2.2, 0.85, 0.85, cog)    # SW
+            rect(gx + 2.2, gy + 2.2, 0.85, 0.85, cog)    # SE
+        rect(gx + 1.45, gy + 1.45, 0.6, 0.6, hole)       # center hole
+    elif prop == "window":
+        # a little blue code window floating beside the visor (auto_computer)
+        wx, wy = 16.8, 1.2
+        rect(wx, wy, 5.4, 4.4, QColor("#2A3550"))        # window body
+        rect(wx, wy, 5.4, 1.0, QColor("#3E5488"))        # title bar
+        rect(wx + 0.4, wy + 0.35, 0.4, 0.4, QColor("#E06C6C"))  # close dot
+        rect(wx + 1.1, wy + 0.35, 0.4, 0.4, QColor("#E0B24C"))  # min dot
+        rect(wx + 0.5, wy + 1.5, 3.4, 0.5, QColor("#6FC3E0"))   # code line
+        rect(wx + 0.5, wy + 2.4, 2.4, 0.5, QColor("#8FD0EA"))   # code line
+        if (frame % 30) < 18:
+            rect(wx + 0.5, wy + 3.3, 1.6, 0.5, QColor("#6FC3E0"))  # typing line
+    elif prop == "clones_v":
+        # mini creatures like `clones`, but each wears a tiny visor too
+        for k in range(2):
+            mb = _sin(frame, 18, 0.6, phase=k * 0.5)
+            bx = 18.5 + k * 2.2
+            rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
+            rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
+            rect(bx + 0.2, 10.15 + mb, 1.4, 0.5, EYE)    # tiny visor band
+    elif prop == "note":
+        # music notes bobbing up beside the head, cycling
+        for k in range(2):
+            nb = _sin(frame, 24, 0.8, phase=k * 0.5)
+            nx = 17.6 + k * 1.9
+            rect(nx, 2.4 + nb, 1.1, 1.1, EYE)            # note head
+            rect(nx + 0.9, 1.2 + nb, 0.4, 2.3, EYE)      # stem
+    elif prop == "balls":
+        # three balls arcing overhead on staggered phases
+        cols = [BULB, ORANGE_L, BULB_L]
+        for k in range(3):
+            t = ((frame + k * 12) % 36) / 36.0           # 0..1 around the arc
+            bx = 6.0 + 9.0 * t                           # left -> right
+            by = 2.6 + 3.2 * (1.0 - math.sin(t * math.pi))  # arc: high in the middle
+            rect(bx, by, 1.2, 1.2, cols[k])
+    elif prop == "speech":
+        phrase = speech(state)
+        if phrase:
+            n = len(phrase)
+            cyc = frame % (n * 7 + 30)          # type ~1 char / 7 frames, then hold
+            shown = min(n, 1 + cyc // 7)
+            text = phrase[:shown]
+            f = QFont("Sans"); f.setPointSizeF(1.4 * u); f.setBold(True)
+            p.setFont(f)
+            fm = p.fontMetrics()
+            tw = fm.horizontalAdvance(phrase)   # size to the FULL phrase (stable bubble)
+            th = fm.height()
+            pad = 0.7 * u
+            bx = ox + (GRID_W * u - tw) / 2.0
+            by = oy + 0.2 * u
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(bx - pad, by, tw + 2 * pad, th + pad), 5, 5)
+            p.fillPath(path, WHITE)
+            # little tail under the bubble
+            p.fillRect(QRectF(bx + tw / 2.0, by + th + pad - 1, 1.1 * u, 1.0 * u), WHITE)
+            p.setPen(QPen(QColor("#2A2A30")))
+            p.drawText(QRectF(bx - pad, by, tw + 2 * pad, th + pad),
+                       Qt.AlignmentFlag.AlignCenter, text)
+            p.setPen(Qt.PenStyle.NoPen)
+
+
 def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
                   energy=1.0, palette=None, happy=False, pocket=False,
                   gaze=(0.0, 0.0)):
@@ -603,188 +803,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
 
     p.restore()
 
-    # ---- props (screen-ish space, not tilted) ----
-    def rect(col, row, w, h, color):
-        Y = row + body_dy
-        _fill(p, ox + col * u, oy + Y * u, w * u, h * u, color)
-
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QFont, QPen, QPainterPath
-    if prop == "bulb":
-        rect(17.5, 0.6, 3.0, 3.0, BULB)
-        rect(18.2, 0.9, 1.2, 1.2, BULB_L)
-        rect(18.3, 3.5, 1.6, 0.8, ORANGE_D)
-    elif prop == "spark":
-        rect(19.0, 6.0, 0.9, 0.9, BULB_L)
-        rect(20.0, 7.2, 0.7, 0.7, BULB)
-        rect(19.3, 8.2, 0.6, 0.6, BULB_L)
-    elif prop == "laptop":
-        # hands drawn FIRST so the screen covers them (they type behind the laptop),
-        # peeking at the sides; bright body color so the motion is visible on the dark lid
-        tapL = _sin(frame, 16, 0.5) + 0.5
-        tapR = _sin(frame, 16, 0.5, 0.5) + 0.5
-        rect(4.8, 10.4 + tapL, 2.0, 1.8, ORANGE_L)
-        rect(14.2, 10.4 + tapR, 2.0, 1.8, ORANGE_L)
-        # laptop lid (back), sitting a bit lower so more of the head shows above
-        rect(6.0, 9.8, 9.0, 3.7, QColor("#4C4C57"))      # screen frame (back)
-        rect(6.6, 10.2, 7.8, 3.0, QColor("#25252B"))     # screen back panel
-        rect(6.2, 13.2, 8.6, 0.5, QColor("#1C1C20"))     # bottom edge on the desk
-        # logo: warm white, slow blink
-        if (frame % 72) < 46:
-            rect(9.5, 11.1, 1.7, 1.2, BULB_L)
-        # intermittent thought bubble that types out . .. ...
-        cyc = frame % 150
-        if 45 <= cyc < 120:
-            n = 1 if cyc < 68 else (2 if cyc < 92 else 3)
-            rect(6.3, 0.2, 7.4, 2.4, WHITE)              # bubble
-            rect(11.6, 2.9, 1.0, 1.0, WHITE)             # trail puff
-            rect(12.4, 4.0, 0.8, 0.8, WHITE)             # trail puff (small)
-            for i in range(n):
-                rect(7.5 + i * 1.7, 1.1, 0.9, 0.9, QColor("#3A3A42"))
-    elif prop == "bang":
-        bxx, byy = 17.5, -0.2
-        rect(bxx, byy, 3.6, 3.2, WHITE)
-        # tail
-        _fill(p, ox + (bxx + 0.4) * u, oy + (byy + 3.0 + body_dy) * u,
-              1.0 * u, 1.0 * u, WHITE)
-        # bold pixel "!" (stem + dot), centered in the bubble
-        ex = bxx + 1.3
-        rect(ex, byy + 0.6, 1.0, 1.5, BANG)     # stem
-        rect(ex, byy + 2.35, 1.0, 0.75, BANG)   # dot
-    elif prop in ("dizzy", "dizzy2"):
-        yoff = 0.0 if prop == "dizzy" else 0.6
-        p.setPen(QPen(ZTXT)); f = QFont("Sans"); f.setPointSizeF(1.4 * u); f.setBold(True); p.setFont(f)
-        p.drawText(int(ox + 5 * u), int(oy + (3.0 + yoff) * u), "✦")
-        p.drawText(int(ox + 8 * u), int(oy + (2.4 + yoff) * u), "✦")
-        p.setPen(Qt.PenStyle.NoPen)
-    elif prop == "zzz":
-        p.setPen(QPen(ZTXT))
-        f = QFont("Sans"); f.setPointSizeF(1.2 * u); f.setBold(True); p.setFont(f)
-        p.drawText(int(ox + 18 * u), int(oy + (4.0 + body_dy) * u), "z")
-        f2 = QFont("Sans"); f2.setPointSizeF(1.8 * u); f2.setBold(True); p.setFont(f2)
-        p.drawText(int(ox + 19.4 * u), int(oy + (2.2 + body_dy) * u), "Z")
-        p.setPen(Qt.PenStyle.NoPen)
-    elif prop == "ponder":
-        # slow "?" that fades in over the head
-        if (frame % 90) > 20:
-            p.setPen(QPen(ZTXT)); f = QFont("Sans"); f.setPointSizeF(1.8 * u)
-            f.setBold(True); p.setFont(f)
-            p.drawText(int(ox + 18 * u), int(oy + (3.2 + body_dy) * u), "?")
-            p.setPen(Qt.PenStyle.NoPen)
-    elif prop == "magnify":
-        # a magnifying glass sweeping side to side out front — dark rim for
-        # contrast against the body, bright glass with a travelling glint.
-        mx = _sin(frame, 26, 0.7)                        # slow scanning sweep
-        rect(17.2 + mx, 5.8, 3.2, 3.2, EYE)              # dark outline rim
-        rect(17.5 + mx, 6.1, 2.6, 2.6, QColor("#D7DEE6"))  # metal ring
-        rect(18.0 + mx, 6.6, 1.6, 1.6, QColor("#8FD0EA"))  # glass
-        rect(18.2 + mx + _sin(frame, 26, 0.4, 0.25), 6.8, 0.6, 0.6, WHITE)  # glint
-        rect(19.8 + mx, 8.6, 1.8, 1.5, EYE)              # handle (grip)
-    elif prop == "phone":
-        # a handset held to the ear — earpiece + mouthpiece so it reads as a
-        # phone, a bright speaker slit, and expanding ring waves that pulse out.
-        rect(1.7, 6.0, 1.7, 3.2, QColor("#33333B"))      # handset body
-        rect(1.3, 5.6, 2.5, 1.0, QColor("#33333B"))      # earpiece
-        rect(1.3, 8.7, 2.5, 1.0, QColor("#33333B"))      # mouthpiece
-        rect(1.9, 5.8, 1.0, 0.5, QColor("#8FD0EA"))      # speaker slit
-        rw = frame % 46                                  # ring waves radiate out
-        if rw < 34:
-            step = rw // 12                              # 0,1,2 -> up from the ear
-            # radiate up-and-slightly-left but stay on-window (only col >= -1 shows)
-            rect(0.3 - step * 0.5, 4.6 - step * 1.1, 0.8, 0.8, BULB_L)
-    elif prop == "clones":
-        # two mini creatures filing out to the right, bobbing in sequence,
-        # each with a dark outline + shadow so they pop off the body.
-        for k in range(2):
-            mb = _sin(frame, 18, 0.6, phase=k * 0.5)
-            bx = 18.5 + k * 2.4
-            rect(bx - 0.2, 9.3 + mb, 2.2, 2.2, EYE)      # dark outline
-            rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
-            rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
-            rect(bx + 0.35, 10.1 + mb, 0.45, 0.55, EYE)  # eye
-            rect(bx + 0.1, 11.4, 1.6, 0.4, QColor("#00000040"))  # ground shadow
-    elif prop == "hat":
-        # party/wizard cone hat + a sparkle
-        rect(9.0, 2.0, 3.0, 0.7, QColor("#6C5CE7"))      # brim
-        rect(9.7, 0.6, 1.6, 1.6, QColor("#8E7CFF"))      # cone
-        rect(10.1, 0.1, 0.8, 0.8, BULB_L)                # pom
-        if (frame % 30) < 15:
-            rect(13.0, 1.4, 0.9, 0.9, BULB_L)            # sparkle
-    elif prop == "gear":
-        # a cog ticking over beside the head — teeth alternate N/S/E/W vs
-        # diagonal each tick so it reads as turning ("running by itself").
-        gx, gy = 18.3, 2.2
-        cog, hole = QColor("#B8BEC8"), QColor("#25252B")
-        rect(gx + 0.9, gy + 0.9, 1.7, 1.7, cog)          # hub
-        if (frame // 5) % 2 == 0:
-            rect(gx + 1.4, gy, 0.8, 0.9, cog)            # N
-            rect(gx + 1.4, gy + 2.6, 0.8, 0.9, cog)      # S
-            rect(gx, gy + 1.4, 0.9, 0.8, cog)            # W
-            rect(gx + 2.6, gy + 1.4, 0.9, 0.8, cog)      # E
-        else:
-            rect(gx + 0.4, gy + 0.4, 0.85, 0.85, cog)    # NW
-            rect(gx + 2.2, gy + 0.4, 0.85, 0.85, cog)    # NE
-            rect(gx + 0.4, gy + 2.2, 0.85, 0.85, cog)    # SW
-            rect(gx + 2.2, gy + 2.2, 0.85, 0.85, cog)    # SE
-        rect(gx + 1.45, gy + 1.45, 0.6, 0.6, hole)       # center hole
-    elif prop == "window":
-        # a little blue code window floating beside the visor (auto_computer)
-        wx, wy = 16.8, 1.2
-        rect(wx, wy, 5.4, 4.4, QColor("#2A3550"))        # window body
-        rect(wx, wy, 5.4, 1.0, QColor("#3E5488"))        # title bar
-        rect(wx + 0.4, wy + 0.35, 0.4, 0.4, QColor("#E06C6C"))  # close dot
-        rect(wx + 1.1, wy + 0.35, 0.4, 0.4, QColor("#E0B24C"))  # min dot
-        rect(wx + 0.5, wy + 1.5, 3.4, 0.5, QColor("#6FC3E0"))   # code line
-        rect(wx + 0.5, wy + 2.4, 2.4, 0.5, QColor("#8FD0EA"))   # code line
-        if (frame % 30) < 18:
-            rect(wx + 0.5, wy + 3.3, 1.6, 0.5, QColor("#6FC3E0"))  # typing line
-    elif prop == "clones_v":
-        # mini creatures like `clones`, but each wears a tiny visor too
-        for k in range(2):
-            mb = _sin(frame, 18, 0.6, phase=k * 0.5)
-            bx = 18.5 + k * 2.2
-            rect(bx, 9.5 + mb, 1.8, 1.8, ORANGE)         # tiny body
-            rect(bx, 9.5 + mb, 1.8, 0.5, ORANGE_L)       # highlight
-            rect(bx + 0.2, 10.15 + mb, 1.4, 0.5, EYE)    # tiny visor band
-    elif prop == "note":
-        # music notes bobbing up beside the head, cycling
-        for k in range(2):
-            nb = _sin(frame, 24, 0.8, phase=k * 0.5)
-            nx = 17.6 + k * 1.9
-            rect(nx, 2.4 + nb, 1.1, 1.1, EYE)            # note head
-            rect(nx + 0.9, 1.2 + nb, 0.4, 2.3, EYE)      # stem
-    elif prop == "balls":
-        # three balls arcing overhead on staggered phases
-        cols = [BULB, ORANGE_L, BULB_L]
-        for k in range(3):
-            t = ((frame + k * 12) % 36) / 36.0           # 0..1 around the arc
-            bx = 6.0 + 9.0 * t                           # left -> right
-            by = 2.6 + 3.2 * (1.0 - math.sin(t * math.pi))  # arc: high in the middle
-            rect(bx, by, 1.2, 1.2, cols[k])
-    elif prop == "speech":
-        phrase = speech(state)
-        if phrase:
-            n = len(phrase)
-            cyc = frame % (n * 7 + 30)          # type ~1 char / 7 frames, then hold
-            shown = min(n, 1 + cyc // 7)
-            text = phrase[:shown]
-            f = QFont("Sans"); f.setPointSizeF(1.4 * u); f.setBold(True)
-            p.setFont(f)
-            fm = p.fontMetrics()
-            tw = fm.horizontalAdvance(phrase)   # size to the FULL phrase (stable bubble)
-            th = fm.height()
-            pad = 0.7 * u
-            bx = ox + (GRID_W * u - tw) / 2.0
-            by = oy + 0.2 * u
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(bx - pad, by, tw + 2 * pad, th + pad), 5, 5)
-            p.fillPath(path, WHITE)
-            # little tail under the bubble
-            p.fillRect(QRectF(bx + tw / 2.0, by + th + pad - 1, 1.1 * u, 1.0 * u), WHITE)
-            p.setPen(QPen(QColor("#2A2A30")))
-            p.drawText(QRectF(bx - pad, by, tw + 2 * pad, th + pad),
-                       Qt.AlignmentFlag.AlignCenter, text)
-            p.setPen(Qt.PenStyle.NoPen)
+    draw_prop(p, ox, oy, u, prop, frame, state, body_dy, facing, palette)
 
     if pocket:
         p.setClipping(False)

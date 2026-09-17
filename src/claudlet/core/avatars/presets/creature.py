@@ -37,16 +37,21 @@ _LEG_ROW, _LEG_H = 7, 4
 # block. Keeping that proportion matters: at 2x2 the creature reads as
 # googly-eyed rather than as itself. Only the shapes that ARE wide in the
 # built-in (sleep's closed line, wide's stare) spread sideways.
+# The built-in eye is 1.4 x 1.8 art pixels. Neither whole number is it: at one
+# pixel wide it is a scratch, at two a goggle. Two wide but only where the
+# shape needs the width — the open eye keeps a blank column so it reads as a
+# slit rather than a block, and the shapes that ARE wide in the built-in
+# (sleep's closed line, wide's stare, the x) use both columns.
 _EYES = {
-    "open":   ["e.", "e.", ".."],
-    "blink":  ["..", "..", "e."],
+    "open":   ["ee", "ee", ".."],
+    "blink":  ["..", "..", "ee"],
     "sleep":  ["..", "..", "ee"],
-    "focus":  ["..", "e.", ".."],
-    "up":     ["e.", "..", ".."],
+    "focus":  ["..", "ee", ".."],
+    "up":     ["ee", "ee", ".."],
     "wide":   ["ee", "ee", "ee"],
-    "x":      ["e.", ".e", "e."],
-    "happy":  ["e.", ".e", ".."],
-    "squint": ["e.", ".e", "e."],
+    "x":      ["e.e", ".e.", "e.e"],
+    "happy":  ["e.e", ".e.", "..."],
+    "squint": ["e..", ".e.", "e.."],
 }
 
 CREATURE = Rig(

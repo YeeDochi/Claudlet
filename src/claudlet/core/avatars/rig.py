@@ -203,3 +203,13 @@ class RigAvatar(object):
                                      max(1, xs[col + 1] - xs[col]),
                                      max(1, ys[row + 1] - ys[row])),
                                ink.get(INK.get(ch, "body"), body))
+
+        # The object the state carries — laptop, magnifier, speech bubble, z's.
+        # Drawn by the engine, not by whoever drew the creature: these are what
+        # most of the creature's character lives in, and a custom avatar
+        # inherits the whole vocabulary rather than having to redraw eleven
+        # props across every state.
+        if r["prop"]:
+            C.draw_prop(p, ox, oy, u, r["prop"], frame, state,
+                        r["bob"] + r["baseline_lift"], kw.get("facing", 1),
+                        kw.get("palette"))
