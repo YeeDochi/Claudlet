@@ -159,6 +159,7 @@ ANGER_CLICK_WINDOW = 1.2                # 연속 클릭 판정 시간(초)
 ANGER_DUR = 2.0                         # 화난 표정 지속(초)
 POCKET_WAKE_SEC = 8.0                   # 클릭 후 커서를 바라보는 시간
 TIP_REFRESH_SEC = 10.0                  # 호버 툴팁의 세션 이름을 다시 읽는 간격
+TIP_SHOW_MS = 2500                      # 호버 툴팁이 저절로 사라지기까지(ms)
 
 # follow-mode navigation thresholds (jump reach, alignment, strain margins)
 # live in core/follow_nav.py -- the pure planner the follow branch delegates to.
@@ -2276,7 +2277,11 @@ class Pet(QWidget):
             # 어느 세션이지? frameless + 반투명 + always-on-top Tool 창은 네이티브
             # 툴팁이 저절로 뜨지 않으므로 커서 위치에 직접 띄운다.
             self.setToolTip(self._session_tip())
-            QToolTip.showText(e.globalPosition().toPoint(), self.toolTip(), self)
+            # rect 를 주면 커서가 펫 밖으로 나가는 즉시 사라진다. 안 주면 커서가
+            # 떠나도 Qt 자체 타임아웃까지 남아 허공에 떠 있다 -- 배회하는 펫에게는
+            # 펫보다 툴팁이 더 오래 보인다. 표시 시간도 짧게 건다.
+            QToolTip.showText(e.globalPosition().toPoint(), self.toolTip(),
+                              self, self.rect(), TIP_SHOW_MS)
             return
         if self._press_global is None:
             return
