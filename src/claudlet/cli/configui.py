@@ -38,9 +38,17 @@ def state_payload(cfg=None):
     look = petconfig.for_creature(cfg, chosen, avatars.get(chosen))
     pal = look["palette"]
     return {
-        "avatars": [{"name": n, "selected": n == chosen}
+        # each creature's OWN colour, so the list shows what picking it would
+        # actually give you rather than the colour of the one already worn
+        "avatars": [{"name": n, "selected": n == chosen,
+                     "colour": petconfig.for_creature(
+                         cfg, n, avatars.get(n))["palette"]}
                     for n in avatars.available()],
         "creature": chosen,
+        # every creature's settings, so the panel can show one without the pet
+        # having to put it on first
+        "looks": {n: petconfig.for_creature(cfg, n, avatars.get(n))
+                  for n in avatars.available()},
         "visor": look["visor"],
         "visor_modes": list(petconfig.VISOR_MODES),
         "palette": pal,
@@ -88,7 +96,12 @@ def apply(body, broadcast=None):
     name = body.get("avatar")
     if isinstance(name, str) and name in avatars.available():
         top["avatar"] = name
-    target = top.get("avatar") or cfg.get("avatar") or avatars.DEFAULT
+    # settings are saved to the creature the panel is SHOWING, which need not be
+    # the one being worn — looking at another creature's settings and editing
+    # them should not require putting it on first.
+    editing = body.get("creature")
+    target = (editing if isinstance(editing, str) and editing in avatars.available()
+              else top.get("avatar") or cfg.get("avatar") or avatars.DEFAULT)
     mine = clean_creature_updates(body)
     if mine:
         creatures = dict(cfg.get("creatures") or {})
@@ -180,7 +193,8 @@ h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
 #creatures{min-width:210px}
 .card{display:flex;gap:12px;align-items:center;padding:10px;border-radius:9px;
       border:1px solid transparent;cursor:pointer}
-.card[aria-selected=true]{border-color:#6B8AFF;background:#1b1b24}
+.card[aria-current=true]{border-color:#6B8AFF;background:#1b1b24}
+.card[aria-selected=true] div{color:#6B8AFF}
 .card img{width:56px;height:44px;object-fit:contain;image-rendering:pixelated}
 #settings{flex:1;min-width:320px}
 .row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
@@ -213,7 +227,7 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 <main>
   <section id="creatures"><h2>크리처</h2><div id="list"></div></section>
   <section id="settings">
-    <h2>설정</h2>
+    <h2 id="who">설정</h2>
     <div class="row">
       <label for="col">색</label>
       <input type="color" id="col">
@@ -232,6 +246,7 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
     <div id="shots"></div>
     <div class="row" style="margin:18px 0 0">
       <button id="save">저장</button>
+      <button id="wear" class="ghost">이 크리처 입히기</button>
       <button id="reset" class="ghost">기본으로</button>
       <span id="said"></span>
     </div>
@@ -239,17 +254,18 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 </main>
 <script>
 let S = null;
+let editing = null;      // which creature the panel is showing — NOT necessarily
+                         // the one being worn. Looking at another creature's
+                         // settings should not put it on the pet.
 const $ = (id) => document.getElementById(id);
 
-function chosen() {
+function worn() {
   const a = (S.avatars || []).find((x) => x.selected);
   return a ? a.name : "claudlet";
 }
 function shot(state, cacheBust) {
-  // the preview has to be of the creature that is SELECTED, not of the
-  // built-in: picking a creature and seeing claudlet is worse than no preview
   const q = new URLSearchParams({palette: $("col").value, scale: $("scale").value,
-                                avatar: chosen(), visor: visorNow(),
+                                avatar: editing, visor: visorNow(),
                                 state, t: cacheBust});
   return `<figure><img src="/api/preview?${q}" alt="${state}">
           <figcaption>${state}</figcaption></figure>`;
@@ -263,23 +279,25 @@ function redraw() {
   $("hex").textContent = $("col").value.toUpperCase();
   $("scaleval").textContent = $("scale").value + "x";
   const t = Date.now();
-  const states = (S.avatar_states && S.avatar_states[chosen()]) || S.states;
+  const states = (S.avatar_states && S.avatar_states[editing]) || S.states;
   $("shots").innerHTML = states.map((s) => shot(s, t)).join("");
-  $("isnamed").textContent = "";
+  $("who").textContent = editing + " 설정";
+  const isWorn = editing === worn();
+  $("wear").disabled = isWorn;
+  $("wear").textContent = isWorn ? "입고 있음" : "이 크리처 입히기";
+  for (const c of document.querySelectorAll(".card"))
+    c.setAttribute("aria-current", String(c.dataset.name === editing));
 }
-function fill(s) {
-  S = s;
-  $("list").innerHTML = s.avatars.map((a) => `
-    <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
-      <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(s.colour)}">
-      <div>${a.name}</div></div>`).join("");
-  for (const card of document.querySelectorAll(".card")) {
-    card.addEventListener("click", async () =>
-      fill(await post({avatar: card.dataset.name}, `${card.dataset.name} 로 바꿨습니다`)));
-  }
-  $("visor").innerHTML = s.visor_modes.map((v) =>
-    `<button data-v="${v}" aria-pressed="${v === s.visor}">${VISOR_LABEL[v] || v}</button>`
-  ).join("");
+function showCreature(name) {
+  editing = name;
+  const look = (S.looks && S.looks[name]) || {};
+  const pal = look.palette;
+  const isHex = typeof pal === "string" && pal.startsWith("#");
+  $("col").value = isHex ? pal : "#D97757";
+  $("scale").value = look.scale || S.scale;
+  $("visor").innerHTML = S.visor_modes.map((v) =>
+    `<button data-v="${v}" aria-pressed="${v === (look.visor || "auto")}">` +
+    `${VISOR_LABEL[v] || v}</button>`).join("");
   for (const b of document.querySelectorAll("#visor button")) {
     b.addEventListener("click", () => {
       for (const o of document.querySelectorAll("#visor button"))
@@ -287,12 +305,21 @@ function fill(s) {
       redraw();
     });
   }
-  $("col").value = s.colour;
+  $("isnamed").textContent = isHex ? ""
+    : "지금은 " + pal + " — 색을 고르면 바뀝니다";
+  redraw();
+}
+function fill(s) {
+  S = s;
+  $("list").innerHTML = s.avatars.map((a) => `
+    <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
+      <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(a.colour)}">
+      <div>${a.name}${a.selected ? " ·" : ""}</div></div>`).join("");
+  for (const card of document.querySelectorAll(".card"))
+    card.addEventListener("click", () => showCreature(card.dataset.name));
   $("scale").min = s.scale_range[0];
   $("scale").max = s.scale_range[1];
-  $("scale").value = s.scale;
-  redraw();
-  if (s.named) $("isnamed").textContent = "지금은 " + s.palette + " — 색을 고르면 바뀝니다";
+  showCreature(editing && s.looks[editing] ? editing : worn());
 }
 // 색 입력은 브라우저에 따라 드래그 중 input 을, OS 색 대화상자를 쓰면 닫을 때
 // change 만 쏜다. 둘 다 들어야 고른 색이 바로 미리보기에 뜬다.
@@ -301,21 +328,24 @@ for (const ev of ["input", "change"]) {
   $("scale").addEventListener(ev, redraw);
 }
 async function post(body, note) {
-  $("save").disabled = $("reset").disabled = true;
+  for (const b of ["save", "reset", "wear"]) $(b).disabled = true;
   const r = await fetch("/api/config", {method: "POST",
     headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
   const out = await r.json();
   $("said").textContent = note + (out.pets ? ` — 펫 ${out.pets}마리에 반영`
                                            : " — 다음에 뜨는 펫부터");
-  $("save").disabled = $("reset").disabled = false;
+  for (const b of ["save", "reset", "wear"]) $(b).disabled = false;
   return out;
 }
-$("save").addEventListener("click", () =>
-  post({palette: $("col").value, scale: +$("scale").value, visor: visorNow()},
-       "저장했습니다"));
+$("save").addEventListener("click", async () =>
+  fill(await post({creature: editing, palette: $("col").value,
+                   scale: +$("scale").value, visor: visorNow()},
+                  editing + " 설정을 저장했습니다")));
+$("wear").addEventListener("click", async () =>
+  fill(await post({avatar: editing}, editing + " 로 갈아입혔습니다")));
 $("reset").addEventListener("click", async () =>
-  fill(await post({palette: "auto", scale: null, visor: "auto"},
-                  "기본으로 되돌렸습니다")));
+  fill(await post({creature: editing, palette: "auto", scale: null,
+                   visor: "auto"}, editing + " 를 기본으로 되돌렸습니다")));
 fetch("/api/state").then((r) => r.json()).then(fill);
 </script>
 """

@@ -146,3 +146,42 @@ def test_page_lists_which_states_each_creature_can_show(tmp_path, monkeypatch):
     assert set(s["avatar_states"]) == set(a["name"] for a in s["avatars"])
     for shown in s["avatar_states"].values():
         assert shown, "a creature must preview at least one state"
+
+
+def test_each_creature_card_carries_its_own_colour(tmp_path, monkeypatch):
+    # the list showed every creature in the worn one's colour, so it told you
+    # nothing about what picking a different one would give you
+    _cfg(tmp_path, monkeypatch, avatar="claudlet",
+         creatures={"claudlet": {"palette": "#00FFCC"}})
+    by_name = {a["name"]: a for a in U.state_payload()["avatars"]}
+    assert by_name["claudlet"]["colour"] == "#00FFCC"
+
+
+def test_settings_save_to_the_creature_being_viewed_not_the_one_worn(
+        tmp_path, monkeypatch):
+    # looking at another creature's settings must not require putting it on
+    path = _cfg(tmp_path, monkeypatch, avatar="claudlet")
+    U.apply({"creature": "claudlet", "palette": "#4A90D9"},
+            broadcast=lambda line: 0)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["avatar"] == "claudlet"                    # still worn
+    assert raw["creatures"]["claudlet"]["palette"] == "#4A90D9"
+
+
+def test_wearing_a_creature_is_its_own_action(tmp_path, monkeypatch):
+    # switching creature and saving settings are separate buttons, so posting
+    # only an avatar changes what is worn and touches nothing else
+    path = _cfg(tmp_path, monkeypatch, avatar="claudlet",
+                creatures={"claudlet": {"palette": "#00FFCC"}})
+    U.apply({"avatar": "claudlet"}, broadcast=lambda line: 0)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["creatures"]["claudlet"]["palette"] == "#00FFCC"   # untouched
+
+
+def test_page_carries_every_creatures_settings(tmp_path, monkeypatch):
+    # so the panel can show one without a round trip, and without wearing it
+    _cfg(tmp_path, monkeypatch)
+    s = U.state_payload()
+    assert set(s["looks"]) == set(a["name"] for a in s["avatars"])
+    for look in s["looks"].values():
+        assert set(look) == {"palette", "scale", "visor"}
