@@ -9,10 +9,11 @@ This is the whole contract:
 
 ```python
 class MyCreature:
-    name   = "mycat"        # id the config stores; must match the folder
-    grid   = (22, 17)       # art-pixel box. The PET'S WINDOW IS SIZED FROM THIS
-    states = ("idle", ...)  # what you can draw (see the list below)
-    hats   = ()             # companion hat kinds, or () for none
+    name    = "mycat"       # id the config stores; must match the folder
+    grid    = (22, 17)      # art-pixel box. The PET'S WINDOW IS SIZED FROM THIS
+    states  = ("idle", ...) # what you can draw (see the list below)
+    hats    = ()            # companion hat kinds, or () for none
+    palette = "#33CC66"     # YOUR default colour, until the user picks one
 
     def draw(self, p, ox, oy, u, state, frame, **kw): ...
     def set_lang(self, lang): ...
@@ -39,6 +40,7 @@ than raising** — the pet passes everything it knows:
 | kw | meaning |
 |---|---|
 | `facing` | `+1` right, `-1` left |
+| `autonomous` | Claude is running unattended. **What that looks like is yours** — the built-in wears a VR visor, yours might glow, or ignore it |
 | `palette` | a name or `{body, hi, lo, bang}`; `creature.palette_colors()` turns either into QColors |
 | `energy` | `1.0` fresh … `0.0` exhausted |
 | `happy` | being petted right now |
@@ -68,6 +70,7 @@ creature moves like claudlet does without you inventing any of it:
 | `walking` | whether `legphase` is a stride. `jump`/`doze` reuse 0.5 to mean "legs tucked" |
 | `front_tap` | front legs tapping keys |
 | `eyes` | `open blink sleep focus squint up wide x happy` |
+| `autonomous` | the flag, passed straight back through |
 | `arm` | `side up wave tap none` — **`none` means don't draw arms at all** (hands are on the laptop) |
 | `arm_swing` | arm swing while walking |
 | `prop` | what to hand to `draw_prop`, or `None` |
@@ -85,19 +88,20 @@ and follows the pet's language, which is what `set_lang` is for.
 
 ## States
 
-Thirty-four. You do not have to draw them all — list only what you support in
+Twenty-nine. You do not have to draw them all — list only what you support in
 `states` and the pet falls back for the rest.
 
 ```
 idle walk work_computer work_search work_web work_agent work_skill
-autopilot auto_computer auto_search auto_web auto_agent auto_skill
-thinking attention asking error angry celebrate sleeping
+autopilot thinking attention asking error angry celebrate sleeping
 held falling jump wave sing juggle float climbdown strain leap
 observe tic settle doze
 ```
 
-The `auto_*` six are the pet wearing a VR visor while it works unattended. If
-your creature has no visor, skip them — the pet will fall back.
+There is no separate set of states for running unattended. That used to be six
+`auto_*` twins that differed only in wearing a visor, which was the engine
+deciding how a creature looks; it is the `autonomous` flag now, and showing it
+(or not) is yours.
 
 ## Things that cost a day to learn
 
@@ -121,6 +125,17 @@ your creature has no visor, skip them — the pet will fall back.
   `>` `<` pointing at the nose, not `>` `>`.
 - **Leave room above the head.** Props are drawn in the box too; the built-in
   keeps rows 0–4 mostly clear for bubbles and z's.
+
+## Colour and size
+
+The user sets these **per creature** in `claudlet-config ui`, so your colour and
+your size are not dragged around by whatever they set on another creature. Your
+`palette` attribute is the default they see before touching anything — a slime
+opening in claudlet's orange is wrong.
+
+Take the colour from `kw["palette"]` through `creature.palette_colors()`, which
+accepts a name or a `{body, hi, lo, bang}` dict, and never hard-code your own
+colours if you want the picker to work.
 
 ## Checking it
 

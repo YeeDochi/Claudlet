@@ -28,39 +28,51 @@ PREVIEW_STATES = ("idle", "work_computer", "celebrate", "sleeping")
 # ---------- pure: what the page shows and what a save does ----------
 
 def state_payload(cfg=None):
-    """Everything the page needs to draw itself."""
+    """Everything the page needs to draw itself.
+
+    Appearance belongs to the CREATURE: a slime and a claudlet want different
+    colours and sizes, and one shared setting meant switching creature dragged
+    the other one's look along."""
     cfg = petconfig.load_config() if cfg is None else cfg
-    pal = cfg.get("palette", "auto")
     chosen = cfg.get("avatar") or avatars.DEFAULT
+    look = petconfig.for_creature(cfg, chosen, avatars.get(chosen))
+    pal = look["palette"]
     return {
         "avatars": [{"name": n, "selected": n == chosen}
                     for n in avatars.available()],
+        "creature": chosen,
+        "visor": look["visor"],
+        "visor_modes": list(petconfig.VISOR_MODES),
         "palette": pal,
         # the colour the picker should open on: a named palette has no single
         # colour of its own, so fall back to the built-in body colour
         "colour": pal if isinstance(pal, str) and pal.startswith("#") else "#D97757",
         "named": not (isinstance(pal, str) and pal.startswith("#")),
-        "scale": petconfig.clamp_scale(cfg.get("scale")),
+        "scale": look["scale"],
         "scale_range": [petconfig.MIN_SCALE, petconfig.MAX_SCALE],
         "states": list(PREVIEW_STATES),
+        # a creature need not draw every state; preview only what it declares,
+        # so a four-state creature doesn't show four fallbacks
+        "avatar_states": {n: [st for st in PREVIEW_STATES
+                              if st in getattr(avatars.get(n), "states", ())]
+                          or list(PREVIEW_STATES[:1])
+                          for n in avatars.available()},
     }
 
 
-def clean_updates(body):
-    """The subset of a posted body we are willing to write, cleaned.
+def clean_creature_updates(body):
+    """The per-creature appearance keys we will write, cleaned.
 
     Anything unrecognised is dropped rather than written through: this endpoint
     edits the same file a user hand-writes tools/events into."""
     out = {}
-    pal = body.get("palette")
-    if isinstance(pal, str) and (pal in petconfig._PALETTE_NAMES
-                                 or petconfig.derive_palette(pal) is not None):
+    pal = petconfig.clean_palette_opt(body.get("palette"))
+    if pal is not None:
         out["palette"] = pal
     if "scale" in body:
         out["scale"] = petconfig.clamp_scale(body.get("scale"))
-    name = body.get("avatar")
-    if isinstance(name, str) and name in avatars.available():
-        out["avatar"] = name
+    if "visor" in body:
+        out["visor"] = petconfig.clean_visor(body.get("visor"))
     return out
 
 
@@ -69,7 +81,22 @@ def apply(body, broadcast=None):
 
     `broadcast` is injectable so tests don't reach for sockets. Returns the
     payload the page redraws from, plus how many pets took it."""
-    updates = clean_updates(body)
+    cfg = petconfig.load_config()
+    # which creature is worn is a top-level choice; how it LOOKS is stored under
+    # that creature, so picking a colour for the slime cannot repaint claudlet.
+    top = {}
+    name = body.get("avatar")
+    if isinstance(name, str) and name in avatars.available():
+        top["avatar"] = name
+    target = top.get("avatar") or cfg.get("avatar") or avatars.DEFAULT
+    mine = clean_creature_updates(body)
+    if mine:
+        creatures = dict(cfg.get("creatures") or {})
+        merged = dict(creatures.get(target) or {})
+        merged.update(mine)
+        creatures[target] = merged
+        top["creatures"] = creatures
+    updates = top
     if updates:
         petconfig.save_keys(updates)
     send = hostinfo.broadcast if broadcast is None else broadcast
@@ -80,7 +107,7 @@ def apply(body, broadcast=None):
         except Exception:
             told = 0            # nothing running is not an error
     payload = state_payload()
-    payload["applied"] = sorted(updates)
+    payload["applied"] = sorted(list(k for k in top if k != "creatures") + list(mine))
     payload["pets"] = told
     return payload
 
@@ -99,7 +126,8 @@ def preview_frame(state):
     return 8
 
 
-def render_png(palette, scale, state="idle", frame=None, avatar=None):
+def render_png(palette, scale, state="idle", frame=None, avatar=None,
+               visor="auto"):
     """A PNG of the creature as these settings would draw it, or b"" if Qt
     can't start (headless box with no offscreen platform)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -121,7 +149,11 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None):
     p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     pal = petconfig.resolve_palette(palette, 1.0)   # roll=1.0: never roll shiny
     f = preview_frame(state) if frame is None else frame
-    avatar.draw(p, pad * u, pad * u, u, state, f, palette=pal)
+    # show what the visor setting actually does. "auto" can't be previewed
+    # honestly (it depends on whether Claude is running unattended right now),
+    # so it previews as off -- the same as an ordinary session.
+    avatar.draw(p, pad * u, pad * u, u, state, f, palette=pal,
+                autonomous=(visor == "on"))
     p.end()
     buf = QBuffer()
     buf.open(QBuffer.OpenModeFlag.WriteOnly)
@@ -166,6 +198,11 @@ button{background:#6B8AFF;color:#0b0b10;border:0;border-radius:8px;
        padding:10px 18px;font-weight:600;font-size:14px;cursor:pointer}
 button[disabled]{opacity:.5;cursor:default}
 button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
+.seg{display:flex;gap:6px}
+.seg button{background:none;color:var(--dim);border:1px solid var(--line);
+            padding:6px 14px;font-weight:500}
+.seg button[aria-pressed=true]{background:#6B8AFF;color:#0b0b10;border-color:#6B8AFF}
+.hint{color:var(--dim);font-size:12px;margin:-10px 0 16px 76px}
 #said{color:var(--dim);font-size:13px;margin-left:12px}
 @media (max-width:720px){main{padding:16px}label{width:100%}}
 </style>
@@ -188,6 +225,10 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <input type="range" id="scale" min="2" max="12" step="1">
       <code id="scaleval"></code>
     </div>
+    <div class="row">
+      <label>특수 모드</label>
+      <div id="visor" class="seg"></div>
+    </div>
     <div id="shots"></div>
     <div class="row" style="margin:18px 0 0">
       <button id="save">저장</button>
@@ -200,17 +241,30 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 let S = null;
 const $ = (id) => document.getElementById(id);
 
+function chosen() {
+  const a = (S.avatars || []).find((x) => x.selected);
+  return a ? a.name : "claudlet";
+}
 function shot(state, cacheBust) {
+  // the preview has to be of the creature that is SELECTED, not of the
+  // built-in: picking a creature and seeing claudlet is worse than no preview
   const q = new URLSearchParams({palette: $("col").value, scale: $("scale").value,
+                                avatar: chosen(), visor: visorNow(),
                                 state, t: cacheBust});
   return `<figure><img src="/api/preview?${q}" alt="${state}">
           <figcaption>${state}</figcaption></figure>`;
+}
+const VISOR_LABEL = {auto: "오토모드일 때", on: "항상", off: "안 함"};
+function visorNow() {
+  const on = document.querySelector("#visor button[aria-pressed=true]");
+  return on ? on.dataset.v : "auto";
 }
 function redraw() {
   $("hex").textContent = $("col").value.toUpperCase();
   $("scaleval").textContent = $("scale").value + "x";
   const t = Date.now();
-  $("shots").innerHTML = S.states.map((s) => shot(s, t)).join("");
+  const states = (S.avatar_states && S.avatar_states[chosen()]) || S.states;
+  $("shots").innerHTML = states.map((s) => shot(s, t)).join("");
   $("isnamed").textContent = "";
 }
 function fill(s) {
@@ -222,6 +276,16 @@ function fill(s) {
   for (const card of document.querySelectorAll(".card")) {
     card.addEventListener("click", async () =>
       fill(await post({avatar: card.dataset.name}, `${card.dataset.name} 로 바꿨습니다`)));
+  }
+  $("visor").innerHTML = s.visor_modes.map((v) =>
+    `<button data-v="${v}" aria-pressed="${v === s.visor}">${VISOR_LABEL[v] || v}</button>`
+  ).join("");
+  for (const b of document.querySelectorAll("#visor button")) {
+    b.addEventListener("click", () => {
+      for (const o of document.querySelectorAll("#visor button"))
+        o.setAttribute("aria-pressed", String(o === b));
+      redraw();
+    });
   }
   $("col").value = s.colour;
   $("scale").min = s.scale_range[0];
@@ -247,9 +311,11 @@ async function post(body, note) {
   return out;
 }
 $("save").addEventListener("click", () =>
-  post({palette: $("col").value, scale: +$("scale").value}, "저장했습니다"));
+  post({palette: $("col").value, scale: +$("scale").value, visor: visorNow()},
+       "저장했습니다"));
 $("reset").addEventListener("click", async () =>
-  fill(await post({palette: "auto", scale: null}, "기본으로 되돌렸습니다")));
+  fill(await post({palette: "auto", scale: null, visor: "auto"},
+                  "기본으로 되돌렸습니다")));
 fetch("/api/state").then((r) => r.json()).then(fill);
 </script>
 """
@@ -287,7 +353,8 @@ def _handler_class():
                 png = render_png(q.get("palette", ["auto"])[0],
                                  q.get("scale", [petconfig.DEFAULT_SCALE])[0],
                                  q.get("state", ["idle"])[0],
-                                 avatar=q.get("avatar", [None])[0])
+                                 avatar=q.get("avatar", [None])[0],
+                                 visor=q.get("visor", ["auto"])[0])
                 return self._send(200 if png else 500, png or b"", "image/png")
             return self._send(404, b"not found", "text/plain")
 

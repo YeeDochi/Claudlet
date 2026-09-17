@@ -18,25 +18,23 @@ import math
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtCore import QRect, QRectF
 
-# autonomous (auto/bypass mode) variants: the pet wears a visor and wanders while
-# it works, each work type keeping its own prop. `autopilot` is the generic cruise.
-AUTO_VARIANTS = ("auto_computer", "auto_search", "auto_web",
-                 "auto_agent", "auto_skill")
-# states that animate with a walking leg cycle: plain walk, the generic autopilot
-# stroll, and the auto variants that actually roam (web/search). coding/agent/skill
-# variants stay put, so their legs don't do a walk cycle.
-_WALKERS = ("walk", "autopilot", "auto_web", "auto_search")
+# States whose legs are mid-stride. `walk` and `autopilot` always are; web and
+# search work only while running unattended, because that is when the pet
+# wanders through them instead of standing still.
+_WALKERS = ("walk", "autopilot")
+_AUTO_WALKERS = ("work_web", "work_search")
+
+
+def _is_walking(state, autonomous):
+    return state in _WALKERS or (autonomous and state in _AUTO_WALKERS)
+
 
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
-          "work_agent", "work_skill", "autopilot") + AUTO_VARIANTS + (
+          "work_agent", "work_skill", "autopilot",
           "thinking", "attention", "asking",
           "error", "angry", "celebrate", "sleeping", "held", "falling",
           "jump", "wave", "sing", "juggle", "float", "climbdown", "strain",
           "leap", "observe", "tic", "settle", "doze")
-
-# prop drawn beside each auto_* variant (auto_skill uses a visor glint instead)
-_AUTO_PROP = {"auto_computer": "window", "auto_search": "magnify",
-              "auto_web": "phone", "auto_agent": "clones_v"}
 
 # short spoken line per communicative state (typed out in a bubble), per language
 SPEECH = {                      # Korean (default; also drives the mockup sheet)
@@ -159,7 +157,7 @@ def _tilt_for(tilt):
     return 0.0 if abs(tilt) < SMOOTH_TILT_DEG else tilt
 
 
-def state_rig(state, frame, energy=1.0, happy=False, visor=None,
+def state_rig(state, frame, energy=1.0, happy=False, autonomous=False,
               gaze=(0.0, 0.0)):
     """How a state moves, as plain numbers — no Qt, no drawing.
 
@@ -227,16 +225,8 @@ def state_rig(state, frame, energy=1.0, happy=False, visor=None,
         bob = _sin(frame, 20, 0.5)
         legphase = (frame / 16.0) % 1.0
         tilt = 2.0
-        eyes = "shades"
+        eyes = "open"
         prop = "gear"
-    elif state in AUTO_VARIANTS:
-        # visor on, wandering while it works: same relaxed stroll as autopilot,
-        # but each work type carries its own prop (auto_skill: a red visor glint).
-        bob = _sin(frame, 20, 0.5)
-        legphase = (frame / 16.0) % 1.0
-        tilt = 2.0
-        eyes = "shades_glint" if state == "auto_skill" else "shades"
-        prop = _AUTO_PROP.get(state)
     elif state == "thinking":
         bob = _sin(frame, 46, 0.35)
         tilt = _sin(frame, 92, 3.0)               # slow head cant, "hmm"
@@ -386,15 +376,16 @@ def state_rig(state, frame, energy=1.0, happy=False, visor=None,
            "held": "up", "falling": "up", "juggle": "up", "wave": "wave",
            "climbdown": "up", "leap": "up"}.get(state, "side")
     arm_swing = (_sin(frame, 12, 0.5) if state == "walk" else
-                 _sin(frame, 16, 0.5) if state in _WALKERS else 0.0)
+                 _sin(frame, 16, 0.5) if _is_walking(state, autonomous) else 0.0)
 
     return {"bob": bob, "sx": sx, "sy": sy, "tilt": tilt, "legphase": legphase,
             "eyes": eyes, "prop": prop, "front_tap": front_tap,
             "baseline_lift": baseline_lift, "droop": droop,
+            "autonomous": bool(autonomous),
             "arm": arm, "arm_swing": arm_swing,
             # whether legphase means "mid-stride" this state, or is being
             # reused to mean something else (jump/doze: legs tucked)
-            "walking": state in _WALKERS}
+            "walking": _is_walking(state, autonomous)}
 
 
 def draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0.0, facing=1,
@@ -597,13 +588,15 @@ def draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0.0, facing=1,
             p.setPen(Qt.PenStyle.NoPen)
 
 
-def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
+def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=None,
                   energy=1.0, palette=None, happy=False, pocket=False,
                   gaze=(0.0, 0.0)):
     """Draw the creature. All coordinates are in art pixels * u.
 
-    visor="up" pushes a VR-headset up onto the head (auto mode while not actively
-    "looking"); the auto_* states draw the headset worn over the eyes themselves.
+    `autonomous` says Claude is running unattended. THIS creature shows that as a
+    VR headset -- worn over the eyes while it works, pushed up onto the head
+    otherwise. That is this creature's choice; the pet only reports the mode,
+    and another creature may glow, change colour, or ignore it entirely.
     """
     p.setPen(p.pen())  # no-op keep
     from PyQt6.QtCore import Qt
@@ -611,7 +604,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
 
     ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
 
-    rig = state_rig(state, frame, energy, happy, visor, gaze)
+    rig = state_rig(state, frame, energy, happy, autonomous, gaze)
     bob, sx, sy = rig["bob"], rig["sx"], rig["sy"]
     tilt, legphase = rig["tilt"], rig["legphase"]
     eyes, prop = rig["eyes"], rig["prop"]
@@ -666,7 +659,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
     leg_cols = [4.0, 7.5, 11.5, 15.0]
     for i, lc in enumerate(leg_cols):
         lift = 0.0
-        if state in _WALKERS:
+        if rig["walking"]:
             ph = (legphase + (0.5 if i % 2 else 0.0)) % 1.0
             lift = max(0.0, math.sin(ph * math.pi)) * 1.3
         if state == "work_computer" and i >= 2:  # front two legs tap
@@ -757,11 +750,15 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         if glint and (frame % 24) < 12:
             px(12.8, top + 0.85, 1.1, 0.8, QColor("#FF3B3B"))  # red status LED
 
-    if eyes in ("shades", "shades_glint"):
-        headset(er - 0.5, glint=(eyes == "shades_glint"))   # worn over the eyes
+    # the headset comes DOWN over the eyes while it is actually working and sits
+    # pushed up on the head the rest of the time, so "busy" still reads at a
+    # glance now that working unattended is no longer a state of its own.
+    working = state.startswith("work_") or state == "autopilot"
+    if autonomous and working:
+        headset(er - 0.5, glint=(state == "work_skill"))
     else:
         eye(e1, eyes); eye(e2, eyes)
-        if visor == "up":
+        if autonomous:
             headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
 
     if cap:

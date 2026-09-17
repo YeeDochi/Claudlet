@@ -37,7 +37,7 @@ from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
 from claudlet.core import avatars
-from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
+from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
 from claudlet.platform import konsole
 from claudlet.platform import winterm
@@ -540,7 +540,8 @@ class Pet(QWidget):
 
         cfg = petconfig.load_config()
         self.avatar = avatars.get(_avatar_name(cfg))
-        self.u = _scale(cfg)
+        self.u = petconfig.for_creature(cfg, self.avatar.name, self.avatar)["scale"]
+        self._visor_mode = petconfig.DEFAULT_VISOR
         self._resize_to_avatar()
 
         primary = QApplication.primaryScreen().availableGeometry()
@@ -945,13 +946,28 @@ class Pet(QWidget):
         self.h = (gh + 2 * PAD_Y) * self.u
         self.setFixedSize(self.w, self.h)
 
+    def _autonomous(self):
+        """Whether to tell the creature the "running unattended" mode is on.
+
+        The setting decides what we SEND, not how it is drawn, so pinning it on
+        or off works for every creature rather than only for the one that
+        happens to render it as a visor."""
+        if self._visor_mode == "on":
+            return True
+        if self._visor_mode == "off":
+            return False
+        return bool(getattr(self, "_auto", False))
+
     def _apply_style(self, cfg):
         """Palette and scale from config. The shiny roll is drawn ONCE per pet
         (in __init__) and reused here, so re-reading the config can't re-roll a
         shiny away mid-life."""
-        pal = os.environ.get("CLAUDLET_PALETTE") or cfg.get("palette", "auto")
+        look = petconfig.for_creature(cfg, self.avatar.name, self.avatar)
+        pal = os.environ.get("CLAUDLET_PALETTE") or look["palette"]
         self._palette = petconfig.resolve_palette(pal, *self._palette_roll)
-        self.u = _scale(cfg)
+        self.u = petconfig.clamp_scale(os.environ.get("CLAUDLET_SCALE")
+                                       or look["scale"])
+        self._visor_mode = look["visor"]
 
     def _restyle(self):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -1054,7 +1070,10 @@ class Pet(QWidget):
                   and self.mode not in ("held", "thrown"))
         # in auto mode the "looking things up" states wander (visor on); coding/
         # agent/skill stay put and focus. idle/waiting roam as before.
-        roaming = (eff in ("idle", "sleeping") or eff in AUTO_ROAM) \
+        # wandering while it works belongs to the UNATTENDED mode, not to the
+        # work itself: ordinary web/search work stays put the way it always did
+        auto_roam = eff in AUTO_ROAM and getattr(self, "_auto", False)
+        roaming = (eff in ("idle", "sleeping") or auto_roam) \
             and self.mode == "roam" and not self.dnd
         resting = self._idle_behavior in idle_engine.RESTING
         self.idle_energy.update(now, resting=(roaming and resting))
@@ -1731,9 +1750,11 @@ class Pet(QWidget):
         self.y = floor
 
     def _walk_render(self):
-        """Render state while walking a roam leg: an auto_* variant walks with its
-        visor + prop on; plain idle/waiting roaming shows the generic walk."""
-        return self.claude_state if self.claude_state in AUTO_ROAM else "walk"
+        """Render state while walking a roam leg: a work state the pet wanders
+        through keeps its own look; plain idle/waiting roaming shows a walk."""
+        return (self.claude_state
+                if self.claude_state in AUTO_ROAM and getattr(self, "_auto", False)
+                else "walk")
 
     def _on_cursor(self, xy):
         try:
@@ -2270,10 +2291,10 @@ class Pet(QWidget):
         pocket = self._floating and self.mode not in ("held", "thrown")
         if pocket:
             state = self._pocket_render_state(state, now)
-        # in an auto mode the visor stays on: worn by the auto_* states,
-        # pushed up onto the head for every other state.
-        vis = "up" if getattr(self, "_auto", False) and \
-            state not in AUTO_STATES else None
+        # "running unattended" is reported as a flag; what it LOOKS like is the
+        # creature's call (the built-in wears a visor, another might glow, or
+        # ignore it). The setting can pin it on or off for creatures that use it.
+        autonomous = self._autonomous()
         petted = now < self._pet_react_until
         energy = 1.0 if pocket and now < self._pocket_awake_until else self.idle_energy.value
         gaze = cursor_gaze(
@@ -2293,7 +2314,8 @@ class Pet(QWidget):
             u = self.u
             ox, oy = PAD_X * self.u, PAD_Y * self.u
         self.avatar.draw(p, ox, oy, u, state, self.frame,
-                         facing=self.facing, visor=vis, energy=energy,
+                         facing=self.facing, autonomous=autonomous,
+                         energy=energy,
                          palette=self._palette, happy=petted, pocket=pocket,
                          gaze=gaze)
         if petted:

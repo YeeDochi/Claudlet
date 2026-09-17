@@ -106,6 +106,7 @@ def _clean(raw):
     scale = clamp_scale(raw.get("scale"))
     avatar = raw.get("avatar")
     avatar = avatar if isinstance(avatar, str) and avatar else None
+    creatures = _clean_creatures(raw.get("creatures"))
 
     def _rect(v):
         if not isinstance(v, dict):
@@ -127,7 +128,7 @@ def _clean(raw):
     return {"tool_states": tools, "event_states": events,
             "raw_events": raw_events, "lang": lang,
             "roam_area": roam_area, "no_go": no_go, "palette": palette,
-            "scale": scale, "avatar": avatar,
+            "scale": scale, "avatar": avatar, "creatures": creatures,
             "dock": _clean_dock(raw.get("dock"))}
 
 
@@ -162,6 +163,66 @@ def resolve_lang(value):
 # other.
 DEFAULT_SCALE = 5
 MIN_SCALE, MAX_SCALE = 2, 12
+
+
+# How the "running unattended" signal is shown. Not a visor as such: the pet
+# only reports that the mode is on and each creature decides what that looks
+# like (the built-in wears a VR visor; another might glow, or ignore it).
+VISOR_MODES = ("auto", "on", "off")
+DEFAULT_VISOR = "auto"
+
+
+def clean_visor(value):
+    return value if value in VISOR_MODES else DEFAULT_VISOR
+
+
+def clean_scale_opt(value):
+    """A scale, or None when the creature has not been given one."""
+    return None if value is None else clamp_scale(value)
+
+
+def clean_palette_opt(value):
+    """A palette name or "#RRGGBB", or None when unset."""
+    if isinstance(value, str) and (value in _PALETTE_NAMES
+                                   or derive_palette(value) is not None):
+        return value
+    return None
+
+
+def _clean_creatures(raw):
+    """Per-creature appearance. Settings belong to the CREATURE, not to the
+    pet: a slime and a claudlet want different colours and sizes, and a pet is
+    a session — gone in an hour — so hanging the look off it would mean setting
+    it again every time."""
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for name, v in raw.items():
+        if not isinstance(name, str) or not isinstance(v, dict):
+            continue
+        out[name] = {"palette": clean_palette_opt(v.get("palette")),
+                     "scale": clean_scale_opt(v.get("scale")),
+                     "visor": clean_visor(v.get("visor"))}
+    return out
+
+
+def for_creature(cfg, name, avatar=None):
+    """Appearance for one creature: what the user set, then what the creature
+    asks for, then the defaults.
+
+    A creature declares its own `palette` because a slime opening in claudlet's
+    orange is wrong before the user has touched anything."""
+    mine = (cfg.get("creatures") or {}).get(name) or {}
+    palette = mine.get("palette")
+    if palette is None:
+        palette = clean_palette_opt(getattr(avatar, "palette", None))
+    if palette is None:
+        palette = cfg.get("palette") or "auto"      # pre-per-creature config
+    scale = mine.get("scale")
+    if scale is None:
+        scale = clamp_scale(cfg.get("scale"))
+    return {"palette": palette, "scale": scale,
+            "visor": mine.get("visor") or DEFAULT_VISOR}
 
 
 def clamp_scale(value):
@@ -235,7 +296,7 @@ def resolve_palette(config_value, roll, pick=0.0):
 def _empty_config():
     return {"tool_states": {}, "event_states": {}, "raw_events": {},
             "lang": "auto", "roam_area": None, "no_go": [], "palette": "auto",
-            "scale": DEFAULT_SCALE, "avatar": None,
+            "scale": DEFAULT_SCALE, "avatar": None, "creatures": {},
             "dock": default_dock()}
 
 

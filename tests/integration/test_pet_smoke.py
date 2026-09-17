@@ -1524,27 +1524,26 @@ def test_energy_does_not_drain_below_zero():
         p._cleanup()
 
 
-def test_no_rest_poses_during_autopilot():
-    # During auto_web/auto_search (AUTO_ROAM), the pet's visor is on and it is
-    # actively "working" -- it must never settle/doze/observe/tic even at rock
-    # -bottom energy; it should keep wandering (walk/explore/hop) instead.
+def test_no_rest_poses_while_running_unattended():
+    """Rest micro-behaviours are for a pet with nothing to do. Working
+    unattended it is busy, and it WANDERS -- that wandering is what reads as
+    "off doing things by itself" now that there is no separate auto_* state."""
     p = P.Pet(session_id="nrg3")
     try:
         p.idle_energy.value = 0.05             # force LOW
-        # WebFetch under an autonomous permission mode -> engine reports auto_web
-        # (AUTO_VARIANT["work_web"]), which is in AUTO_ROAM -> _roam runs for it.
         send_hook(p, "PreToolUse", session="nrg3",
                   tool_name="WebFetch", permission_mode="auto")
         p.mode = "roam"
+        p._tick()
+        assert p.snapshot()["state"] == "work_web"   # auto no longer forks it
+        assert p.engine.auto_active() is True
         seen = set()
         for _ in range(400):
             p._tick()
-            seen.add(p._idle_behavior)
-        assert p.snapshot()["state"] == "auto_web"
-        assert not (seen & idle_engine.RESTING)
+            seen.add(p.snapshot()["render"])
+        assert not (seen & {"settle", "doze", "observe", "tic"}), sorted(seen)
     finally:
         p._cleanup()
-
 
 def test_explore_falls_back_to_walk_without_window_feed():
     # HIGH energy can pick explore/hop, but with no window feed at all there is
