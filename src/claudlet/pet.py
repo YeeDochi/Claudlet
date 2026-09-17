@@ -56,10 +56,13 @@ from claudlet.platform import geom
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
-def _avatar_name():
-    """Which avatar to wear. Env only for now: a config key would be dead
-    weight until a second avatar exists, and the selector lands with it."""
-    return os.environ.get("CLAUDLET_AVATAR") or None
+def _avatar_name(cfg=None):
+    """Which creature to wear. Env beats config so one pet can be run as
+    somebody else without changing everyone's setting. An unknown name falls
+    back to the built-in inside avatars.get()."""
+    return (os.environ.get("CLAUDLET_AVATAR")
+            or (cfg or {}).get("avatar")
+            or None)
 
 
 def _scale(cfg):
@@ -536,7 +539,7 @@ class Pet(QWidget):
         self.port_file = hostinfo.session_port_file(session_id)
 
         cfg = petconfig.load_config()
-        self.avatar = avatars.get(_avatar_name())
+        self.avatar = avatars.get(_avatar_name(cfg))
         self.u = _scale(cfg)
         self._resize_to_avatar()
 
@@ -955,11 +958,15 @@ class Pet(QWidget):
         without restarting: colour applies on the next paint, a new scale needs
         the window resized and the pet nudged back inside the screen."""
         cfg = petconfig.load_config()
-        before = self.u
+        before = (self.u, self.avatar.name)
+        want = _avatar_name(cfg)
+        if want and want != self.avatar.name:
+            self.avatar = avatars.get(want)     # 크리처를 갈아입는다
         self._apply_style(cfg)
-        if self.u != before:
+        if (self.u, self.avatar.name) != before:
             self._resize_to_avatar()
             for c in self._companions + self._departing:
+                c.avatar = self.avatar
                 c.rescale(_companion_scale(self.u))
         self.update()
 

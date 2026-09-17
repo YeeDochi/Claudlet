@@ -104,6 +104,8 @@ def _clean(raw):
     if palette not in _PALETTE_NAMES and derive_palette(palette) is None:
         palette = "auto"
     scale = clamp_scale(raw.get("scale"))
+    avatar = raw.get("avatar")
+    avatar = avatar if isinstance(avatar, str) and avatar else None
 
     def _rect(v):
         if not isinstance(v, dict):
@@ -125,7 +127,7 @@ def _clean(raw):
     return {"tool_states": tools, "event_states": events,
             "raw_events": raw_events, "lang": lang,
             "roam_area": roam_area, "no_go": no_go, "palette": palette,
-            "scale": scale,
+            "scale": scale, "avatar": avatar,
             "dock": _clean_dock(raw.get("dock"))}
 
 
@@ -233,7 +235,7 @@ def resolve_palette(config_value, roll, pick=0.0):
 def _empty_config():
     return {"tool_states": {}, "event_states": {}, "raw_events": {},
             "lang": "auto", "roam_area": None, "no_go": [], "palette": "auto",
-            "scale": DEFAULT_SCALE,
+            "scale": DEFAULT_SCALE, "avatar": None,
             "dock": default_dock()}
 
 

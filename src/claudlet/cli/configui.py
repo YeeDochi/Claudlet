@@ -31,8 +31,9 @@ def state_payload(cfg=None):
     """Everything the page needs to draw itself."""
     cfg = petconfig.load_config() if cfg is None else cfg
     pal = cfg.get("palette", "auto")
+    chosen = cfg.get("avatar") or avatars.DEFAULT
     return {
-        "avatars": [{"name": n, "selected": n == avatars.DEFAULT}
+        "avatars": [{"name": n, "selected": n == chosen}
                     for n in avatars.available()],
         "palette": pal,
         # the colour the picker should open on: a named palette has no single
@@ -57,6 +58,9 @@ def clean_updates(body):
         out["palette"] = pal
     if "scale" in body:
         out["scale"] = petconfig.clamp_scale(body.get("scale"))
+    name = body.get("avatar")
+    if isinstance(name, str) and name in avatars.available():
+        out["avatar"] = name
     return out
 
 
@@ -95,7 +99,7 @@ def preview_frame(state):
     return 8
 
 
-def render_png(palette, scale, state="idle", frame=None):
+def render_png(palette, scale, state="idle", frame=None, avatar=None):
     """A PNG of the creature as these settings would draw it, or b"" if Qt
     can't start (headless box with no offscreen platform)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -106,7 +110,7 @@ def render_png(palette, scale, state="idle", frame=None):
     except ImportError:
         return b""
     app = QApplication.instance() or QApplication(sys.argv[:1])   # noqa: F841
-    avatar = avatars.get()
+    avatar = avatars.get(avatar)
     pad = 2
     gw, gh = avatar.grid
     u = petconfig.clamp_scale(scale)
@@ -212,9 +216,13 @@ function redraw() {
 function fill(s) {
   S = s;
   $("list").innerHTML = s.avatars.map((a) => `
-    <div class="card" aria-selected="${a.selected}">
-      <img src="/api/preview?state=idle&scale=3&palette=${encodeURIComponent(s.colour)}">
+    <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
+      <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(s.colour)}">
       <div>${a.name}</div></div>`).join("");
+  for (const card of document.querySelectorAll(".card")) {
+    card.addEventListener("click", async () =>
+      fill(await post({avatar: card.dataset.name}, `${card.dataset.name} 로 바꿨습니다`)));
+  }
   $("col").value = s.colour;
   $("scale").min = s.scale_range[0];
   $("scale").max = s.scale_range[1];
@@ -278,7 +286,8 @@ def _handler_class():
                 q = parse_qs(u.query)
                 png = render_png(q.get("palette", ["auto"])[0],
                                  q.get("scale", [petconfig.DEFAULT_SCALE])[0],
-                                 q.get("state", ["idle"])[0])
+                                 q.get("state", ["idle"])[0],
+                                 avatar=q.get("avatar", [None])[0])
                 return self._send(200 if png else 500, png or b"", "image/png")
             return self._send(404, b"not found", "text/plain")
 
