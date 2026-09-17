@@ -136,7 +136,7 @@ _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 # right-click / tray menu UI strings, per language
 UI = {
     "ko": {"follow": "커서 따라오기", "motions": "모션",
-           "float": "주머니 쏙 (고개만 빼꼼)", "quiet": "조용히 (알림 끔)",
+           "float": "호버링 (제자리에 떠 있기)", "quiet": "조용히 (알림 끔)",
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
@@ -145,7 +145,7 @@ UI = {
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
            "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
-           "float": "Pocket (peek out)", "quiet": "Quiet (mute)",
+           "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
@@ -2325,7 +2325,7 @@ class Pet(QWidget):
         self.avatar.draw(p, ox, oy, u, state, self.frame,
                          facing=self.facing, autonomous=autonomous,
                          energy=energy,
-                         palette=self._palette, happy=petted, pocket=pocket,
+                         palette=self._palette, happy=petted, hovering=pocket,
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)

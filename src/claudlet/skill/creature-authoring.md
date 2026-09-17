@@ -48,7 +48,7 @@ than raising** — the pet passes everything it knows:
 | `happy` | being petted right now |
 | `gaze` | `(dx, dy)`, roughly −1…1, where the cursor is |
 | `cap` | a hat kind, for companion creatures |
-| `pocket` | peeking out of a slit in the screen |
+| `hovering` | parked out of the way. The built-in peeks out of a slit in the screen; yours may float, fade or shrink |
 
 Paint with `p.fillRect(...)`; the pet has already set the pen to `NoPen` and
 antialiasing off.

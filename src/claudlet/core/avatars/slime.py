@@ -60,7 +60,7 @@ class Slime:
         C.set_lang(lang)
 
     def draw(self, p, ox, oy, u, state, frame, facing=1, autonomous=False,
-             cap=None, energy=1.0, palette=None, happy=False, pocket=False,
+             cap=None, energy=1.0, palette=None, happy=False, hovering=False,
              gaze=(0.0, 0.0), **kw):
         p.setPen(Qt.PenStyle.NoPen)
         body, hi, lo, _bang = C.palette_colors(palette)

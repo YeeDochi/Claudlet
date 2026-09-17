@@ -589,9 +589,13 @@ def draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0.0, facing=1,
 
 
 def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=None,
-                  energy=1.0, palette=None, happy=False, pocket=False,
+                  energy=1.0, palette=None, happy=False, hovering=False,
                   gaze=(0.0, 0.0)):
     """Draw the creature. All coordinates are in art pixels * u.
+
+    `hovering` says the pet has been parked out of the way. THIS creature shows
+    that by cutting a slit in the screen and peeking its head out of it; another
+    may simply float, fade, or shrink -- the pet only says it is parked.
 
     `autonomous` says Claude is running unattended. THIS creature shows that as a
     VR headset -- worn over the eyes while it works, pushed up onto the head
@@ -630,13 +634,13 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=No
     # 안 그려지고(투명), 립/손은 함수 끝에서 틈 위로 덧그린다. 표정/프롭은 현재
     # 상태 그대로라 고민/작업/완료 표정이 주머니에서도 보인다.
     POCKET_LIP = 11.6         # 눈(row ~7.4)보다 넉넉히 아래 — 표정이 안 묻히게
-    if pocket:
+    if hovering:
         p.setClipRect(QRectF(ox - 4 * u, oy - 6 * u,
                              (GRID_W + 8) * u, (POCKET_LIP + 6) * u))
 
     if happy:
         eyes = "happy"          # 상태 무관 웃는 눈 (쓰다듬기 반응)
-    if pocket:
+    if hovering:
         arm = "none"            # 기본 측면 팔 끔 — 슬릿 잡은 그립 손만 남긴다
 
     p.save()
@@ -802,7 +806,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=No
 
     draw_prop(p, ox, oy, u, prop, frame, state, body_dy, facing, palette)
 
-    if pocket:
+    if hovering:
         p.setClipping(False)
         slit_y = oy + POCKET_LIP * u
         SLOT = QColor("#141418")      # 화면을 가른 어두운 틈 안쪽(몸이 들어가는 어둠)
