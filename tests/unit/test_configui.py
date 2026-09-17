@@ -666,8 +666,15 @@ def test_serve_attaches_to_a_running_settings_server_instead_of_a_second_one():
 def test_browser_command_opens_an_app_window_with_the_first_browser_found():
     which = {"chromium": "/usr/bin/chromium"}.get
     cmd = U.browser_command("http://127.0.0.1:8770/", which=which, size=(900, 700))
-    assert cmd == ["/usr/bin/chromium", "--app=http://127.0.0.1:8770/",
-                   "--window-size=900,700"]
+    assert cmd[:3] == ["/usr/bin/chromium", "--app=http://127.0.0.1:8770/",
+                       "--window-size=900,700"]
+    # the window must carry our own identity, or a desktop attributes it to
+    # whatever owns the display it opened on (seen live: a gamescope-provided
+    # X display made the app and its icon show up as "gamescope")
+    assert "--class=claudlet" in cmd
+    # and on a Wayland session with an X server also present, let Chrome pick
+    # Wayland instead of silently falling back to X11
+    assert "--ozone-platform-hint=auto" in cmd
 
 
 def test_browser_command_prefers_the_earlier_browser_in_the_list():

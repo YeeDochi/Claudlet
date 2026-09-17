@@ -105,6 +105,9 @@ def probe_port(port, timeout=0.6):
         return "other"
 
 
+APP_CLASS = "claudlet"        # WM_CLASS / Wayland app_id for the app window
+
+
 def browser_command(url, which=None, size=APP_WINDOW):
     """argv that opens `url` as a chrome-less app window, or None when no
     chromium-family browser is installed (then the caller opens it the ordinary
@@ -115,8 +118,18 @@ def browser_command(url, which=None, size=APP_WINDOW):
     for name in APP_BROWSERS:
         exe = which(name)
         if exe:
+            # --ozone-platform-hint=auto: on a Wayland session that also has an
+            # X server around (KDE's XWayland, or a gamescope-provided :1),
+            # Chrome otherwise picks X11 and the app window lands in whatever
+            # composites that display instead of the user's desktop.
+            # --class: name the window after ourselves. Without it the app
+            # window carries no identity a desktop can match, and KDE attributes
+            # it to whatever owns the display it landed on (a gamescope-provided
+            # :1 shows up as "gamescope" in the task bar, icon and all).
             return [exe, "--app=" + url,
-                    "--window-size=%d,%d" % (size[0], size[1])]
+                    "--window-size=%d,%d" % (size[0], size[1]),
+                    "--class=" + APP_CLASS,
+                    "--ozone-platform-hint=auto"]
     return None
 
 
