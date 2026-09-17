@@ -146,26 +146,33 @@ class Astronaut:
         px(CX + 2.95, 3.9, 0.9, 0.6, BEACON if lit else VISOR_HI)
 
         # ---- arms (drawn AFTER the helmet so a raised one stays visible) --
+        # The SHOULDER is fixed and the HAND moves. Translating the whole arm
+        # up instead leaves the glove down by the hip and reads as a shrug.
         arm, asw = rig["arm"], rig["arm_swing"]
+        SHOULDER, GLOVE = 8.3, 0.9
 
-        def limb(side, top, length=2.2):
+        def limb(side, hand):
+            up = hand < SHOULDER
             # a raised arm swings OUT past the helmet: at the torso edge it
             # sits behind the dome, same tone, and disappears
-            out = 0.9 if top < 7.5 else 0.0
-            col = CX + (2.2 + out) * side + (0.0 if side > 0 else -1.5)
-            px(col, top, 1.5, length, shade)
-            px(col - 0.15, top + length, 1.8, 0.9, gear)     # glove
+            col = CX + (2.2 + (0.9 if up else 0.0)) * side + (0.0 if side > 0 else -1.5)
+            if up:
+                px(col, hand + GLOVE, 1.5, SHOULDER - hand - GLOVE + 0.4, shade)
+                px(col - 0.15, hand, 1.8, GLOVE, gear)
+            else:
+                px(col, SHOULDER, 1.5, hand - SHOULDER, shade)
+                px(col - 0.15, hand, 1.8, GLOVE, gear)
 
         if arm == "up":
-            limb(-1, 6.4); limb(+1, 6.4)
+            limb(-1, 5.4); limb(+1, 5.4)
         elif arm == "wave":
-            limb(-1, 8.4 + asw)
-            limb(+1, 6.2 + C._sin(frame, 16, 0.9))
+            limb(-1, 10.4 + asw)
+            limb(+1, 5.3 + C._sin(frame, 16, 0.8))
         elif arm == "tap":
-            limb(-1, 8.4 + rig["front_tap"], 1.9)
-            limb(+1, 8.4 + (0.8 - rig["front_tap"]), 1.9)
+            limb(-1, 10.3 + rig["front_tap"])
+            limb(+1, 10.3 + (0.8 - rig["front_tap"]))
         elif arm != "none":
-            limb(-1, 8.2 + asw); limb(+1, 8.2 - asw)
+            limb(-1, 10.4 + asw); limb(+1, 10.4 - asw)
 
         # ---- face, inside the glass --------------------------------------
         def eye(col, kind):
