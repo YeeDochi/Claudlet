@@ -260,3 +260,28 @@ def test_build_message_omits_the_title_when_unavailable():
 def test_win_console_title_is_none_off_windows(monkeypatch):
     monkeypatch.setattr(mod.os, "name", "posix")
     assert mod._win_console_title(101) is None
+
+
+def test_agent_arg_defaults_to_claude():
+    assert mod.agent_arg(["claudlet-hook", "Stop"]) == "claude"
+    assert mod.agent_arg(["claudlet-hook", "Stop", "--agent", "codex"]) == "codex"
+    assert mod.agent_arg(["claudlet-hook", "Stop", "--agent=codex"]) == "codex"
+    # an unknown agent must not crash a hook; it degrades to the default
+    assert mod.agent_arg(["claudlet-hook", "Stop", "--agent", "wat"]) == "claude"
+
+
+def test_session_of_falls_back_to_the_transcript_uuid():
+    uuid = "01a0acb1-0899-7763-8512-b9d0b28c1f02"
+    data = {"transcript_path":
+            "/home/u/.codex/sessions/2026/09/17/rollout-2026-09-17T09-07-58-%s.jsonl" % uuid}
+    assert mod.session_of(data) == uuid
+    assert mod.session_of({"session_id": "abc", "transcript_path": "x"}) == "abc"
+    assert mod.session_of({}) == "default"
+
+
+def test_build_message_still_carries_event_and_session():
+    line = mod.build_message(["claudlet-hook", "PreToolUse", "--agent", "codex"],
+                              {"session_id": "s1", "tool_name": "shell"})
+    msg = json.loads(line)
+    assert msg["event"] == "PreToolUse" and msg["session"] == "s1"
+    assert msg["tool_name"] == "shell"
