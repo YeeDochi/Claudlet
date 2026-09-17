@@ -16,11 +16,24 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 from claudlet.core import relnotes
 
+# Same reason in the other direction: these notes carry non-ASCII subjects and
+# stdout follows the console codepage on Windows, so printing them would raise
+# instead of writing the tag annotation.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, OSError):
+    pass
+
 
 def _subjects(prev, cur):
+    # git writes subjects as UTF-8, but text=True alone decodes with the
+    # LOCALE's codec -- on a Korean Windows console that is cp949, and the
+    # first non-ASCII commit subject kills the release with a
+    # UnicodeDecodeError. Say what git actually emits.
     rng = f"{prev}..{cur}" if prev else cur
     out = subprocess.run(["git", "log", "--no-merges", "--pretty=%s", rng],
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, check=True,
+                         encoding="utf-8", errors="replace")
     return [ln for ln in out.stdout.splitlines() if ln.strip()]
 
 
