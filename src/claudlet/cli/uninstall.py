@@ -63,6 +63,7 @@ def main(argv=None):
         install.ok("stopped %d running pet(s)" % n)
     install_hooks.main(["--remove"])
     install._unlink_skills()
+    install.uninstall_desktop_entry()
     install.ok("hooks + skill link removed")
     cleaned = clean_port_files()
     if cleaned:

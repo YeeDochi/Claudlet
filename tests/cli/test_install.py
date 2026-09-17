@@ -26,6 +26,7 @@ def test_install_path_does_not_call_uninstall(monkeypatch):
     monkeypatch.setattr(I, "_check_deps", lambda: "stubbed")
     monkeypatch.setattr("claudlet.cli.install_hooks.main", lambda argv=None: None)
     monkeypatch.setattr(I, "_link_skills", lambda home=None: [])
+    monkeypatch.setattr(I, "install_desktop_entry", lambda home=None: (None, None))
 
     I.main([])          # no exception == install path stayed clear of uninstall
 
@@ -170,6 +171,115 @@ def test_unlink_skills_survives_permission_error_on_one_agent(tmp_path, monkeypa
     I._unlink_skills(home=str(tmp_path))   # must not raise
 
     assert not os.path.exists(tmp_path / ".claude" / "skills" / "claudlet")
+
+
+def _fake_icon(path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNGfake")
+    return True
+
+
+def test_desktop_entry_is_a_noop_off_linux(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "darwin")
+
+    assert I.install_desktop_entry(home=str(tmp_path)) == (None, None)
+    assert not (tmp_path / ".local").exists()
+
+
+def test_desktop_entry_written_on_linux(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "linux")
+    monkeypatch.setattr(I, "_write_desktop_icon", lambda p: False)   # no Qt here
+    monkeypatch.setattr(I.shutil, "which", lambda n: None)
+    monkeypatch.setattr(I.os.path, "exists",
+                        lambda p, _real=I.os.path.exists: False if p.endswith(
+                            "bin/claudlet-config") else _real(p))
+
+    path, note = I.install_desktop_entry(home=str(tmp_path))
+
+    assert note is None
+    assert path == str(tmp_path / ".local" / "share" / "applications" / "claudlet.desktop")
+    text = open(path, encoding="utf-8").read()
+    assert "StartupWMClass=claudlet" in text
+    assert "Name=claudlet" in text
+    assert "Exec=" in text and " ui" in text
+    # no Qt available -> falls back to a theme icon name instead of failing
+    assert ("Icon=%s" % I.DESKTOP_ICON_FALLBACK) in text
+
+
+def test_desktop_entry_uses_the_rendered_icon_when_qt_is_available(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "linux")
+    monkeypatch.setattr(I, "_write_desktop_icon", _fake_icon)
+
+    path, note = I.install_desktop_entry(home=str(tmp_path))
+
+    icon_path = str(tmp_path / ".local" / "share" / "icons" / "hicolor" /
+                    "256x256" / "apps" / "claudlet.png")
+    assert note is None
+    assert os.path.isfile(icon_path)
+    assert ("Icon=%s" % I.DESKTOP_ICON_NAME) in open(path, encoding="utf-8").read()
+
+
+def test_desktop_entry_does_not_clobber_a_foreign_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "linux")
+    apps = tmp_path / ".local" / "share" / "applications"
+    apps.mkdir(parents=True)
+    (apps / "claudlet.desktop").write_text("[Desktop Entry]\nName=someone else\n")
+
+    path, note = I.install_desktop_entry(home=str(tmp_path))
+
+    assert path is None and "left as-is" in note
+    assert "someone else" in (apps / "claudlet.desktop").read_text()
+
+
+def test_desktop_entry_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "linux")
+    monkeypatch.setattr(I, "_write_desktop_icon", lambda p: False)
+
+    first = I.install_desktop_entry(home=str(tmp_path))
+    second = I.install_desktop_entry(home=str(tmp_path))
+
+    assert first == second == (
+        str(tmp_path / ".local" / "share" / "applications" / "claudlet.desktop"), None)
+
+
+def test_uninstall_desktop_entry_removes_both_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "linux")
+    monkeypatch.setattr(I, "_write_desktop_icon", _fake_icon)
+    path, _note = I.install_desktop_entry(home=str(tmp_path))
+    icon_path = str(tmp_path / ".local" / "share" / "icons" / "hicolor" /
+                    "256x256" / "apps" / "claudlet.png")
+    assert os.path.isfile(path) and os.path.isfile(icon_path)
+
+    I.uninstall_desktop_entry(home=str(tmp_path))
+
+    assert not os.path.exists(path)
+    assert not os.path.exists(icon_path)
+
+
+def test_uninstall_desktop_entry_is_a_noop_off_linux(tmp_path, monkeypatch):
+    monkeypatch.setattr(I.sys, "platform", "darwin")
+    apps = tmp_path / ".local" / "share" / "applications"
+    apps.mkdir(parents=True)
+    (apps / "claudlet.desktop").write_text("kept")
+
+    I.uninstall_desktop_entry(home=str(tmp_path))   # must not raise or touch it
+
+    assert (apps / "claudlet.desktop").read_text() == "kept"
+
+
+def test_config_argv_prefers_the_installed_console_script(monkeypatch):
+    monkeypatch.setattr(I.shutil, "which",
+                        lambda n: "/usr/bin/claudlet-config" if n == "claudlet-config" else None)
+
+    assert I._config_argv() == ["/usr/bin/claudlet-config", "ui"]
+
+
+def test_config_argv_falls_back_to_the_module_when_nothing_else_resolves(monkeypatch):
+    monkeypatch.setattr(I.shutil, "which", lambda n: None)
+    monkeypatch.setattr(I.os.path, "exists", lambda p: False)
+
+    assert I._config_argv() == [I.sys.executable, "-m", "claudlet.cli.configcli", "ui"]
 
 
 def test_link_skills_is_idempotent(tmp_path):

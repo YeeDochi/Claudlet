@@ -10,6 +10,7 @@ only wires claudlet into Claude Code. Run after installing:
     claudlet-install --remove   remove hooks + skill link (package stays)
 """
 import os
+import shutil
 import sys
 
 from claudlet.core import agents
@@ -132,6 +133,130 @@ def _link_skills(home=None):
 def _unlink_skills(home=None):
     for name in agents.detected(home):
         _unlink_skill_at(_skill_link(name, home))
+
+
+# ---------- desktop entry: give the settings app a real name/icon ----------
+# --class=claudlet (see configui.APP_CLASS) still shows as a generic window
+# unless a matching .desktop entry exists. Linux only -- no-op on macOS and
+# Windows, which have their own app-identity mechanisms.
+
+DESKTOP_ICON_NAME = "claudlet"          # Icon= when we managed to render one
+DESKTOP_ICON_FALLBACK = "applications-utilities"   # theme icon if Qt is unavailable
+DESKTOP_MARKER = "X-Claudlet-Managed=true"
+
+DESKTOP_ENTRY_TEMPLATE = """[Desktop Entry]
+Type=Application
+Name=claudlet
+Comment=claudlet creature settings
+Exec=%s
+Icon=%s
+Terminal=false
+Categories=Utility;
+StartupWMClass=claudlet
+X-Claudlet-Managed=true
+"""
+
+
+def _desktop_paths(home=None):
+    """Where the entry and its icon live -- injectable so tests never touch
+    the user's real ~/.local/share."""
+    h = home if home is not None else os.path.expanduser("~")
+    share = os.path.join(h, ".local", "share")
+    return (os.path.join(share, "applications", "claudlet.desktop"),
+            os.path.join(share, "icons", "hicolor", "256x256", "apps", "claudlet.png"))
+
+
+def _config_argv():
+    """argv that launches the settings UI, resolved the same way
+    install_hooks.hook_command() resolves claudlet-hook: the installed
+    console script first, else the source checkout's bin/ shim, else a
+    module fallback."""
+    exe = shutil.which("claudlet-config")
+    if exe:
+        return [exe, "ui"]
+    repo_bin = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))),
+        "bin", "claudlet-config")
+    if os.path.exists(repo_bin):
+        return [repo_bin, "ui"]
+    return [sys.executable, "-m", "claudlet.cli.configcli", "ui"]
+
+
+def _desktop_exec():
+    """Exec= line: each token quoted per the desktop-entry spec, in case a
+    path contains a space (Program Files, a user name with a space in it)."""
+    def q(tok):
+        if not any(c in tok for c in " \t\"'\\$`"):
+            return tok
+        return '"%s"' % tok.replace("\\", "\\\\").replace('"', '\\"')
+    return " ".join(q(t) for t in _config_argv())
+
+
+def _entry_is_ours(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return DESKTOP_MARKER in f.read()
+    except OSError:
+        return False
+
+
+def _write_desktop_icon(icon_path):
+    """Render the app icon with the SAME renderer as everything else (the
+    repo ships no image assets): the built-in claudlet in its own colours,
+    not whatever a pet currently wears -- see configui.icon_png. Returns
+    True if a file was written."""
+    try:
+        from claudlet.cli import configui
+        png = configui.icon_png(256)
+    except Exception:
+        png = b""
+    if not png:
+        return False
+    try:
+        os.makedirs(os.path.dirname(icon_path), exist_ok=True)
+        with open(icon_path, "wb") as f:
+            f.write(png)
+        return True
+    except OSError:
+        return False
+
+
+def install_desktop_entry(home=None):
+    """Write the settings app's .desktop entry (+ hicolor icon), Linux only.
+    Returns (path_or_None, note_or_None) -- same shape `_link_skill_at`
+    reports, so main() can log it the same way. A foreign file at the same
+    path (not one we wrote) is left alone, exactly like the skill-link
+    discipline; a missing/unrenderable icon falls back to a theme name
+    rather than failing the whole entry."""
+    if not sys.platform.startswith("linux"):
+        return None, None
+    desktop_path, icon_path = _desktop_paths(home)
+    if os.path.exists(desktop_path) and not _entry_is_ours(desktop_path):
+        return None, ("%s exists and isn't a claudlet-managed entry"
+                      " - left as-is" % desktop_path)
+    try:
+        os.makedirs(os.path.dirname(desktop_path), exist_ok=True)
+        has_icon = _write_desktop_icon(icon_path)
+        icon_name = DESKTOP_ICON_NAME if has_icon else DESKTOP_ICON_FALLBACK
+        with open(desktop_path, "w", encoding="utf-8") as f:
+            f.write(DESKTOP_ENTRY_TEMPLATE % (_desktop_exec(), icon_name))
+        return desktop_path, None
+    except OSError as e:
+        return None, "could not write desktop entry (%s): %s" % (desktop_path, e)
+
+
+def uninstall_desktop_entry(home=None):
+    """Best effort, Linux only: remove the entry and icon `install_desktop_entry`
+    wrote. Never raises -- one missing/unremovable file must not block the
+    rest of `claudlet-uninstall`."""
+    if not sys.platform.startswith("linux"):
+        return
+    for p in _desktop_paths(home):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
 
 
 def _pip_install(pkgs):
@@ -295,6 +420,11 @@ def main(argv=None):
             ok("/claudlet skill (%s)" % label, path)
         if note:
             warn("%s: %s" % (label, note))
+    d_path, d_note = install_desktop_entry()
+    if d_path:
+        ok("desktop entry", d_path)
+    if d_note:
+        warn(d_note)
 
     head("done")
     print("Restart Claude Code sessions to pick up the hooks (new sessions")
