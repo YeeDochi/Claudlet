@@ -159,20 +159,18 @@ def _tilt_for(tilt):
     return 0.0 if abs(tilt) < SMOOTH_TILT_DEG else tilt
 
 
-def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
-                  energy=1.0, palette=None, happy=False, pocket=False,
-                  gaze=(0.0, 0.0)):
-    """Draw the creature. All coordinates are in art pixels * u.
+def state_rig(state, frame, energy=1.0, happy=False, visor=None,
+              gaze=(0.0, 0.0)):
+    """How a state moves, as plain numbers — no Qt, no drawing.
 
-    visor="up" pushes a VR-headset up onto the head (auto mode while not actively
-    "looking"); the auto_* states draw the headset worn over the eyes themselves.
-    """
-    p.setPen(p.pen())  # no-op keep
-    from PyQt6.QtCore import Qt
-    p.setPen(Qt.PenStyle.NoPen)
+    This is the creature's motion vocabulary: how far the body bobs, how it
+    squashes and leans, where the legs are in their cycle, which eyes and prop
+    are worn, what the arms are doing. `draw_creature` paints the built-in art
+    with it; an avatar built from someone else's pixels drives ITS parts from
+    the same numbers, so every state a custom creature can strike is one this
+    table already describes.
 
-    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
-
+    Pure: same arguments, same dict."""
     # ---- per-state rig parameters ----
     bob = 0.0          # whole-body vertical offset (art px)
     sx, sy = 1.0, 1.0  # squash/stretch
@@ -383,14 +381,41 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         if nod > 0.9:
             prop = "zzz"
 
-    body_dy = _snap_offset(bob + baseline_lift, u)
-
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
     arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
            "held": "up", "falling": "up", "juggle": "up", "wave": "wave",
            "climbdown": "up", "leap": "up"}.get(state, "side")
     arm_swing = (_sin(frame, 12, 0.5) if state == "walk" else
                  _sin(frame, 16, 0.5) if state in _WALKERS else 0.0)
+
+    return {"bob": bob, "sx": sx, "sy": sy, "tilt": tilt, "legphase": legphase,
+            "eyes": eyes, "prop": prop, "front_tap": front_tap,
+            "baseline_lift": baseline_lift, "droop": droop,
+            "arm": arm, "arm_swing": arm_swing}
+
+
+def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
+                  energy=1.0, palette=None, happy=False, pocket=False,
+                  gaze=(0.0, 0.0)):
+    """Draw the creature. All coordinates are in art pixels * u.
+
+    visor="up" pushes a VR-headset up onto the head (auto mode while not actively
+    "looking"); the auto_* states draw the headset worn over the eyes themselves.
+    """
+    p.setPen(p.pen())  # no-op keep
+    from PyQt6.QtCore import Qt
+    p.setPen(Qt.PenStyle.NoPen)
+
+    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
+
+    rig = state_rig(state, frame, energy, happy, visor, gaze)
+    bob, sx, sy = rig["bob"], rig["sx"], rig["sy"]
+    tilt, legphase = rig["tilt"], rig["legphase"]
+    eyes, prop = rig["eyes"], rig["prop"]
+    front_tap, baseline_lift = rig["front_tap"], rig["baseline_lift"]
+    arm, arm_swing = rig["arm"], rig["arm_swing"]
+
+    body_dy = _snap_offset(bob + baseline_lift, u)
 
     # ---- geometry (art-pixel space), origin at ox,oy ----
     # body occupies cols 3..18, rows 5..12 ; legs rows 12..15 ; crown rows 3..5
