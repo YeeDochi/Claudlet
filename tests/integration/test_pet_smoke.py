@@ -1812,6 +1812,21 @@ def test_tooltip_names_the_session(pet):
                               pet.session_id.split("-")[0])
 
 
+def test_codex_tooltip_names_the_indexed_thread(tmp_path, monkeypatch):
+    import json
+    index = tmp_path / "session_index.jsonl"
+    index.write_text(json.dumps({
+        "id": "01a0ade7-518a",
+        "thread_name": "클로들렛 훅 수정",
+    }, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(hostinfo, "CODEX_SESSION_INDEX", str(index), raising=False)
+    p = P.Pet(session_id="01a0ade7-518a", host="unknown", agent="codex")
+    try:
+        assert p.snapshot()["tooltip"] == "클로들렛 훅 수정(01a0ade7)"
+    finally:
+        p._cleanup()
+
+
 def test_click_focus_picks_our_project_window(pet):
     """One process, many windows (JetBrains opens every project in one JVM):
     pid-ancestry matches them all and the first one listed used to win, so every

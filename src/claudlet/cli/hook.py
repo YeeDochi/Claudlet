@@ -302,6 +302,12 @@ def main():
     agent = agent_arg(sys.argv)
     session_id = session_of(data)
 
+    # Codex tool workers emit SessionStart with a transcript path but never
+    # create that rollout. They are implementation details, not user sessions.
+    if (event == "SessionStart" and agent == "codex"
+            and not os.path.isfile(str(data.get("transcript_path") or ""))):
+        return
+
     if os.environ.get("CLAUDLET_DEBUG_HOOK"):
         try:
             import time as _time

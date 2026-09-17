@@ -949,7 +949,10 @@ class Pet(QWidget):
         short = str(self.session_id).split("-")[0]
         if now - self._tip_checked >= TIP_REFRESH_SEC or not getattr(self, "_tip_name", ""):
             self._tip_checked = now
-            self._tip_name = hostinfo.session_title(self.session_id) or self._project
+            title = (hostinfo.codex_session_title(self.session_id)
+                     if self.agent == "codex"
+                     else hostinfo.session_title(self.session_id))
+            self._tip_name = title or self._project
         return "%s(%s)" % (self._tip_name, short)
 
     @property
