@@ -12,7 +12,7 @@ class MyCreature:
     name    = "mycat"       # id the config stores; must match the folder
     grid    = (22, 17)      # art-pixel box. The PET'S WINDOW IS SIZED FROM THIS
     states  = ("idle", ...) # what you can draw (see the list below)
-    hats    = ()            # companion hat kinds, or () for none
+    hats    = C.HAT_KINDS   # hats your companions may wear, or () for none
     palette  = "#33CC66"    # YOUR default colour, until the user picks one
     foot_row = 15.8         # where your feet are, in art rows — the pet stands
                             # you on windows by this line (omit to use 15.8)
@@ -55,7 +55,7 @@ antialiasing off.
 
 ## What you get for free
 
-Two things in `claudlet.core.creature` are **tools, not rules**. The built-in
+Three things in `claudlet.core.creature` are **tools, not rules**. The built-in
 creature uses them. A GIF-backed creature ignores them entirely.
 
 ### `state_rig(state, frame, energy=1.0, happy=False, autonomous=False, gaze=(0,0))`
@@ -78,6 +78,24 @@ creature moves like claudlet does without you inventing any of it:
 | `arm_swing` | arm swing while walking |
 | `prop` | what to hand to `draw_prop`, or `None` |
 | `droop` | 0 fresh … 1 tired |
+
+### `draw_hat(px, cap, frame, crown_row=3.0, cx=10.5, head_w=15.0)`
+
+Companions wear a hat so they read as somebody else's sidekick rather than a
+small copy of the pet. Declare `hats` to be given one, and call this where you
+draw your head:
+
+```python
+if cap:
+    C.draw_hat(px, cap, frame, crown_row=4.3, cx=CX, head_w=6.0)
+```
+
+It takes YOUR `px`, not the painter, so the hat inherits whatever squash, lean
+and mirror you apply — a hat sits on a head and has to move with it, which a
+prop never has to do. The three numbers are your head's geometry: where its
+crown is, where its centre is, how wide it is. The art is cut for the built-in's
+15-pixel head, so a narrower head gets a narrower hat rather than a brim out
+past its shoulders.
 
 ### `draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0, facing=1, palette=None)`
 
