@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Register (or remove) claudlet hooks in ~/.claude/settings.json.
+"""Register (or remove) claudlet hooks in each detected agent's settings file.
 
 Usage:
-    claudlet-install-hooks           # install
-    claudlet-install-hooks --remove  # remove
+    claudlet-install-hooks                   # install: every detected agent
+    claudlet-install-hooks --remove          # remove: every detected agent
+    claudlet-install-hooks --agent codex     # install: just codex
+    claudlet-install-hooks --remove --agent claude,codex
 
-Keeps a single rolling backup (settings.json.bak) and writes atomically.
-Idempotent.
+Keeps a single rolling backup (<file>.bak) and writes atomically. Idempotent.
 """
 import json
 import os
@@ -14,7 +15,7 @@ import shutil
 import sys
 import tempfile
 
-SETTINGS = os.path.expanduser("~/.claude/settings.json")
+from claudlet.core import agents
 
 
 def _quote(path):
@@ -27,13 +28,13 @@ def _quote(path):
     return f'"{path}"'
 
 
-def _hook_command():
-    """Command string settings.json invokes per hook event. Prefer the installed
-    `claudlet-hook` console script (pipx/pip); else the source checkout's
-    bin/claudlet-hook shim (which puts src/ on sys.path); else `python -m
-    claudlet.cli.hook`. On Windows, extensionless scripts need the interpreter
-    prefixed (cmd.exe ignores "#!"); a real console-script .exe from which()
-    runs directly."""
+def hook_command():
+    """Command string a settings file invokes per hook event. Prefer the
+    installed `claudlet-hook` console script (pipx/pip); else the source
+    checkout's bin/claudlet-hook shim (which puts src/ on sys.path); else
+    `python -m claudlet.cli.hook`. On Windows, extensionless scripts need the
+    interpreter prefixed (cmd.exe ignores "#!"); a real console-script .exe
+    from which() runs directly."""
     exe = shutil.which("claudlet-hook")
     if exe:
         return _quote(exe)
@@ -47,50 +48,45 @@ def _hook_command():
     return f"{_quote(sys.executable)} -m claudlet.cli.hook"
 
 
-HOOK_CMD = _hook_command()
-
-TOOL_EVENTS = ["PreToolUse", "PostToolUse"]
-PLAIN_EVENTS = ["UserPromptSubmit", "Notification", "Stop", "StopFailure",
-                "SubagentStop", "SessionStart", "SessionEnd"]
-ALL_EVENTS = TOOL_EVENTS + PLAIN_EVENTS
+HOOK_CMD = hook_command()
 
 
-def load():
-    if not os.path.exists(SETTINGS):
+def load(path):
+    if not os.path.exists(path):
         return {}
     try:
-        with open(SETTINGS, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        # Corrupt/unreadable settings.json. Returning {} would drop every OTHER
+        # Corrupt/unreadable settings file. Returning {} would drop every OTHER
         # setting the user has when we write our hooks back, so bail loudly and
         # leave their file untouched instead.
         raise SystemExit(
-            f"claudlet: cannot read {SETTINGS} ({e}).\n"
+            f"claudlet: cannot read {path} ({e}).\n"
             "Fix or move it aside, then re-run the installer.")
 
 
-def save(s):
-    """Write settings.json atomically, keeping a single rolling backup.
+def save(path, s):
+    """Write the settings file atomically, keeping a single rolling backup.
 
     The old approach renamed the live file to a timestamped .bak and *then*
-    wrote the new one: a crash in between left no settings.json at all, and the
+    wrote the new one: a crash in between left no settings file at all, and the
     timestamped backups piled up forever. Instead: copy the current file to a
-    stable settings.json.bak, write the new content to a temp file in the same
+    stable <file>.bak, write the new content to a temp file in the same
     directory, fsync it, and os.replace() it into place (atomic on the same
     filesystem). The live file is never absent, and only one backup is kept.
     """
-    d = os.path.dirname(SETTINGS)
+    d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
-    if os.path.exists(SETTINGS):
-        shutil.copy2(SETTINGS, f"{SETTINGS}.bak")   # single rolling backup
+    if os.path.exists(path):
+        shutil.copy2(path, f"{path}.bak")   # single rolling backup
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".settings.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(s, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, SETTINGS)
+        os.replace(tmp, path)
     except Exception:
         try:
             os.unlink(tmp)          # don't leave a half-written temp behind
@@ -112,18 +108,37 @@ def is_ours(group):
     return False
 
 
-def main(argv=None):
-    remove = "--remove" in (sys.argv if argv is None else argv)
-    s = load()
-    hooks = s.get("hooks", {})
+def targets(argv, home=None):
+    """Which agents this run touches. Pure.
 
-    for ev in ALL_EVENTS:
+    No --agent -> every agent that looks installed. With --agent, exactly what
+    was named (even if its marker dir is missing: naming it IS the intent),
+    minus names we don't know."""
+    want = None
+    for i, a in enumerate(argv):
+        if a == "--agent" and i + 1 < len(argv):
+            want = argv[i + 1]
+        elif a.startswith("--agent="):
+            want = a.split("=", 1)[1]
+    if want is None:
+        return agents.detected(home)
+    named = [n.strip() for n in want.split(",") if n.strip()]
+    return [n for n in named if n in agents.AGENTS]
+
+
+def install_for(agent, path, remove=False):
+    """Register (or drop) our hook groups in one agent's config file."""
+    spec = agents.get(agent)
+    s = load(path)
+    hooks = s.get("hooks", {})
+    for ev in spec["events"]:
         # drop any existing claudlet groups first (idempotent)
         hooks[ev] = [g for g in hooks.get(ev, []) if not is_ours(g)]
         if not remove:
-            cmd = {"type": "command", "command": f"{HOOK_CMD} {ev}"}
+            cmd = {"type": "command",
+                   "command": f"{HOOK_CMD} {ev} --agent {agent}"}
             group = {"hooks": [cmd]}
-            if ev in TOOL_EVENTS:
+            if ev in spec["tool_events"]:
                 group["matcher"] = "*"
             hooks[ev].append(group)
         if not hooks[ev]:
@@ -134,10 +149,25 @@ def main(argv=None):
     elif "hooks" in s:
         del s["hooks"]
 
-    save(s)
-    print(("removed" if remove else "installed"), "claudlet hooks:",
-          ", ".join(ALL_EVENTS))
-    print("(restart Claude Code sessions for changes to take effect)")
+    save(path, s)
+
+
+def main(argv=None, home=None):
+    argv = sys.argv if argv is None else argv
+    remove = "--remove" in argv
+    picked = targets(argv, home)
+    if not picked:
+        print("claudlet: no agent found (looked for "
+              + ", ".join("~/" + agents.get(n)["marker"] for n in agents.names())
+              + "); nothing to do.")
+        return
+    for name in picked:
+        path = agents.settings_path(name, home)
+        install_for(name, path, remove)
+        print(("removed" if remove else "installed"),
+              f"claudlet hooks for {agents.get(name)['label']}:",
+              ", ".join(agents.get(name)["events"]))
+    print("(restart your agent sessions for changes to take effect)")
 
 
 if __name__ == "__main__":

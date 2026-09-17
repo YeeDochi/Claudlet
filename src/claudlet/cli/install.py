@@ -12,6 +12,8 @@ only wires claudlet into Claude Code. Run after installing:
 import os
 import sys
 
+from claudlet.core import agents
+
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -187,17 +189,18 @@ def _check_deps():
 
 
 def _already_installed(install_hooks):
-    """True if claudlet hooks are ALREADY registered in Claude Code settings —
+    """True if claudlet hooks are ALREADY registered for ANY detected agent —
     i.e. this run is a reinstall/update, not a first install. Must be checked
     BEFORE install_hooks.main() runs (which registers them and would make every
     run look installed). `is_ours` also matches the pre-rename claude-pet
     markers, so upgrading from an old version still counts as an update. Any
     read error -> treat as a fresh install (show both links; harmless)."""
     try:
-        s = install_hooks.load()
-        for groups in s.get("hooks", {}).values():
-            if any(install_hooks.is_ours(g) for g in groups):
-                return True
+        for name in agents.detected():
+            s = install_hooks.load(agents.settings_path(name))
+            for groups in s.get("hooks", {}).values():
+                if any(install_hooks.is_ours(g) for g in groups):
+                    return True
     except Exception:
         pass
     return False
