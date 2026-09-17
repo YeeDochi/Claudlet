@@ -131,3 +131,22 @@ def test_the_floor_line_follows_the_creature(tmp_path, monkeypatch):
         assert p.foot_y == (P.PAD_Y + 10.0) * p.u
     finally:
         p._cleanup()
+
+
+def test_companions_wear_the_same_creature_as_the_pet():
+    """A companion is one of the pet's own. Resolving the creature name itself
+    meant every sidekick turned up as the built-in while the pet was a slime."""
+    class Blob:
+        name, grid, states, hats = "blob", (10, 24), ("idle", "walk"), ()
+        def draw(self, *a, **k): pass
+        def set_lang(self, lang): pass
+
+    p = P.Pet(session_id="companionavatar")
+    try:
+        p.avatar = Blob()
+        p._debug_companions = 1
+        p._sync_companion()
+        assert p._companions, "no companion spawned"
+        assert p._companions[0].avatar is p.avatar
+    finally:
+        p._cleanup()

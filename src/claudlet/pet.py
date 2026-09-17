@@ -257,7 +257,7 @@ class Companion(QWidget):
     Not user-grabbable (WA_TransparentForMouseEvents); the driving lives in
     Pet._sync_companion, which owns the window feed and screen bounds."""
 
-    def __init__(self, u=COMPANION_U):
+    def __init__(self, u=COMPANION_U, avatar=None):
         super().__init__()
         self.u = u
         self.setWindowFlags(_companion_flags(sys.platform))
@@ -265,7 +265,10 @@ class Companion(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         # purely decorative: never take clicks/focus.
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.avatar = avatars.get(_avatar_name())
+        # A companion is one of the pet's own -- it wears whatever the pet
+        # wears. Resolving the name itself meant every sidekick showed up as
+        # the built-in while the pet was a slime.
+        self.avatar = avatar or avatars.get(_avatar_name())
         self._resize_to_avatar()
         self.x = 0.0
         self.y = 0.0
@@ -1289,7 +1292,7 @@ class Pet(QWidget):
             self._throw_recording = False
             return
         while len(self._companions) < n:             # a new agent started
-            c = Companion(_companion_scale(self.u))
+            c = Companion(_companion_scale(self.u), self.avatar)
             prev = self._companions[-1] if self._companions else self
             # spawn just BEHIND the leader (opposite the pet's heading), clear of
             # its body, so it doesn't pop in on top of the pet -- then it eases
