@@ -185,3 +185,27 @@ def test_page_carries_every_creatures_settings(tmp_path, monkeypatch):
     assert set(s["looks"]) == set(a["name"] for a in s["avatars"])
     for look in s["looks"].values():
         assert set(look) == {"palette", "scale", "visor"}
+
+
+def test_the_server_stops_once_the_page_stops_saying_it_is_open():
+    """Opened from the pet's right-click menu there is no terminal to Ctrl-C,
+    and closing the tab would otherwise leave a server running all session. The
+    page says it is there; the server stops when that stops."""
+    import threading
+    import time
+
+    alive = {"v": True}
+
+    def run():
+        U.serve(open_browser=False, idle_timeout=0.6)
+        alive["v"] = False
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=15)
+    assert alive["v"] is False, "settings server outlived its page"
+
+
+def test_the_page_sends_a_heartbeat_and_a_goodbye():
+    assert "/api/alive" in U.PAGE and str(U.HEARTBEAT_MS) in U.PAGE
+    assert "/api/bye" in U.PAGE          # closing the tab stops it at once

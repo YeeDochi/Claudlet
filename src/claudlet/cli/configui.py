@@ -19,8 +19,17 @@ HTTP class below is a thin shell over them.
 import json
 import os
 import sys
+import time
 
 from claudlet.core import avatars, hostinfo, petconfig
+
+# The page is often opened from the pet's right-click menu, where there is no
+# terminal to Ctrl-C and closing the tab would otherwise leave a server running
+# for the rest of the session. So the page says it is still there and the server
+# stops when nothing has for a while: open tab, server up; tab closed, gone
+# within a minute.
+IDLE_TIMEOUT = 90.0
+HEARTBEAT_MS = 25000
 
 PREVIEW_STATES = ("idle", "work_computer", "celebrate", "sleeping")
 
@@ -176,7 +185,7 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None,
 
 # ---------- the shell ----------
 
-PAGE = """<!doctype html><meta charset="utf-8">
+PAGE_TEMPLATE = """<!doctype html><meta charset="utf-8">
 <title>claudlet — 크리처</title>
 <style>
 :root{color-scheme:dark;--bg:#16161a;--card:#212128;--line:#33333d;--fg:#ECECF0;--dim:#9A9AA8}
@@ -194,7 +203,10 @@ h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
 .card{display:flex;gap:12px;align-items:center;padding:10px;border-radius:9px;
       border:1px solid transparent;cursor:pointer}
 .card[aria-current=true]{border-color:#6B8AFF;background:#1b1b24}
-.card[aria-selected=true] div{color:#6B8AFF}
+.worn,.notworn{display:inline-block;margin-top:4px;padding:1px 8px;
+               border-radius:999px;font-size:11px;font-weight:600}
+.worn{background:#1F7A4D;color:#DFF7EA}
+.notworn{background:#26262E;color:var(--dim)}
 .card img{width:56px;height:44px;object-fit:contain;image-rendering:pixelated}
 #settings{flex:1;min-width:320px}
 .row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
@@ -314,7 +326,10 @@ function fill(s) {
   $("list").innerHTML = s.avatars.map((a) => `
     <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
       <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(a.colour)}">
-      <div>${a.name}${a.selected ? " ·" : ""}</div></div>`).join("");
+      <div><div>${a.name}</div>
+        ${a.selected ? '<span class="worn">착용 중</span>'
+                     : '<span class="notworn">미착용</span>'}
+      </div></div>`).join("");
   for (const card of document.querySelectorAll(".card"))
     card.addEventListener("click", () => showCreature(card.dataset.name));
   $("scale").min = s.scale_range[0];
@@ -347,8 +362,19 @@ $("reset").addEventListener("click", async () =>
   fill(await post({creature: editing, palette: "auto", scale: null,
                    visor: "auto"}, editing + " 를 기본으로 되돌렸습니다")));
 fetch("/api/state").then((r) => r.json()).then(fill);
+// Tell the server the page is still open. It stops when this stops, which is
+// what closing the tab looks like from its side — otherwise a settings page
+// opened from the pet's menu would leave a server running all session.
+setInterval(() => fetch("/api/alive").catch(() => {}), __HEARTBEAT__);
+window.addEventListener("pagehide", () => {
+  // best effort: shuts it down at once instead of after the idle timeout
+  try { navigator.sendBeacon("/api/bye"); } catch (e) {}
+});
 </script>
 """
+
+
+PAGE = PAGE_TEMPLATE.replace("__HEARTBEAT__", str(HEARTBEAT_MS))
 
 
 def _handler_class():
@@ -360,6 +386,7 @@ def _handler_class():
             pass                        # don't scribble over the user's terminal
 
         def _send(self, code, body, ctype):
+            self.server.last_seen = time.monotonic()
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
@@ -376,6 +403,11 @@ def _handler_class():
             if u.path == "/":
                 return self._send(200, PAGE.encode("utf-8"),
                                   "text/html; charset=utf-8")
+            if u.path == "/api/alive":
+                return self._json({"ok": True})     # the page is still open
+            if u.path == "/api/bye":
+                self.server.last_seen = 0.0         # tab closed: stop now
+                return self._json({"ok": True})
             if u.path == "/api/state":
                 return self._json(state_payload())
             if u.path == "/api/preview":
@@ -389,6 +421,10 @@ def _handler_class():
             return self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
+            if urlparse(self.path).path == "/api/bye":
+                self._json({"ok": True})
+                self.server.last_seen = 0.0         # sendBeacon posts
+                return
             if urlparse(self.path).path != "/api/config":
                 return self._send(404, b"not found", "text/plain")
             try:
@@ -403,13 +439,18 @@ def _handler_class():
     return Handler
 
 
-def serve(open_browser=True):
-    """Run the settings page until interrupted. Returns the URL it served."""
+def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT):
+    """Run the settings page for as long as it is open. Returns the URL.
+
+    Stops on Ctrl-C, and on its own once the page has stopped saying it is
+    there — which is what closing the tab looks like from here."""
     from http.server import HTTPServer
     srv = HTTPServer(("127.0.0.1", 0), _handler_class())
+    srv.timeout = 5                     # wake up often enough to notice silence
+    srv.last_seen = time.monotonic()
     url = "http://127.0.0.1:%d/" % srv.server_port
     print("claudlet 크리처 설정: " + url)
-    print("(Ctrl-C 로 종료)")
+    print("(창을 닫거나 Ctrl-C 로 종료)")
     if open_browser:
         try:
             import webbrowser
@@ -417,7 +458,8 @@ def serve(open_browser=True):
         except Exception:
             pass                        # no browser here: the URL is printed
     try:
-        srv.serve_forever()
+        while time.monotonic() - srv.last_seen < idle_timeout:
+            srv.handle_request()        # returns on a request or on the timeout
     except KeyboardInterrupt:
         print("")
     finally:
