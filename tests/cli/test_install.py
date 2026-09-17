@@ -85,6 +85,18 @@ def _detect_both(home):
     os.makedirs(home / ".codex", exist_ok=True)
 
 
+def _linked_to_skill(path):
+    """The link landed AND resolves to the packaged skill.
+
+    Asserting os.path.islink() would only pass on POSIX: creating a symlink on
+    Windows needs privilege, so _link_skill_at falls back to a directory
+    junction, and a junction is a reparse point that islink() reports as False.
+    What every caller actually depends on is where the path RESOLVES, not which
+    of the two mechanisms produced it -- same reason _link_is_ours uses
+    samefile."""
+    return os.path.exists(path) and os.path.samefile(str(path), I.SKILL_SRC)
+
+
 def test_link_skills_lands_in_every_detected_agent(tmp_path):
     _detect_both(tmp_path)
 
@@ -92,8 +104,8 @@ def test_link_skills_lands_in_every_detected_agent(tmp_path):
 
     assert {label for label, _p, _n in results} == {"Claude Code", "Codex"}
     assert all(note is None for _l, _p, note in results)
-    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
-    assert os.path.islink(tmp_path / ".codex" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".claude" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".codex" / "skills" / "claudlet")
 
 
 def test_link_skills_only_touches_detected_agents(tmp_path):
@@ -101,7 +113,7 @@ def test_link_skills_only_touches_detected_agents(tmp_path):
 
     I._link_skills(home=str(tmp_path))
 
-    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".claude" / "skills" / "claudlet")
     assert not (tmp_path / ".codex").exists()
 
 
@@ -117,7 +129,7 @@ def test_link_skills_foreign_dir_on_one_agent_does_not_block_the_other(tmp_path)
     assert by_label["Codex"][0] is None and "left as-is" in by_label["Codex"][1]
     assert by_label["Claude Code"] == (
         str(tmp_path / ".claude" / "skills" / "claudlet"), None)
-    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".claude" / "skills" / "claudlet")
 
 
 def test_link_skills_no_agents_detected_does_nothing(tmp_path):
@@ -154,7 +166,7 @@ def test_link_skills_permission_error_on_one_agent_does_not_block_the_other(
     assert by_label["Codex"][0] is None and by_label["Codex"][1]
     assert by_label["Claude Code"] == (
         str(tmp_path / ".claude" / "skills" / "claudlet"), None)
-    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".claude" / "skills" / "claudlet")
 
 
 def test_unlink_skills_survives_permission_error_on_one_agent(tmp_path, monkeypatch):
@@ -289,5 +301,5 @@ def test_link_skills_is_idempotent(tmp_path):
     second = I._link_skills(home=str(tmp_path))
 
     assert first == second
-    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
-    assert os.path.islink(tmp_path / ".codex" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".claude" / "skills" / "claudlet")
+    assert _linked_to_skill(tmp_path / ".codex" / "skills" / "claudlet")
