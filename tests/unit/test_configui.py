@@ -199,7 +199,7 @@ def test_the_server_stops_once_the_page_stops_saying_it_is_open():
     alive = {"v": True}
 
     def run():
-        U.serve(open_browser=False, idle_timeout=0.6)
+        U.serve(open_browser=False, idle_timeout=0.6, port=0)
         alive["v"] = False
 
     t = threading.Thread(target=run, daemon=True)
@@ -584,3 +584,211 @@ def test_legacy_string_avatar_is_promoted_without_losing_the_choice(monkeypatch)
 
     # claude keeps what the single string meant; only codex changes
     assert saved["avatar"] == {"claude": "slime", "codex": "astronaut"}
+
+
+# ---------- one fixed origin: port choice, singleton, app window ----------
+
+def test_port_plan_binds_the_preferred_port_when_it_is_free():
+    assert U.port_plan(8770, lambda p: "free") == ("bind", 8770)
+
+
+def test_port_plan_hands_over_to_a_settings_server_already_running():
+    # clicking "settings" twice, or from two pets, must not start two servers
+    assert U.port_plan(8770, lambda p: "ours") == ("attach", 8770)
+
+
+def test_port_plan_falls_back_when_someone_else_holds_the_port():
+    # 0 = let the OS pick, the behaviour this page always had
+    assert U.port_plan(8770, lambda p: "other") == ("fallback", 0)
+
+
+def _spawn(handler_cls):
+    """A one-request server on an OS-chosen port; returns (port, join)."""
+    import threading
+    from http.server import HTTPServer
+    srv = HTTPServer(("127.0.0.1", 0), handler_cls)
+    srv.timeout = 5
+    srv.last_seen = __import__("time").monotonic()
+    srv.idle_timeout = 5.0
+    t = threading.Thread(target=srv.handle_request, daemon=True)
+    t.start()
+    return srv, t
+
+
+def test_probe_port_tells_free_from_ours_from_a_stranger():
+    import socket
+    from http.server import BaseHTTPRequestHandler
+
+    # free: nothing listening. Grab a port, then let it go.
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    free_port = s.getsockname()[1]
+    s.close()
+    assert U.probe_port(free_port) == "free"
+
+    srv, t = _spawn(U._handler_class())
+    try:
+        assert U.probe_port(srv.server_port) == "ours"
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+
+    class Stranger(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            body = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv, t = _spawn(Stranger)
+    try:
+        assert U.probe_port(srv.server_port) == "other"
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+
+
+def test_serve_attaches_to_a_running_settings_server_instead_of_a_second_one():
+    srv, t = _spawn(U._handler_class())
+    try:
+        url = U.serve(open_browser=False, port=srv.server_port)
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+    # it returned the RUNNING server's url at once instead of serving its own
+    assert url == "http://127.0.0.1:%d/" % srv.server_port
+
+
+def test_browser_command_opens_an_app_window_with_the_first_browser_found():
+    which = {"chromium": "/usr/bin/chromium"}.get
+    cmd = U.browser_command("http://127.0.0.1:8770/", which=which, size=(900, 700))
+    assert cmd == ["/usr/bin/chromium", "--app=http://127.0.0.1:8770/",
+                   "--window-size=900,700"]
+
+
+def test_browser_command_prefers_the_earlier_browser_in_the_list():
+    both = {"google-chrome": "/g", "brave-browser": "/b"}.get
+    assert U.browser_command("http://x/", which=both)[0] == "/g"
+
+
+def test_browser_command_is_none_without_a_chromium_family_browser():
+    # macOS / Windows boxes usually have none of these on PATH -- the caller
+    # then opens the default browser the old way
+    assert U.browser_command("http://x/", which=lambda n: None) is None
+
+
+# ---------- installable: manifest, service worker, icon ----------
+
+def _get(port, path):
+    import urllib.request
+    with urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path),
+                                timeout=5) as r:
+        return r.headers.get("Content-Type"), r.read()
+
+
+def test_alive_identifies_this_server_as_ours():
+    srv, t = _spawn(U._handler_class())
+    try:
+        ctype, body = _get(srv.server_port, "/api/alive")
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+    assert json.loads(body) == {"ok": True, "app": U.APP_ID}
+
+
+def test_manifest_declares_an_installable_standalone_app():
+    m = U.manifest({})
+    assert m["display"] == "standalone" and m["start_url"] == "/"
+    assert m["theme_color"] == "#16161a" and m["background_color"] == "#16161a"
+    assert [i["sizes"] for i in m["icons"]] == ["192x192", "512x512"]
+    assert all(i["src"].startswith("/api/icon?size=") for i in m["icons"])
+
+
+def test_manifest_and_worker_are_served_from_the_page_root():
+    srv, t = _spawn(U._handler_class())
+    try:
+        ctype, body = _get(srv.server_port, "/manifest.webmanifest")
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+    assert "manifest" in ctype
+    assert json.loads(body)["display"] == "standalone"
+
+    srv, t = _spawn(U._handler_class())
+    try:
+        ctype, body = _get(srv.server_port, "/sw.js")
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+    assert "javascript" in ctype
+    # Chrome only offers the install when a worker handles fetch
+    assert 'addEventListener("fetch"' in body.decode("utf-8")
+
+
+def test_the_page_links_the_manifest_and_registers_the_worker():
+    pg = U.page({})
+    assert 'rel="manifest" href="/manifest.webmanifest"' in pg
+    assert 'serviceWorker.register("/sw.js")' in pg
+
+
+def test_icon_is_a_square_png_at_the_size_asked_for():
+    png = U.icon_png(192)
+    if not png:
+        return                       # no Qt here: same contract as the preview
+    from PyQt6.QtGui import QImage
+    img = QImage()
+    img.loadFromData(png)
+    assert (img.width(), img.height()) == (192, 192)
+
+
+def test_icon_does_not_change_with_what_an_agent_is_wearing(tmp_path, monkeypatch):
+    # a PWA has ONE icon per origin; two agents wearing two creatures have no
+    # single right answer, so the app icon is fixed
+    _cfg(tmp_path, monkeypatch, avatar={"claude": "slime"})
+    a = U.icon_png(64)
+    _cfg(tmp_path, monkeypatch, avatar={"claude": "claudlet"}, palette="#00FF00")
+    assert U.icon_png(64) == a
+
+
+def test_icon_endpoint_serves_a_png():
+    srv, t = _spawn(U._handler_class())
+    try:
+        ctype, body = _get(srv.server_port, "/api/icon?size=192")
+    finally:
+        t.join(timeout=5)
+        srv.server_close()
+    assert ctype == "image/png"
+    assert body[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# ---------- the dashboard: tabs and refresh ----------
+
+def test_the_page_has_one_tab_per_agent_plus_share():
+    pg = U.page({})
+    assert 'id="tabs"' in pg
+    assert "function tabRows" in pg and "SHARE_TAB" in pg
+    # tabs come from the detected agents in the state payload, so a third
+    # agent appears with no code change
+    assert "(s.agents || []).map" in pg
+
+
+def test_refresh_re_reads_the_state_without_a_page_reload():
+    pg = U.page({})
+    body = pg[pg.index("async function refresh()"):]
+    body = body[:body.index('$("refresh").addEventListener')]
+    assert "/api/state" in body and "fill(" in body
+    assert "location.reload" not in pg
+
+
+def test_refetching_state_shows_what_another_writer_changed(tmp_path, monkeypatch):
+    # what the refresh button does on the server side: /api/state is rebuilt
+    # from the config file every time, so a change made by the CLI (or another
+    # pet) shows up without restarting the page
+    _cfg(tmp_path, monkeypatch, creatures={"claudlet": {"scale": 4}})
+    assert U.state_payload()["looks"]["claudlet"]["scale"] == 4
+    _cfg(tmp_path, monkeypatch, creatures={"claudlet": {"scale": 9}})
+    assert U.state_payload()["looks"]["claudlet"]["scale"] == 9

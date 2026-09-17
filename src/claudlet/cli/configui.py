@@ -9,7 +9,8 @@ pet uses, so what you see is what lands on the desktop.
 stdlib only (`http.server`): a settings screen is not worth a web framework,
 and the pet must stay installable with nothing but PyQt6.
 
-Local only. The server binds 127.0.0.1 on an OS-chosen port and stops when the
+Local only. The server binds 127.0.0.1 on a FIXED preferred port (so an
+installed PWA keeps one origin across runs) and stops when the
 window is closed / the command is interrupted. This is unauthenticated on
 loopback by design (any same-user process can already write the config files
 this page edits) -- except POST /api/import, which is the one endpoint that
@@ -38,6 +39,20 @@ from claudlet.core import agents, avatars, hostinfo, petconfig
 IDLE_TIMEOUT = 90.0
 HEARTBEAT_MS = 25000
 
+# One fixed origin, not an OS-chosen port: an installed app (PWA) is keyed by
+# origin, so a new port every run would orphan the install. The port is only
+# PREFERRED -- if something else holds it we fall back, and if ANOTHER claudlet
+# settings server holds it we hand the page over to that one instead of running
+# two (clicking "settings" twice, or from two pets, must not start two servers).
+PREFERRED_PORT = 8770
+APP_ID = "claudlet-config"        # what /api/alive answers with, so we can
+                                  # recognise our own server on the port
+# chromium-family binaries, in the order we would rather have them, and the
+# window a dashboard-shaped page wants
+APP_BROWSERS = ("google-chrome", "chromium", "chromium-browser",
+                "microsoft-edge", "brave-browser")
+APP_WINDOW = (1120, 860)
+
 # A page refresh fires the same `pagehide` -> /api/bye as a real tab close.
 # Killing the server at once (the old `last_seen = 0.0`) left a refresh
 # stranded on a dead port. Instead `bye` leaves this many seconds of runway:
@@ -56,6 +71,79 @@ def bye_last_seen(now, idle_timeout, grace=BYE_GRACE):
     return now - elapsed
 
 PREVIEW_STATES = ("idle", "work_computer", "celebrate", "sleeping")
+
+
+# ---------- pure: where to serve it and how to open it ----------
+
+def port_plan(preferred, probe):
+    """What to do about the preferred port. `probe(port)` answers
+    "free" | "ours" | "other"; returns ("bind", port) to serve there,
+    ("attach", port) to just open the browser at the server already running,
+    or ("fallback", 0) to let the OS pick a free port. Pure."""
+    seen = probe(preferred)
+    if seen == "free":
+        return ("bind", preferred)
+    if seen == "ours":
+        return ("attach", preferred)
+    return ("fallback", 0)
+
+
+def probe_port(port, timeout=0.6):
+    """Is `port` free, ours, or somebody else's? Asked over HTTP in ONE request,
+    because a bind test cannot tell our own server from a stranger's (and a
+    second connection would be eaten by a single-request server)."""
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:%d/api/alive" % port, timeout=timeout) as r:
+            return "ours" if json.loads(r.read()).get("app") == APP_ID else "other"
+    except urllib.error.URLError as e:
+        # refused == nothing listening; anything else is somebody's server
+        return "free" if isinstance(e.reason, ConnectionRefusedError) else "other"
+    except Exception:
+        return "other"
+
+
+def browser_command(url, which=None, size=APP_WINDOW):
+    """argv that opens `url` as a chrome-less app window, or None when no
+    chromium-family browser is installed (then the caller opens it the ordinary
+    way). `which` is injected so this is testable without the real PATH. Pure."""
+    if which is None:
+        import shutil
+        which = shutil.which
+    for name in APP_BROWSERS:
+        exe = which(name)
+        if exe:
+            return [exe, "--app=" + url,
+                    "--window-size=%d,%d" % (size[0], size[1])]
+    return None
+
+
+def manifest(cfg=None):
+    """The PWA manifest, as data. The icons come from /api/icon, which draws the
+    creature the user is actually wearing -- the repo carries no image assets."""
+    t = texts(cfg)
+    return {
+        "name": "claudlet " + t["title"],
+        "short_name": "claudlet",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "theme_color": "#16161a",
+        "background_color": "#16161a",
+        "icons": [{"src": "/api/icon?size=%d" % n, "sizes": "%dx%d" % (n, n),
+                   "type": "image/png", "purpose": "any"} for n in (192, 512)],
+    }
+
+
+SERVICE_WORKER = """// claudlet settings: a service worker exists because Chrome
+// wants one before it will offer to install the page. This is a LOCAL server,
+// so there is nothing worth caching -- every request goes to the network.
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", (e) => e.respondWith(fetch(e.request)));
+"""
 
 
 # ---------- pure: what the page shows and what a save does ----------
@@ -290,6 +378,36 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None,
     return bytes(buf.data())
 
 
+def icon_png(size):
+    """A square app icon, drawn by the same renderer as everything else (the
+    repo ships no image assets), or b"" if Qt can't start -- same contract as
+    render_png.
+
+    Deliberately FIXED: the built-in claudlet in its own colours, not whatever
+    is being worn. A PWA has ONE icon per origin, and two agents wearing two
+    creatures have no single right answer -- so the app icon is the app's."""
+    png = render_png("auto", petconfig.MAX_SCALE, "idle",
+                     avatar=avatars.DEFAULT, visor="off")
+    if not png:
+        return b""
+    from PyQt6.QtCore import QBuffer, Qt
+    from PyQt6.QtGui import QImage, QPainter
+    src = QImage()
+    src.loadFromData(png)
+    # pixel art: blow it up with nearest-neighbour, centred on a square canvas
+    fit = src.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                     Qt.TransformationMode.FastTransformation)
+    out = QImage(size, size, QImage.Format.Format_ARGB32)
+    out.fill(0)
+    p = QPainter(out)
+    p.drawImage((size - fit.width()) // 2, (size - fit.height()) // 2, fit)
+    p.end()
+    buf = QBuffer()
+    buf.open(QBuffer.OpenModeFlag.WriteOnly)
+    out.save(buf, "PNG")
+    return bytes(buf.data())
+
+
 # ---------- the shell ----------
 
 # The page follows the same `lang` setting the pet does. Korean-only was fine
@@ -297,7 +415,7 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None,
 TEXT = {
     "ko": {
         "title": "크리처", "lead": "색과 크기를 정합니다. 저장하면 떠 있는 펫에 바로 반영됩니다.",
-        "agents": "에이전트",
+        "refresh": "새로고침",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "이 크리처 입히기", "worn_btn": "입고 있음",
         "reset": "기본으로", "worn": "착용 중", "notworn": "미착용",
@@ -308,6 +426,7 @@ TEXT = {
         "reverted": "%s 를 기본으로 되돌렸습니다",
         "applied_pets": " — 펫 %d마리에 반영", "applied_next": " — 다음에 뜨는 펫부터",
         "serving": "claudlet 크리처 설정: ", "stop": "(창을 닫거나 Ctrl-C 로 종료)",
+        "port_taken": "(%d 번 포트는 다른 프로그램이 쓰고 있어 다른 포트로 열었습니다)",
         "share": "공유", "export": "내보내기", "export_retry_force": "덮어쓰고 다시 시도",
         "import_placeholder": "가져올 zip 경로",
         "import_check": "확인", "import_confirm": "설치", "force": "덮어쓰기",
@@ -316,7 +435,7 @@ TEXT = {
     },
     "en": {
         "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
-        "agents": "Agents",
+        "refresh": "Refresh",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Wear this one", "worn_btn": "Worn",
         "reset": "Defaults", "worn": "worn", "notworn": "not worn",
@@ -327,6 +446,7 @@ TEXT = {
         "reverted": "%s back to defaults",
         "applied_pets": " — %d pet(s) updated", "applied_next": " — from the next pet on",
         "serving": "claudlet creature settings: ", "stop": "(close the page, or Ctrl-C)",
+        "port_taken": "(port %d is taken by something else; opened on another port)",
         "share": "Share", "export": "Export", "export_retry_force": "Overwrite and retry",
         "import_placeholder": "path to a zip to import",
         "import_check": "Check", "import_confirm": "Install", "force": "Overwrite",
@@ -343,95 +463,117 @@ def texts(cfg=None):
 
 PAGE_TEMPLATE = """<!doctype html><meta charset="utf-8">
 <title>claudlet — __T_title__</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/api/icon?size=192" type="image/png">
+<meta name="theme-color" content="#16161a">
 <style>
-:root{color-scheme:dark;--bg:#16161a;--card:#212128;--line:#33333d;--fg:#ECECF0;--dim:#9A9AA8}
+:root{color-scheme:dark;--bg:#16161a;--card:#212128;--line:#33333d;--fg:#ECECF0;
+      --dim:#9A9AA8;--accent:#6B8AFF;--sunk:#0e0e12;--w:1080px}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
      font:14px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif}
-header{padding:20px 24px;border-bottom:1px solid var(--line)}
-h1{margin:0;font-size:17px;letter-spacing:.2px}
-header p{margin:4px 0 0;color:var(--dim);font-size:13px}
-main{display:flex;gap:24px;padding:24px;flex-wrap:wrap;align-items:flex-start}
+.wrap{width:100%;max-width:var(--w);margin:0 auto;padding:0 28px}
+header{border-bottom:1px solid var(--line);background:#191920}
+.bar{display:flex;align-items:baseline;gap:14px;padding:22px 0 14px}
+h1{margin:0;font-size:18px;letter-spacing:.2px}
+.bar p{margin:0;color:var(--dim);font-size:13px;flex:1;min-width:0}
+nav.tabs{display:flex;gap:4px}
+nav.tabs button{background:none;color:var(--dim);border:0;border-bottom:2px solid transparent;
+                border-radius:8px 8px 0 0;padding:10px 18px;font-weight:600;font-size:14px}
+nav.tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent);
+                                    background:var(--card)}
+main{padding:24px 0 40px}
+.grid{display:grid;gap:20px;grid-template-columns:260px minmax(0,1fr);align-items:start}
 section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
 h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
    text-transform:uppercase;letter-spacing:.6px}
-#creatures{min-width:210px}
 .card{display:flex;gap:12px;align-items:center;padding:10px;border-radius:9px;
       border:1px solid transparent;cursor:pointer}
-.card[aria-current=true]{border-color:#6B8AFF;background:#1b1b24}
+.card[aria-current=true]{border-color:var(--accent);background:#1b1b24}
 .worn,.notworn{display:inline-block;margin-top:4px;padding:1px 8px;
                border-radius:999px;font-size:11px;font-weight:600}
 .worn{background:#1F7A4D;color:#DFF7EA}
 .notworn{background:#26262E;color:var(--dim)}
 .card img{width:56px;height:44px;object-fit:contain;image-rendering:pixelated}
-#settings{flex:1;min-width:320px}
 .row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
 label{width:64px;color:var(--dim)}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
-input[type=range]{flex:1;min-width:160px;accent-color:#6B8AFF}
+input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+input[type=text]{flex:1;min-width:180px;background:var(--sunk);
+                 border:1px solid var(--line);color:var(--fg);
+                 border-radius:7px;padding:8px 10px}
 code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 #shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
-       min-height:120px;padding:14px;background:#0e0e12;border-radius:9px}
+       min-height:120px;padding:14px;background:var(--sunk);border-radius:9px}
 #shots figure{margin:0;text-align:center}
 #shots img{display:block;image-rendering:pixelated}
 #shots figcaption{margin-top:6px;font-size:11px;color:var(--dim)}
-button{background:#6B8AFF;color:#0b0b10;border:0;border-radius:8px;
+button{background:var(--accent);color:#0b0b10;border:0;border-radius:8px;
        padding:10px 18px;font-weight:600;font-size:14px;cursor:pointer}
 button[disabled]{opacity:.5;cursor:default}
 button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
-.seg{display:flex;gap:6px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg button{background:none;color:var(--dim);border:1px solid var(--line);
             padding:6px 14px;font-weight:500}
-.seg button[aria-pressed=true]{background:#6B8AFF;color:#0b0b10;border-color:#6B8AFF}
-.hint{color:var(--dim);font-size:12px;margin:-10px 0 16px 76px}
+.seg button[aria-pressed=true]{background:var(--accent);color:#0b0b10;border-color:var(--accent)}
 #said{color:var(--dim);font-size:13px;margin-left:12px}
-@media (max-width:720px){main{padding:16px}label{width:100%}}
+#importInfo ul{margin:8px 0 0;padding-left:20px;color:var(--dim);font-size:12px}
+@media (max-width:780px){
+  .wrap{padding:0 16px}
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .bar{flex-wrap:wrap;gap:8px}
+  .bar p{flex-basis:100%;order:3}
+  label{width:100%}
+}
 </style>
-<header>
-  <h1>__T_title__</h1>
-  <p>__T_lead__</p>
-</header>
-<main>
-  <section id="creatures">
-    <div id="agents" hidden><h2>__T_agents__</h2><div id="agentlist" class="seg"></div></div>
-    <h2>__T_creatures__</h2><div id="list"></div>
-  </section>
-  <section id="settings">
-    <h2 id="who"></h2>
-    <div class="row">
-      <label for="col">__T_colour__</label>
-      <input type="color" id="col">
-      <code id="hex"></code>
-      <span id="isnamed" style="color:var(--dim)"></span>
-    </div>
-    <div class="row">
-      <label for="scale">__T_size__</label>
-      <input type="range" id="scale" min="2" max="12" step="1">
-      <code id="scaleval"></code>
-    </div>
-    <div class="row">
-      <label>__T_special__</label>
-      <div id="visor" class="seg"></div>
-    </div>
-    <div id="shots"></div>
-    <div class="row" style="margin:18px 0 0">
-      <button id="save">__T_save__</button>
-      <button id="wear" class="ghost">__T_wear__</button>
-      <button id="reset" class="ghost">__T_reset__</button>
-      <span id="said"></span>
-    </div>
-  </section>
-  <section id="share">
+<header><div class="wrap">
+  <div class="bar">
+    <h1>__T_title__</h1>
+    <p>__T_lead__</p>
+    <button id="refresh" class="ghost">__T_refresh__</button>
+  </div>
+  <nav class="tabs" id="tabs"></nav>
+</div></header>
+<main class="wrap">
+  <div id="dress" class="grid">
+    <section id="creatures">
+      <h2>__T_creatures__</h2><div id="list"></div>
+    </section>
+    <section id="settings">
+      <h2 id="who"></h2>
+      <div class="row">
+        <label for="col">__T_colour__</label>
+        <input type="color" id="col">
+        <code id="hex"></code>
+        <span id="isnamed" style="color:var(--dim)"></span>
+      </div>
+      <div class="row">
+        <label for="scale">__T_size__</label>
+        <input type="range" id="scale" min="2" max="12" step="1">
+        <code id="scaleval"></code>
+      </div>
+      <div class="row">
+        <label>__T_special__</label>
+        <div id="visor" class="seg"></div>
+      </div>
+      <div id="shots"></div>
+      <div class="row" style="margin:18px 0 0">
+        <button id="save">__T_save__</button>
+        <button id="wear" class="ghost">__T_wear__</button>
+        <button id="reset" class="ghost">__T_reset__</button>
+        <span id="said"></span>
+      </div>
+    </section>
+  </div>
+  <section id="share" hidden>
     <h2>__T_share__</h2>
     <div class="row">
       <button id="export" class="ghost">__T_export__</button>
       <span id="exportResult"></span>
     </div>
     <div class="row">
-      <input type="text" id="importPath" placeholder="__T_import_placeholder__"
-             style="flex:1;min-width:220px;background:#0e0e12;border:1px solid var(--line);
-                    color:var(--fg);border-radius:7px;padding:8px 10px">
+      <input type="text" id="importPath" placeholder="__T_import_placeholder__">
       <button id="importInspect" class="ghost">__T_import_check__</button>
     </div>
     <div id="importInfo"></div>
@@ -446,6 +588,8 @@ let S = null;
 let editing = null;      // which creature the panel is showing — NOT necessarily
                          // the one being worn. Looking at another creature's
                          // settings should not put it on the pet.
+let tab = null;          // an agent name, or SHARE_TAB
+const SHARE_TAB = "\\u0000share";     // can't collide with an agent name
 const $ = (id) => document.getElementById(id);
 
 function worn() {
@@ -500,19 +644,40 @@ function showCreature(name) {
     : T.named.replace("%s", pal);
   redraw();
 }
+// One top-level tab per DETECTED agent, plus share. A single-agent machine has
+// no agent to choose between, so its one tab is named after the page itself
+// rather than showing a lone agent toggle.
+function tabRows(s) {
+  const rows = (s.agents || []).map((a) => ({name: a.name, label: a.label}));
+  if (!rows.length) rows.push({name: s.agent, label: T.title});
+  rows.push({name: SHARE_TAB, label: T.share});
+  return rows;
+}
+function paintTabs(rows) {
+  $("tabs").innerHTML = rows.map((r) =>
+    `<button role="tab" data-tab="${r.name}" ` +
+    `aria-selected="${r.name === tab}">${r.label}</button>`).join("");
+  for (const b of document.querySelectorAll("#tabs button"))
+    b.addEventListener("click", () => selectTab(b.dataset.tab));
+  $("dress").hidden = tab === SHARE_TAB;
+  $("share").hidden = tab !== SHARE_TAB;
+}
+async function selectTab(name) {
+  const rows = tabRows(S);
+  tab = rows.some((r) => r.name === name) ? name : rows[0].name;
+  if (tab !== SHARE_TAB && tab !== S.agent) {
+    const r = await fetch("/api/state?agent=" + encodeURIComponent(tab));
+    editing = null;                       // show the new agent's creature
+    fill(await r.json());
+    return;
+  }
+  paintTabs(rows);
+}
 function fill(s) {
   S = s;
-  const rows = s.agents || [];
-  $("agents").hidden = rows.length < 2;
-  $("agentlist").innerHTML = rows.map((a) =>
-    `<button data-agent="${a.name}" aria-pressed="${a.selected}">${a.label}</button>`
-  ).join("");
-  for (const b of document.querySelectorAll("#agentlist button"))
-    b.addEventListener("click", async () => {
-      const r = await fetch("/api/state?agent=" + encodeURIComponent(b.dataset.agent));
-      editing = null;                       // show the new agent's creature
-      fill(await r.json());
-    });
+  const rows = tabRows(s);
+  if (tab !== SHARE_TAB) tab = s.agent;   // state always belongs to one agent
+  paintTabs(rows);
   $("list").innerHTML = s.avatars.map((a) => `
     <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
       <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(a.colour)}">
@@ -552,6 +717,17 @@ $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
   fill(await post({agent: S.agent, creature: editing, palette: null, scale: null,
                    visor: null}, T.reverted.replace("%s", editing))));
+// Re-read the server's state and redraw in place. The config file can change
+// under the page (the CLI, another pet), and an installed app window has no
+// address bar to reload from.
+async function refresh() {
+  const keep = tab === SHARE_TAB ? SHARE_TAB : null;
+  const r = await fetch("/api/state?agent=" + encodeURIComponent(S ? S.agent : ""));
+  fill(await r.json());
+  if (keep) selectTab(keep);
+  $("said").textContent = "";
+}
+$("refresh").addEventListener("click", refresh);
 fetch("/api/state").then((r) => r.json()).then(fill);
 // Tell the server the page is still open. It stops when this stops, which is
 // what closing the tab looks like from its side — otherwise a settings page
@@ -641,6 +817,11 @@ window.addEventListener("pagehide", () => {
   // best effort: shuts it down at once instead of after the idle timeout
   try { navigator.sendBeacon("/api/bye"); } catch (e) {}
 });
+// Installable: Chrome only offers the install if a service worker with a fetch
+// handler is registered. Nothing is cached — this is a local server.
+if ("serviceWorker" in navigator) {
+  try { navigator.serviceWorker.register("/sw.js"); } catch (e) {}
+}
 </script>
 """
 
@@ -687,7 +868,22 @@ def _handler_class(initial_agent=None, import_token=""):
                 return self._send(200, page(import_token=import_token).encode("utf-8"),
                                   "text/html; charset=utf-8")
             if u.path == "/api/alive":
-                return self._json({"ok": True})     # the page is still open
+                # doubles as "is the server on this port ours?" -- see port_plan
+                return self._json({"ok": True, "app": APP_ID})
+            if u.path == "/manifest.webmanifest":
+                return self._send(200, json.dumps(manifest()).encode("utf-8"),
+                                  "application/manifest+json; charset=utf-8")
+            if u.path == "/sw.js":
+                return self._send(200, SERVICE_WORKER.encode("utf-8"),
+                                  "text/javascript; charset=utf-8")
+            if u.path == "/api/icon":
+                q = parse_qs(u.query)
+                try:
+                    size = int(q.get("size", ["192"])[0])
+                except ValueError:
+                    size = 192
+                png = icon_png(max(16, min(size, 1024)))
+                return self._send(200 if png else 500, png or b"", "image/png")
             if u.path == "/api/bye":
                 self._json({"ok": True})
                 self.server.last_seen = bye_last_seen(
@@ -739,31 +935,48 @@ def _handler_class(initial_agent=None, import_token=""):
     return Handler
 
 
-def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None):
+def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
+          port=PREFERRED_PORT):
     """Run the settings page for as long as it is open. Returns the URL.
 
     `agent` is which agent's pet opened this page (optional; defaults to
     the registry default agent, the prior behaviour) -- so a right-click on a
     Codex pet opens on Codex instead of always on Claude.
 
+    One server per machine: if the preferred port already has a claudlet
+    settings server on it, this hands the page to THAT one and returns instead
+    of starting a second (clicking settings twice, or from two pets). Anything
+    else on the port means falling back to an OS-chosen one.
+
     Stops on Ctrl-C, and on its own once the page has stopped saying it is
     there — which is what closing the tab looks like from here."""
     from http.server import HTTPServer
+    t = texts()
+    what, chosen = port_plan(port, probe_port) if port else ("bind", 0)
+    if what == "attach":
+        url = "http://127.0.0.1:%d/" % chosen
+        print(t["serving"] + url)
+        if open_browser:
+            launch_browser(url)
+        return url
     import_token = secrets.token_urlsafe(16)   # per-run only; never persisted
-    srv = HTTPServer(("127.0.0.1", 0), _handler_class(agent, import_token))
+    handler = _handler_class(agent, import_token)
+    try:
+        srv = HTTPServer(("127.0.0.1", chosen), handler)
+    except OSError:
+        # lost the race, or the probe was wrong: take any free port
+        srv = HTTPServer(("127.0.0.1", 0), handler)
+        what = "fallback"
     srv.timeout = 5                     # wake up often enough to notice silence
     srv.last_seen = time.monotonic()
     srv.idle_timeout = idle_timeout     # read by the bye handler's grace calc
     url = "http://127.0.0.1:%d/" % srv.server_port
-    t = texts()
     print(t["serving"] + url)
+    if what == "fallback" and port:
+        print(t["port_taken"] % port)
     print(t["stop"])
     if open_browser:
-        try:
-            import webbrowser
-            webbrowser.open(url)
-        except Exception:
-            pass                        # no browser here: the URL is printed
+        launch_browser(url)
     try:
         while time.monotonic() - srv.last_seen < idle_timeout:
             srv.handle_request()        # returns on a request or on the timeout
@@ -772,3 +985,20 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None):
     finally:
         srv.server_close()
     return url
+
+
+def launch_browser(url):
+    """Open the page as an app window when a chromium-family browser is around,
+    otherwise hand it to the default browser. Best effort: a settings page that
+    does not open is not worth an exception."""
+    cmd = browser_command(url)
+    try:
+        if cmd:
+            import subprocess
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+            return
+        import webbrowser
+        webbrowser.open(url)
+    except Exception:
+        pass                            # no browser here: the URL is printed
