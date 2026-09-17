@@ -36,6 +36,7 @@ from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QReg
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
+from claudlet.core import agents
 from claudlet.core import avatars
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
@@ -519,8 +520,11 @@ class ZoneOverlay(QWidget):
 
 
 class Pet(QWidget):
-    def __init__(self, session_id="default", host="unknown", claude_pid=0):
+    def __init__(self, session_id="default", host="unknown", claude_pid=0,
+                 agent="claude"):
         super().__init__()
+        self.agent = agent if agent in agents.AGENTS else agents.DEFAULT
+        spec = agents.get(self.agent)
         # The KWin geom feed and geom.EXCLUDE_CLASSES filter our own windows
         # out by resourceClass "claudlet", which Qt derives from the application
         # name — main() sets it, but a Pet constructed directly (demo/embedding)
@@ -591,9 +595,9 @@ class Pet(QWidget):
         self._palette_roll = (random.random(), random.random())
         self._apply_style(cfg)
         self.engine = StateEngine(is_focused=self._is_focused,
-                                  tool_states=cfg["tool_states"],
+                                  tool_states={**spec["tools"], **cfg["tool_states"]},
                                   event_states=cfg["event_states"],
-                                  raw_events=cfg["raw_events"])
+                                  raw_events={**spec["raw_events"], **cfg["raw_events"]})
         # language for user-facing strings (speech bubbles, tray, menus)
         self.lang = petconfig.resolve_lang(cfg.get("lang", "auto"))
         self.avatar.set_lang(self.lang)
@@ -1052,6 +1056,7 @@ class Pet(QWidget):
             "scale": self.u,                     # device px per art pixel
             "size": (self.w, self.h),
             "avatar": self.avatar.name,
+            "agent": self.agent,
             "hidden": self._hidden_for_win,                   # occluded away entirely
             "masked": self._masked,                           # clipped to exposed sliver
             "no_go": len(self._no_go),
@@ -3116,6 +3121,7 @@ def main():
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")
     ap.add_argument("--claude-pid", type=int, default=0)
+    ap.add_argument("--agent", default=agents.DEFAULT)
     args, _ = ap.parse_known_args()
 
     # One pet per session: hold an exclusive lock. If another pet already holds
@@ -3155,7 +3161,8 @@ def main():
             macos.set_accessory_policy()
         except Exception:
             pass                              # never block startup over cosmetics
-    pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid)
+    pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid,
+              agent=args.agent)
     pet._lock_fd = lock_fd                    # keep the fd (and the lock) alive
     # always tear down the KWin geom script — including on `kill`/SIGTERM, which
     # otherwise skips _cleanup and leaks a script that keeps pushing geometry.
