@@ -1,6 +1,6 @@
 ---
 name: claudlet
-description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet config" also covers appearance (colour, size, which creature) via "claudlet-config ui"; "/claudlet creature <설명>" writes a NEW creature package for the pet to wear; "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "make a new creature".
+description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet setting" opens the appearance page (which creature, and its colour/size/special mode); "/claudlet make <설명>" writes a NEW creature package for the pet to wear; "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "크리처 설정", "make a new creature".
 ---
 
 # claudlet — launch the desktop buddy
@@ -31,11 +31,13 @@ Look at the argument the user passed after `/claudlet`:
 - a **motion name** (`jump`, `wave`, `sing`, `juggle`, `float`, `celebrate`,
   `thinking`, `sleeping`, `error`, `attention`), or `list`, or `stop`/`clear`
   → **Trigger a motion**; do NOT launch a pet.
-- `config` (or `설정`; optionally `config open` / `config init`) → **Configure**;
+- `setting` / `settings` / `설정` → **Settings** (opens the appearance page);
   do NOT launch a pet.
+- `config` (optionally `config open` / `config init`) → **Configure** (the raw
+  config file: which motion for which activity, language); do NOT launch a pet.
 - `update` (or `업데이트`) → **Update** (release channel). `update latest`
   (or `edge` / `develop`) → **Update** to the latest `develop` branch.
-- `creature` / `크리처` (usually with a description: `/claudlet creature 검은 고양이`)
+- `make` / `만들기` (usually with a description: `/claudlet make 검은 고양이`)
   → **Make a creature**; do NOT launch a pet.
 - `standalone` → **Standalone**.
 - nothing → **Attach** (default).
@@ -52,8 +54,9 @@ render every state to one sheet and LOOK at it before telling the user it is
 done. Getting this right is iterative: show them the sheet, ask what is wrong,
 fix, show again. Do not claim a creature looks good without having looked.
 
-Switch to it with `claudlet-config ui` (the list renders each creature) or
-`CLAUDLET_AVATAR=<name> claudlet` to try it without changing the config.
+Switch to it from **Settings** above (`/claudlet setting`), which renders every
+creature in the list, or `CLAUDLET_AVATAR=<name> claudlet` to try it once
+without changing the config.
 
 ## Attach (default)
 
@@ -90,6 +93,21 @@ e.g. `cpet motion jump`, `cpet motion float` (holds until `cpet motion stop`),
 `cpet motion list`. It broadcasts to every running pet and prints how many
 reacted; if it says `-> 0 pet(s)`, none is running — offer to attach one with
 `/claudlet`.
+
+## Settings
+
+Opens the appearance page in the browser: which creature the pet wears, and per
+creature its colour, size, and whether it shows the "running unattended" mode.
+Each creature is previewed with the real renderer, so what is on screen is what
+the pet will look like.
+
+```bash
+claudlet-config ui
+```
+
+It serves on 127.0.0.1 and stops when the page is closed. The same page is on
+the pet's right-click menu (🎨 크리처 설정). For the raw config file — motion
+remapping, language — see **Configure** below.
 
 ## Configure
 
