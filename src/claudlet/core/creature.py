@@ -95,7 +95,11 @@ BEANIE_D = QColor("#1F7A6A")
 # every kind a companion can be assigned (random per companion)
 HAT_KINDS = ("cap", "hardhat", "beret", "tophat", "propeller", "beanie")
 
-GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props/bounce)
+GRID_W, GRID_H = 22, 17   # art-pixel bounding box (incl. room above for props)
+
+# Art row the built-in's head starts at — where `draw_hat` puts a hat by
+# default. A creature whose head sits elsewhere passes its own.
+CROWN_ROW = 3.0
 
 # Rotating a pixel sprite with antialiasing off turns every edge into a
 # staircase (walk leans +-2 degrees, doze 10), so a rotated frame switches
@@ -588,6 +592,67 @@ def draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0.0, facing=1,
             p.setPen(Qt.PenStyle.NoPen)
 
 
+HEAD_W = 15.0     # the built-in's head width, which the hat art is cut for
+
+
+def draw_hat(px, cap, frame, crown_row=CROWN_ROW, cx=10.5, head_w=HEAD_W):
+    """Put a hat on a creature's head. `px` is the creature's OWN draw function.
+
+    Companions wear one so they read as somebody else's sidekick rather than a
+    small copy of the pet. The art is shared -- nobody should redraw six hats --
+    but a hat has to sit ON a head and follow it, which a prop never has to do.
+    So this takes the creature's own `px(col, row, w, h, colour)` and the hat
+    inherits whatever squash, lean and mirror that creature applies; a creature
+    says where its crown is and how wide it is, and the pieces land there.
+
+    Declare `hats` to be given one. Nothing here is drawn otherwise."""
+    # A hat is cut for a head. Moving it to another creature is not only a
+    # matter of where the crown is: an astronaut's helmet is 6 art pixels
+    # across and the built-in's head is 15, so the same brim would stick out
+    # past its shoulders. Widths scale about the head's centre.
+    dy = crown_row - CROWN_ROW
+    k = head_w / HEAD_W
+
+    def h(col, row, w, height, colour):
+        px(cx + (col - 10.5) * k, row + dy, w * k, height, colour)
+
+    # a hat on the crown (agent companions) — drawn in head space so it
+    # bobs/tilts/mirrors with the body. pieces are centred on the body
+    # centre col 10.5 (an off-centre hat reads as tilted at small u).
+    if cap in ("agent", "cap"):            # yellow kindergarten cap
+        h(3.7, 3.6, 13.6, 1.0, CAP_D)     # brim across the head, front shade
+        h(5.3, 2.0, 10.4, 2.0, CAP)       # rounded crown of the cap
+        h(6.9, 1.1, 7.2, 1.2, CAP)        # dome top
+        h(6.9, 1.1, 7.2, 0.4, CAP_HI)     # highlight rim
+        h(9.7, 0.4, 1.6, 1.0, CAP_D)      # little top button
+    elif cap == "hardhat":                 # construction helmet
+        h(3.2, 3.7, 14.6, 1.0, HARD)      # wide brim
+        h(5.3, 1.5, 10.4, 2.4, HARD)      # dome
+        h(6.9, 0.8, 7.2, 1.0, HARD)       # dome top
+        h(9.6, 0.5, 1.8, 3.2, HARD_HI)    # white centre ridge
+    elif cap == "beret":                   # artist beret
+        h(4.6, 2.9, 11.8, 1.5, BERET)     # flat blob
+        h(6.0, 2.1, 9.0, 1.0, BERET)      # upper puff
+        h(9.9, 1.2, 1.2, 1.1, BERET_D)    # stem
+    elif cap == "tophat":                  # tiny top hat
+        h(4.4, 3.9, 12.2, 0.8, INK)       # brim
+        h(6.6, 0.3, 7.8, 3.8, INK)        # cylinder
+        h(6.6, 2.9, 7.8, 0.9, INK_BAND)   # band
+    elif cap == "propeller":               # propeller beanie (spinning!)
+        h(5.6, 2.9, 9.8, 1.6, PROP)       # cap base
+        h(7.2, 2.0, 6.6, 1.1, PROP)       # dome
+        h(9.9, 1.0, 1.2, 1.2, PROP)       # stick
+        if (frame // 4) % 2 == 0:          # blades: wide <-> narrow = spin
+            h(6.6, 0.3, 7.8, 0.8, PROP_BLADE)
+        else:
+            h(8.9, 0.3, 3.2, 0.8, PROP_BLADE)
+    elif cap == "beanie":                  # knitted beanie + pompom
+        h(4.8, 3.3, 11.4, 1.2, BEANIE_D)  # folded band
+        h(5.3, 1.6, 10.4, 2.0, BEANIE)    # knit dome
+        h(6.9, 0.9, 7.2, 1.0, BEANIE)
+        h(9.6, 0.0, 1.8, 1.2, WHITE)      # pompom
+
+
 def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=None,
                   energy=1.0, palette=None, happy=False, hovering=False,
                   gaze=(0.0, 0.0)):
@@ -766,41 +831,7 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=No
             headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
 
     if cap:
-        # a hat on the crown (agent companions) — drawn in head space so it
-        # bobs/tilts/mirrors with the body. pieces are centred on the body
-        # centre col 10.5 (an off-centre hat reads as tilted at small u).
-        if cap in ("agent", "cap"):            # yellow kindergarten cap
-            px(3.7, 3.6, 13.6, 1.0, CAP_D)     # brim across the head, front shade
-            px(5.3, 2.0, 10.4, 2.0, CAP)       # rounded crown of the cap
-            px(6.9, 1.1, 7.2, 1.2, CAP)        # dome top
-            px(6.9, 1.1, 7.2, 0.4, CAP_HI)     # highlight rim
-            px(9.7, 0.4, 1.6, 1.0, CAP_D)      # little top button
-        elif cap == "hardhat":                 # construction helmet
-            px(3.2, 3.7, 14.6, 1.0, HARD)      # wide brim
-            px(5.3, 1.5, 10.4, 2.4, HARD)      # dome
-            px(6.9, 0.8, 7.2, 1.0, HARD)       # dome top
-            px(9.6, 0.5, 1.8, 3.2, HARD_HI)    # white centre ridge
-        elif cap == "beret":                   # artist beret
-            px(4.6, 2.9, 11.8, 1.5, BERET)     # flat blob
-            px(6.0, 2.1, 9.0, 1.0, BERET)      # upper puff
-            px(9.9, 1.2, 1.2, 1.1, BERET_D)    # stem
-        elif cap == "tophat":                  # tiny top hat
-            px(4.4, 3.9, 12.2, 0.8, INK)       # brim
-            px(6.6, 0.3, 7.8, 3.8, INK)        # cylinder
-            px(6.6, 2.9, 7.8, 0.9, INK_BAND)   # band
-        elif cap == "propeller":               # propeller beanie (spinning!)
-            px(5.6, 2.9, 9.8, 1.6, PROP)       # cap base
-            px(7.2, 2.0, 6.6, 1.1, PROP)       # dome
-            px(9.9, 1.0, 1.2, 1.2, PROP)       # stick
-            if (frame // 4) % 2 == 0:          # blades: wide <-> narrow = spin
-                px(6.6, 0.3, 7.8, 0.8, PROP_BLADE)
-            else:
-                px(8.9, 0.3, 3.2, 0.8, PROP_BLADE)
-        elif cap == "beanie":                  # knitted beanie + pompom
-            px(4.8, 3.3, 11.4, 1.2, BEANIE_D)  # folded band
-            px(5.3, 1.6, 10.4, 2.0, BEANIE)    # knit dome
-            px(6.9, 0.9, 7.2, 1.0, BEANIE)
-            px(9.6, 0.0, 1.8, 1.2, WHITE)      # pompom
+        draw_hat(px, cap, frame)
 
     p.restore()
 

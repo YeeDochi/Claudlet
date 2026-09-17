@@ -53,8 +53,11 @@ class Slime:
     name = "slime"
     grid = (GRID_W, GRID_H)
     states = STATES
-    hats = ()
+    hats = C.HAT_KINDS      # companions wear one; drawn by C.draw_hat
     palette = "#3FBF6F"        # its own default green, until the user picks
+    # the dome ends at FLOOR, well above the built-in's 15.8 — say so or the pet
+    # stands it sunk into whatever window it perches on
+    foot_row = FLOOR
 
     def set_lang(self, lang):
         C.set_lang(lang)
@@ -136,6 +139,10 @@ class Slime:
         chw = _profile(cy + ROW) * 0.55
         cd = lean(cy + ROW)
         box(10.5 - chw + cd, cy, 10.5 + chw + cd, cy + ROW * 1.7, hi)
+
+        if cap:                      # dome crown, and it is widest at the floor
+            C.draw_hat(px, cap, frame, crown_row=TOP + 0.2, cx=10.5,
+                       head_w=_profile(TOP + 1.5) * 2.0)
 
         gr = 6.6                                   # gloss, inside the dome
         gx = 10.5 - _profile(gr) + 1.3

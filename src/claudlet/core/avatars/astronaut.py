@@ -50,7 +50,7 @@ class Astronaut:
     name = "astronaut"
     grid = (GRID_W, GRID_H)
     states = STATES
-    hats = ()
+    hats = C.HAT_KINDS      # companions wear one; drawn by C.draw_hat
     palette = "#C9D2E0"          # suit white-blue, until the user picks
     # boots end well above the built-in's 15.8, so say so or the pet stands it
     # sunk into whatever window it perches on
@@ -144,6 +144,9 @@ class Astronaut:
         px(CX + 3.1, 4.3, 0.5, 0.6, gear)
         lit = autonomous and frame % 30 < 15
         px(CX + 2.95, 3.9, 0.9, 0.6, BEACON if lit else VISOR_HI)
+
+        if cap:                      # helmet is 6 wide and its crown is at 4.3
+            C.draw_hat(px, cap, frame, crown_row=4.3, cx=CX, head_w=6.0)
 
         # ---- arms (drawn AFTER the helmet so a raised one stays visible) --
         # The SHOULDER is fixed and the HAND moves. Translating the whole arm
