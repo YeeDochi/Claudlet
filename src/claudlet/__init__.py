@@ -1,2 +1,2 @@
 """claudlet — a pixel desktop buddy that reacts to Claude Code."""
-__version__ = "1.8.0"
+__version__ = "2.0.0"
