@@ -276,21 +276,35 @@ also the one thing that shouldn't happen silently mid-session. Steps:
    cpet version
    ```
 2. **Detect install method** to pick the command: a source checkout has
-   `$HOME/claudlet/.git`; otherwise it's a pipx/pip install.
+   `$HOME/claudlet/.git`; otherwise it's a pipx/pip install. Note the OS too —
+   step 3 gives a different command per shell.
 3. **Give the user a `!`-prefixed command to run themselves** (so it runs in
-   their own shell with output visible), matching method + channel:
+   their own shell with output visible), matching method + channel — **and the
+   shell they are actually in**. On Linux and macOS:
 
    | | release | latest (`develop`) |
    |---|---|---|
    | **pipx** | `! pipx install --force claudlet && claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install` |
    | **source checkout** | `! git -C ~/claudlet pull --ff-only && claudlet-install` | (same — a checkout already tracks its branch) |
 
+   On **Windows** the session's shell is PowerShell, where `&&` is a parse
+   error (Windows PowerShell 5.1 has no pipeline chain operators), so hand them
+   two lines instead of one — the second only after the first succeeded:
+
+   | | release | latest (`develop`) |
+   |---|---|---|
+   | **pipx** | `! pipx install --force claudlet`<br>`! claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop"`<br>`! claudlet-install` |
+   | **source checkout** | `! git -C $HOME\claudlet pull --ff-only`<br>`! claudlet-install` | (same — a checkout already tracks its branch) |
+
    (Use `pipx install --force` for both pipx rows, NOT `pipx upgrade`: `upgrade`
    re-fetches from whatever source the user first installed from, so a user on
    the git/`@develop` install would get develop again even when they pick
    *release*. `install --force claudlet` always pulls the PyPI release, so the
    two channels switch cleanly in both directions. The *latest* channel needs
-   `git` on PATH; *release* does not — if git is missing, steer them to release.)
+   `git` on PATH; *release* does not — if git is missing, steer them to release.
+   On Windows, git being installed is not the same as git being on the
+   session's PATH: Claude Code inherits the PATH it started with, so a git
+   installed after that is invisible until the app restarts.)
 
    (Tell them to type the line **including the leading `!`** — that runs it in
    this Claude Code session's shell.)
