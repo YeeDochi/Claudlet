@@ -2121,3 +2121,34 @@ def test_a_broken_tab_focus_never_breaks_the_click(monkeypatch):
         p._winterm_focus_tab()                          # must not raise
     finally:
         p._cleanup()
+
+
+def test_tray_menu_carries_the_same_entries_as_the_pet_menu():
+    """The tray is the menu for people who can't catch a roaming creature, so
+    it must not be a subset — creature settings and the no-go editor were only
+    on the pet itself."""
+    p = P.Pet(session_id="traymenu")
+    try:
+        if p.tray is None or p.tray.contextMenu() is None:
+            return                          # no system tray on this box
+        labels = [a.text() for a in p.tray.contextMenu().actions()]
+        assert p.ui["settings"] in labels
+        assert p.ui["zone_edit"] in labels
+        assert p.ui["zone_clear"] in labels
+    finally:
+        p._cleanup()
+
+
+def test_the_tray_zone_clear_entry_appears_with_the_zones():
+    p = P.Pet(session_id="trayzones")
+    try:
+        if p._act_zone_clear is None:
+            return                          # no system tray on this box
+        p._no_go = []
+        p._sync_zone_check()
+        assert p._act_zone_clear.isVisible() is False
+        p._no_go = [{"x": 0, "y": 0, "w": 10, "h": 10}]
+        p._sync_zone_check()
+        assert p._act_zone_clear.isVisible() is True
+    finally:
+        p._cleanup()

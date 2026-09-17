@@ -2653,6 +2653,7 @@ class Pet(QWidget):
             return
         def _add(rect):
             self._no_go.append(rect)
+            self._sync_zone_check()
         def _done():
             # finishing on ANY monitor's overlay tears down the whole session;
             # null each _on_done first so their closeEvent doesn't re-enter here.
@@ -2672,11 +2673,18 @@ class Pet(QWidget):
             ov.raise_()
             ov.activateWindow()
 
+    def _sync_zone_check(self):
+        """"금지구역 지우기" 는 지울 구역이 있을 때만 보인다. 트레이 메뉴는 한 번
+        만들어 두고 계속 쓰므로 구역이 생기거나 사라질 때 맞춰 준다."""
+        if self._act_zone_clear is not None:
+            self._act_zone_clear.setVisible(bool(self._no_go))
+
     def _clear_zones(self):
         self._no_go = []
         for ov in self._zone_overlays:
             ov._zones = []
             ov.update()
+        self._sync_zone_check()
 
     def _toggle_float(self):
         # off -> clear (restores gravity); on -> float mode
@@ -2716,6 +2724,7 @@ class Pet(QWidget):
         self._act_float = None
         self._act_follow = None
         self._act_dock = None
+        self._act_zone_clear = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = None
             return
@@ -2759,6 +2768,21 @@ class Pet(QWidget):
 
             self._act_dnd = QAction(self.ui["quiet"], m, checkable=True)
             m.addAction(self._act_dnd)
+
+            # the tray is the pet's menu for people who can't catch a roaming
+            # creature, so it carries the same entries rather than a subset
+            m.addSeparator()
+            act_settings = QAction(self.ui["settings"], m)
+            m.addAction(act_settings)
+            act_settings.triggered.connect(self._open_settings)
+            act_zone = QAction(self.ui["zone_edit"], m)
+            m.addAction(act_zone)
+            act_zone.triggered.connect(self._enter_zone_edit)
+            self._act_zone_clear = QAction(self.ui["zone_clear"], m)
+            m.addAction(self._act_zone_clear)
+            self._act_zone_clear.setVisible(bool(self._no_go))
+            self._act_zone_clear.triggered.connect(self._clear_zones)
+
             act_quit = QAction(self.ui["quit"], m)
             m.addSeparator()
             m.addAction(act_quit)
