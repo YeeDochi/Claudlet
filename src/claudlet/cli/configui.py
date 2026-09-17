@@ -687,12 +687,14 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <label for="col">__T_colour__</label>
         <input type="color" id="col">
         <code id="hex"></code>
-        <span id="isnamed" style="color:var(--dim)"></span>
         <label for="scale">__T_size__</label>
         <input type="range" id="scale" min="2" max="12" step="1">
         <code id="scaleval"></code>
+      </div>
+      <div class="row" id="visorRow">
         <label>__T_special__</label>
         <div id="visor" class="seg"></div>
+        <span id="isnamed" class="sr-only"></span>
       </div>
       <div id="shots"></div>
     </section>
@@ -773,8 +775,9 @@ function showCreature(name) {
       redraw();
     });
   }
-  $("isnamed").textContent = isHex ? ""
-    : T.named.replace("%s", pal);
+  // the "still on auto" note used to sit in the colour row and crowd it; keep
+  // the information for a screen reader, off the visual row (sr-only)
+  $("isnamed").textContent = isHex ? "" : T.named.replace("%s", pal);
   renderPickTrigger();
   redraw();
 }
