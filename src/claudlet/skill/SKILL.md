@@ -221,7 +221,8 @@ language (e.g. "make it jump when I run Bash", "switch it to Korean"):
 5. tell the user to **restart the pet** (right-click → 종료, then `/claudlet`)
    for it to apply — config is read at pet startup.
 
-Schema (all keys optional; unknown keys / invalid values are dropped):
+Schema — **the keys this section covers**, all optional. An invalid value is
+ignored when the file is read (the file keeps it; `ignored:` lists it):
 ```json
 {
   "lang": "auto",                        // "ko" | "en" | "auto"
@@ -232,6 +233,13 @@ Schema (all keys optional; unknown keys / invalid values are dropped):
             "screen": "primary", "gap": 4, "offset": {"x": 0, "y": 0} }
 }
 ```
+**This is not the whole file.** The same `config.json` also holds
+`avatar`, `creatures`, `palette`, `scale`, `roam_area` and `no_go` — which
+creature each agent wears and how it looks, written by the **Settings** page
+and by the pet itself (dragging it saves `dock.offset`). They are as real as
+the keys above; they are simply somebody else's. **Leave every key you did not
+come to change exactly as it is** — deleting `creatures` throws away the
+colours and sizes the user set in Settings, and nothing warns them.
 - `tools` — tool name → state (`"*"` = fallback for unmapped tools).
 - `events` — event slot → state. Slots: `start`, `prompt`, `done`,
   `celebrate`, `error`, `permission`, `idle_prompt`, `asking`, `autopilot`.
