@@ -1148,7 +1148,7 @@ def _handler_class(initial_agent=None, import_token=""):
 
 
 def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
-          port=PREFERRED_PORT):
+          port=PREFERRED_PORT, app_window=False):
     """Run the settings page for as long as it is open. Returns the URL.
 
     `agent` is which agent's pet opened this page (optional; defaults to
@@ -1169,7 +1169,7 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
         url = "http://127.0.0.1:%d/" % chosen
         print(t["serving"] + url)
         if open_browser:
-            launch_browser(url)
+            launch_browser(url, app_window)
         return url
     import_token = secrets.token_urlsafe(16)   # per-run only; never persisted
     handler = _handler_class(agent, import_token)
@@ -1188,7 +1188,7 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
         print(t["port_taken"] % port)
     print(t["stop"])
     if open_browser:
-        launch_browser(url)
+        launch_browser(url, app_window)
     try:
         while time.monotonic() - srv.last_seen < idle_timeout:
             srv.handle_request()        # returns on a request or on the timeout
@@ -1199,11 +1199,18 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
     return url
 
 
-def launch_browser(url):
-    """Open the page as an app window when a chromium-family browser is around,
-    otherwise hand it to the default browser. Best effort: a settings page that
-    does not open is not worth an exception."""
-    cmd = browser_command(url)
+def launch_browser(url, app_window=False):
+    """Open the page in the user's ORDINARY browser.
+
+    `app_window=True` asks for a chrome-less app window instead (its own Chrome
+    profile, so the flags actually apply -- a second invocation on the default
+    profile is swallowed by the running Chrome). That is opt-in: a bare window
+    with no address bar reads as "some strange app", and the page is an ordinary
+    local page. Someone who wants it as an app installs it (the manifest is
+    served for exactly that) or passes --app.
+
+    Best effort: a settings page that does not open is not worth an exception."""
+    cmd = browser_command(url) if app_window else None
     try:
         if cmd:
             import subprocess

@@ -589,7 +589,11 @@ def main(argv=None):
                 agent = argv[i + 1]
             elif a.startswith("--agent="):
                 agent = a.split("=", 1)[1]
-        configui.serve(open_browser="--no-open" not in argv, agent=agent)
+        # --app: a chrome-less app window instead of an ordinary browser tab.
+        # Opt-in, because a bare window with no address bar does not read as
+        # "the settings page I just asked for".
+        configui.serve(open_browser="--no-open" not in argv, agent=agent,
+                       app_window="--app" in argv)
         return 0
     if arg == "open":
         print("opening " + open_config())

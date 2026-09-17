@@ -170,7 +170,8 @@ def test_main_ui_threads_the_agent_flag_through_to_configui(monkeypatch):
     rc = C.main(["ui", "--agent", "codex", "--no-open"])
 
     assert rc == 0
-    assert calls == [{"open_browser": False, "agent": "codex"}]
+    assert calls == [{"open_browser": False, "agent": "codex",
+                      "app_window": False}]   # a plain browser by default
 
 
 def test_main_ui_agent_flag_is_optional(monkeypatch):
@@ -181,7 +182,8 @@ def test_main_ui_agent_flag_is_optional(monkeypatch):
 
     C.main(["ui"])
 
-    assert calls == [{"open_browser": True, "agent": None}]
+    assert calls == [{"open_browser": True, "agent": None,
+                      "app_window": False}]
 
 
 # ---------- wear ----------
@@ -707,3 +709,18 @@ def test_codex_module_has_no_inert_trailing_avatar_assignment():
     from claudlet.core.avatars import codex as codex_mod
     src = inspect.getsource(codex_mod)
     assert "AVATAR = Codex" not in src
+
+
+def test_main_ui_app_flag_asks_for_a_chrome_less_window(monkeypatch):
+    # opt-in only: the default is the user's ordinary browser, because a bare
+    # window with no address bar reads as some strange app rather than the
+    # settings page that was asked for (and, on a desktop that cannot match it
+    # to an application, it gets attributed to whatever else is around).
+    calls = []
+    from claudlet.cli import configui
+    monkeypatch.setattr(configui, "serve",
+                        lambda **kw: calls.append(kw) or "http://x")
+
+    C.main(["ui", "--app", "--no-open"])
+
+    assert calls[0]["app_window"] is True
