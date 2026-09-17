@@ -194,21 +194,39 @@ def test_windows_command_never_reaches_cmd_exe(monkeypatch):
     assert "cmd.exe" not in ih._command(r"C:\bin\claudlet-hook.EXE")
 
 
-def test_windows_uses_the_real_path_when_it_has_no_space(monkeypatch):
+def test_windows_registers_the_bare_console_script_name(monkeypatch):
+    # No path form clears all three shells (see _command), but a bare name has
+    # no quotes, no slashes and no backslashes, so none of them can mangle it.
     monkeypatch.setattr(ih.os, "name", "nt")
     monkeypatch.setattr(ih.shutil, "which",
                         lambda n: r"C:\Users\dev\.local\bin\claudlet-hook.EXE")
-    assert ih.hook_command() == "C:/Users/dev/.local/bin/claudlet-hook.EXE"
+    assert ih.hook_command() == "claudlet-hook"
 
 
-def test_windows_falls_back_to_the_bare_name_when_the_path_has_a_space(monkeypatch):
-    # "C:\Users\John Smith\..." cannot be written unquoted, and quoting is the
-    # one thing PowerShell will not run. which() already proved the console
-    # script is on PATH, so its bare name says the same thing in either shell.
+def test_windows_bare_name_survives_a_space_in_the_home_directory(monkeypatch):
+    # "C:\Users\John Smith\..." would need quotes, which is the one thing
+    # PowerShell will not run -- the bare name has no such cliff.
     monkeypatch.setattr(ih.os, "name", "nt")
     monkeypatch.setattr(ih.shutil, "which",
                         lambda n: r"C:\Users\John Smith\.local\bin\claudlet-hook.EXE")
     assert ih.hook_command() == "claudlet-hook"
+
+
+def test_windows_hook_command_has_nothing_a_shell_can_mangle(monkeypatch):
+    # the property that actually matters, stated once: quotes break PowerShell,
+    # a leading / breaks cmd, a backslash breaks bash.
+    monkeypatch.setattr(ih.os, "name", "nt")
+    monkeypatch.setattr(ih.shutil, "which",
+                        lambda n: r"C:\Users\dev\.local\bin\claudlet-hook.EXE")
+    cmd = ih.hook_command()
+    assert '"' not in cmd and "/" not in cmd and "\\" not in cmd
+
+
+def test_posix_still_registers_the_absolute_path(monkeypatch):
+    # PATH is not in play on POSIX -- keep the precise, quoted absolute path.
+    monkeypatch.setattr(ih.os, "name", "posix")
+    monkeypatch.setattr(ih.shutil, "which", lambda n: "/home/dev/.local/bin/claudlet-hook")
+    assert ih.hook_command() == '"/home/dev/.local/bin/claudlet-hook"'
 
 
 def test_posix_command_directly_quotes_executable(monkeypatch):

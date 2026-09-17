@@ -23,34 +23,29 @@ def _quote(path):
 
 
 def _command(*parts):
-    """One command string that every shell a hook may run under accepts.
+    """Build a command string out of PATHS, for the fallbacks below.
 
-    On Windows that is two shells with contradictory demands, and a string can
-    only be wrong in one of them at a time. Claude Code hands hook strings to
-    Git Bash, which needs the QUOTES: an unquoted Windows path loses every
-    backslash to bash's escape rules. Desktop agents hand them to PowerShell,
-    which breaks ON the quotes: a statement starting with a quoted string is a
-    string literal, not a command, so the hook silently never runs. Wrapping in
-    `cmd.exe /d /s /c` fixed PowerShell and broke bash the other way -- MSYS
-    rewrites the /d /s /c switches as paths, so cmd got no /c, came up
-    INTERACTIVE, and read the hook's JSON payload off stdin as a command line.
+    No Windows path form satisfies every shell a hook string can land in, which
+    is why `hook_command` avoids paths entirely when it can:
 
-    Both demands trace back to the backslashes, so drop those instead of
-    picking a side: Windows takes forward slashes in a path just as well, and
-    an unquoted forward-slash path needs no quoting in either shell. A path
-    with a SPACE still needs quotes, which nothing can make PowerShell run --
-    hook_command() avoids that case by falling back to the bare console-script
-    name, which has neither problem.
+        quoted backslash    bash OK   PowerShell NO   cmd OK
+        unquoted /          bash OK   PowerShell OK   cmd NO
+        unquoted backslash  bash NO   PowerShell OK   cmd OK
+
+    Bash needs the quotes, because an unquoted Windows path loses every
+    backslash to its escape rules. PowerShell breaks ON the quotes: a statement
+    starting with a quoted string is a string literal, not a command, so the
+    hook silently never runs. cmd reads a leading `/` as a switch and never
+    finds the program. (Wrapping in `cmd.exe /d /s /c` is not a way out either:
+    MSYS rewrites those switches as paths, so cmd gets no /c, comes up
+    INTERACTIVE, and reads the hook's JSON payload off stdin as a command.)
+
+    Forward slashes are the best of the three -- they cover the hosts claudlet
+    is known to run under -- so that is what a path gets here.
     """
     if os.name == "nt":
         return " ".join(p.replace("\\", "/") for p in parts)
     return " ".join(_quote(p) for p in parts)
-
-
-def _unquotable(*parts):
-    """True if these tokens cannot go into a Windows command string unquoted,
-    i.e. `_command` would produce something PowerShell refuses to run."""
-    return os.name == "nt" and any(" " in p for p in parts)
 
 
 def hook_command():
@@ -62,10 +57,14 @@ def hook_command():
     from which() runs directly."""
     exe = shutil.which("claudlet-hook")
     if exe:
-        # which() just proved the console script is ON PATH, so when its own
-        # path cannot be written unquoted (a space in the user's home) the bare
-        # name says the same thing and survives both shells.
-        return "claudlet-hook" if _unquotable(exe) else _command(exe)
+        if os.name == "nt":
+            # No quotes, no slashes, no backslashes -- the one form bash,
+            # PowerShell AND cmd all accept (see _command for why no path form
+            # does). It costs nothing in precision: which() just resolved this
+            # name off PATH, so that is exactly what the shell will find. A
+            # space in the user's home stops mattering too.
+            return "claudlet-hook"
+        return _command(exe)
     repo_bin = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))),
