@@ -168,6 +168,10 @@ MIN_SCALE, MAX_SCALE = 2, 12
 # How the "running unattended" signal is shown. Not a visor as such: the pet
 # only reports that the mode is on and each creature decides what that looks
 # like (the built-in wears a VR visor; another might glow, or ignore it).
+# The only creature that existed before appearance became per creature, so the
+# only one a pre-1.8 config's top-level palette/scale can have meant.
+LEGACY_CREATURE = "claudlet"
+
 VISOR_MODES = ("auto", "on", "off")
 DEFAULT_VISOR = "auto"
 
@@ -216,11 +220,19 @@ def for_creature(cfg, name, avatar=None):
     palette = mine.get("palette")
     if palette is None:
         palette = clean_palette_opt(getattr(avatar, "palette", None))
+    # A config written before appearance was per creature has palette/scale at
+    # the top level. Those belong to the ONE creature that existed then, and
+    # only while the user has not used the new settings at all -- carrying them
+    # forward to every creature painted the built-in in a colour that had been
+    # picked for something else.
+    legacy = not cfg.get("creatures") and name == LEGACY_CREATURE
+    if palette is None and legacy:
+        palette = cfg.get("palette") or "auto"
     if palette is None:
-        palette = cfg.get("palette") or "auto"      # pre-per-creature config
+        palette = "auto"
     scale = mine.get("scale")
     if scale is None:
-        scale = clamp_scale(cfg.get("scale"))
+        scale = clamp_scale(cfg.get("scale")) if legacy else DEFAULT_SCALE
     return {"palette": palette, "scale": scale,
             "visor": mine.get("visor") or DEFAULT_VISOR}
 

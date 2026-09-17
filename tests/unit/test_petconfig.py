@@ -193,3 +193,35 @@ def test_save_dock_does_not_blow_up_on_a_broken_config():
         with open(p, "w") as f:
             f.write("{ broken ")
         assert petconfig.save_dock({"enabled": False}, p)["enabled"] is False
+
+
+class _Slime:
+    palette = "#3FBF6F"
+
+
+def test_pre_per_creature_config_belongs_to_the_builtin():
+    # a 1.7.x config has palette/scale at the top level, written when the
+    # built-in was the only creature there was
+    cfg = petconfig._clean({"palette": "#4A90D9", "scale": 8})
+    assert petconfig.for_creature(cfg, "claudlet")["palette"] == "#4A90D9"
+    assert petconfig.for_creature(cfg, "claudlet")["scale"] == 8
+
+
+def test_a_legacy_colour_is_not_spread_over_every_creature():
+    # carrying it forward to all of them painted the built-in in a colour that
+    # had been picked for something else
+    cfg = petconfig._clean({"palette": "#4A90D9", "scale": 8})
+    slime = petconfig.for_creature(cfg, "slime", _Slime)
+    assert slime["palette"] == "#3FBF6F"         # its own default, not the legacy one
+    assert slime["scale"] == petconfig.DEFAULT_SCALE
+
+
+def test_once_the_new_settings_are_used_the_legacy_keys_stop_applying():
+    cfg = petconfig._clean({"palette": "#12A543", "creatures": {"claudlet": {}}})
+    assert petconfig.for_creature(cfg, "claudlet")["palette"] == "auto"
+
+
+def test_a_creature_setting_always_wins():
+    cfg = petconfig._clean({"palette": "#4A90D9",
+                            "creatures": {"slime": {"palette": "#FF0000"}}})
+    assert petconfig.for_creature(cfg, "slime", _Slime)["palette"] == "#FF0000"
