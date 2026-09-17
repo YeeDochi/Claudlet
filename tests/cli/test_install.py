@@ -25,7 +25,7 @@ def test_install_path_does_not_call_uninstall(monkeypatch):
                             AssertionError("uninstall must not run on install")))
     monkeypatch.setattr(I, "_check_deps", lambda: "stubbed")
     monkeypatch.setattr("claudlet.cli.install_hooks.main", lambda argv=None: None)
-    monkeypatch.setattr(I, "_link_skill", lambda: (None, None))
+    monkeypatch.setattr(I, "_link_skills", lambda home=None: [])
 
     I.main([])          # no exception == install path stayed clear of uninstall
 
@@ -37,11 +37,9 @@ def test_link_skill_keeps_a_junction_pointing_at_the_skill(monkeypatch, tmp_path
     skills = tmp_path / "skills"; skills.mkdir()
     link = str(skills / "claudlet")
     os.mkdir(link)                                  # stands in for the junction
-    monkeypatch.setattr(I, "SKILLS_DIR", str(skills))
-    monkeypatch.setattr(I, "SKILL_LINK", link)
     monkeypatch.setattr(os.path, "samefile", lambda a, b: True)
 
-    assert I._link_skill() == (link, None)
+    assert I._link_skill_at(link) == (link, None)
     assert os.path.isdir(link)                      # left in place, not clobbered
 
 
@@ -75,9 +73,72 @@ def test_link_skill_warns_on_a_foreign_directory(monkeypatch, tmp_path):
     skills = tmp_path / "skills"; skills.mkdir()
     link = str(skills / "claudlet")
     os.mkdir(link)
-    monkeypatch.setattr(I, "SKILLS_DIR", str(skills))
-    monkeypatch.setattr(I, "SKILL_LINK", link)
     monkeypatch.setattr(I, "SKILL_SRC", str(tmp_path / "nowhere"))
 
-    path, note = I._link_skill()
+    path, note = I._link_skill_at(link)
     assert path is None and "left as-is" in note
+
+
+def _detect_both(home):
+    os.makedirs(home / ".claude", exist_ok=True)
+    os.makedirs(home / ".codex", exist_ok=True)
+
+
+def test_link_skills_lands_in_every_detected_agent(tmp_path):
+    _detect_both(tmp_path)
+
+    results = I._link_skills(home=str(tmp_path))
+
+    assert {label for label, _p, _n in results} == {"Claude Code", "Codex"}
+    assert all(note is None for _l, _p, note in results)
+    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+    assert os.path.islink(tmp_path / ".codex" / "skills" / "claudlet")
+
+
+def test_link_skills_only_touches_detected_agents(tmp_path):
+    os.makedirs(tmp_path / ".claude", exist_ok=True)   # codex NOT detected
+
+    I._link_skills(home=str(tmp_path))
+
+    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+    assert not (tmp_path / ".codex").exists()
+
+
+def test_link_skills_foreign_dir_on_one_agent_does_not_block_the_other(tmp_path):
+    _detect_both(tmp_path)
+    codex_skills = tmp_path / ".codex" / "skills"
+    os.makedirs(codex_skills, exist_ok=True)
+    os.mkdir(codex_skills / "claudlet")   # foreign directory, not a link to us
+
+    results = I._link_skills(home=str(tmp_path))
+
+    by_label = {label: (p, n) for label, p, n in results}
+    assert by_label["Codex"][0] is None and "left as-is" in by_label["Codex"][1]
+    assert by_label["Claude Code"] == (
+        str(tmp_path / ".claude" / "skills" / "claudlet"), None)
+    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+
+
+def test_link_skills_no_agents_detected_does_nothing(tmp_path):
+    assert I._link_skills(home=str(tmp_path)) == []
+
+
+def test_unlink_skills_removes_every_detected_agents_link(tmp_path):
+    _detect_both(tmp_path)
+    I._link_skills(home=str(tmp_path))
+
+    I._unlink_skills(home=str(tmp_path))
+
+    assert not os.path.exists(tmp_path / ".claude" / "skills" / "claudlet")
+    assert not os.path.exists(tmp_path / ".codex" / "skills" / "claudlet")
+
+
+def test_link_skills_is_idempotent(tmp_path):
+    _detect_both(tmp_path)
+
+    first = I._link_skills(home=str(tmp_path))
+    second = I._link_skills(home=str(tmp_path))
+
+    assert first == second
+    assert os.path.islink(tmp_path / ".claude" / "skills" / "claudlet")
+    assert os.path.islink(tmp_path / ".codex" / "skills" / "claudlet")

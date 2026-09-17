@@ -18,6 +18,7 @@ AGENTS = {
         "label": "Claude Code",
         "marker": ".claude",                 # ~/.claude -> Claude Code is installed
         "settings": os.path.join(".claude", "settings.json"),
+        "skills": os.path.join(".claude", "skills"),
         "proc": "claude",                    # the reaper's ancestor needle
         "events": ["PreToolUse", "PostToolUse", "UserPromptSubmit",
                    "Notification", "Stop", "StopFailure", "SubagentStop",
@@ -31,6 +32,7 @@ AGENTS = {
         "label": "Codex",
         "marker": ".codex",
         "settings": os.path.join(".codex", "hooks.json"),
+        "skills": os.path.join(".codex", "skills"),
         "proc": "codex",
         # Measured from the codex 0.147.0 native binary's strings, corroborated
         # by Codex's own plugin hooks.json (which registers SessionEnd). No
@@ -74,6 +76,10 @@ def _home(home=None):
 
 def settings_path(name, home=None):
     return os.path.join(_home(home), get(name)["settings"])
+
+
+def skills_path(name, home=None):
+    return os.path.join(_home(home), get(name)["skills"])
 
 
 def detected(home=None):

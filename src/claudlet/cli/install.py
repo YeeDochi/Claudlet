@@ -19,8 +19,6 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SKILLS_DIR = os.path.expanduser(os.path.join("~", ".claude", "skills"))
-SKILL_LINK = os.path.join(SKILLS_DIR, "claudlet")
 SKILL_SRC = os.path.join(os.path.dirname(HERE), "skill")  # packaged skill data (claudlet/skill, not cli/skill)
 
 # README links shown when setup finishes. EN points at the repo root (GitHub
@@ -66,46 +64,67 @@ def _link_is_ours(link):
         return False
 
 
-def _link_skill():
-    """Symlink the packaged skill into ~/.claude/skills/. Returns (path, note)."""
-    os.makedirs(SKILLS_DIR, exist_ok=True)
-    if os.path.exists(SKILL_LINK) and not _link_is_ours(SKILL_LINK):
+def _link_skill_at(link):
+    """Symlink the packaged skill into `link` (a `.../skills/claudlet` path
+    under one agent's skills dir). Returns (path, note)."""
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    if os.path.exists(link) and not _link_is_ours(link):
         return None, ("%s exists and isn't a link to the claudlet skill"
-                      " - left as-is" % SKILL_LINK)
-    if os.path.islink(SKILL_LINK):
-        os.unlink(SKILL_LINK)      # refresh: a stale symlink may point at an old install
-    elif os.path.exists(SKILL_LINK):
-        return SKILL_LINK, None    # a junction already pointing at THIS skill — keep it
+                      " - left as-is" % link)
+    if os.path.islink(link):
+        os.unlink(link)      # refresh: a stale symlink may point at an old install
+    elif os.path.exists(link):
+        return link, None    # a junction already pointing at THIS skill — keep it
     try:
-        os.symlink(SKILL_SRC, SKILL_LINK, target_is_directory=True)
-        return SKILL_LINK, None
+        os.symlink(SKILL_SRC, link, target_is_directory=True)
+        return link, None
     except OSError as e:
-        if os.name == "nt" and _link_skill_junction():
-            return SKILL_LINK, None
+        if os.name == "nt" and _link_skill_junction(link):
+            return link, None
         return None, "could not link skill (%s); link it manually: %s -> %s" % (
-            e, SKILL_LINK, SKILL_SRC)
+            e, link, SKILL_SRC)
 
 
-def _link_skill_junction():
+def _link_skill_junction(link):
     """Windows fallback: directory junctions don't need elevated privilege."""
     import subprocess
     try:
         subprocess.check_call(
-            ["cmd", "/c", "mklink", "/J", SKILL_LINK, SKILL_SRC],
+            ["cmd", "/c", "mklink", "/J", link, SKILL_SRC],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except (OSError, subprocess.CalledProcessError):
         return False
 
 
-def _unlink_skill():
-    if os.path.islink(SKILL_LINK):
-        os.unlink(SKILL_LINK)
-    elif os.name == "nt" and os.path.isdir(SKILL_LINK):
+def _unlink_skill_at(link):
+    if os.path.islink(link):
+        os.unlink(link)
+    elif os.name == "nt" and os.path.isdir(link):
         try:
-            os.rmdir(SKILL_LINK)
+            os.rmdir(link)
         except OSError:
             pass
+
+
+def _skill_link(name, home=None):
+    return os.path.join(agents.skills_path(name, home), "claudlet")
+
+
+def _link_skills(home=None):
+    """Link the skill into every detected agent's skills dir. One agent's
+    failure (permissions, a foreign directory in the way) must not stop the
+    others. Returns a list of (label, path_or_None, note_or_None)."""
+    results = []
+    for name in agents.detected(home):
+        path, note = _link_skill_at(_skill_link(name, home))
+        results.append((agents.get(name)["label"], path, note))
+    return results
+
+
+def _unlink_skills(home=None):
+    for name in agents.detected(home):
+        _unlink_skill_at(_skill_link(name, home))
 
 
 def _pip_install(pkgs):
@@ -264,11 +283,11 @@ def main(argv=None):
     ok("dependencies", _check_deps())
     install_hooks.main([])
     ok("Claude Code hooks", "registered")
-    skill, note = _link_skill()
-    if skill:
-        ok("/claudlet skill", skill)
-    if note:
-        warn(note)
+    for label, path, note in _link_skills():
+        if path:
+            ok("/claudlet skill (%s)" % label, path)
+        if note:
+            warn("%s: %s" % (label, note))
 
     head("done")
     print("Restart Claude Code sessions to pick up the hooks (new sessions")

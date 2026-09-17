@@ -25,9 +25,16 @@ def test_settings_path_is_under_home(tmp_path):
     assert p == os.path.join(str(tmp_path), ".codex", "hooks.json")
 
 
+def test_skills_path_is_under_home(tmp_path):
+    assert agents.skills_path("claude", home=str(tmp_path)) == \
+        os.path.join(str(tmp_path), ".claude", "skills")
+    assert agents.skills_path("codex", home=str(tmp_path)) == \
+        os.path.join(str(tmp_path), ".codex", "skills")
+
+
 def test_every_agent_declares_the_full_shape():
-    keys = {"label", "marker", "settings", "proc", "events", "tool_events",
-            "avatar", "tools", "raw_events"}
+    keys = {"label", "marker", "settings", "skills", "proc", "events",
+            "tool_events", "avatar", "tools", "raw_events"}
     for name, a in agents.AGENTS.items():
         assert keys <= set(a), name
         assert a["events"], name
