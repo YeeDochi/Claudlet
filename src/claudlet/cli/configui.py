@@ -506,7 +506,7 @@ PAGE_TEMPLATE = """<!doctype html><meta charset="utf-8">
 :root{color-scheme:dark;--bg:#16161a;--card:#212128;--line:#33333d;--fg:#ECECF0;
       --dim:#9A9AA8;--accent:#6B8AFF;--sunk:#0e0e12;--w:1080px}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
+body{margin:0;min-width:760px;background:var(--bg);color:var(--fg);
      font:14px/1.5 system-ui,-apple-system,"Noto Sans KR",sans-serif;
      /* The window IS the frame: at the size we open at, everything fits and
         only the panes scroll. A page-level scrollbar would undo the dashboard
@@ -590,10 +590,10 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
    a tall preview inside the box instead of stretching the panel (and with it
    the page) past the window. */
 #shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;align-content:flex-start;
-       flex:1 1 0;min-height:0;overflow-y:auto;
+       flex:1 1 0;min-height:0;min-width:0;overflow:auto;
        padding:14px;background:var(--sunk);border-radius:9px}
 #shots figure{margin:0;text-align:center}
-#shots img{display:block;image-rendering:pixelated}
+#shots img{display:block;image-rendering:pixelated;max-width:100%}
 #shots figcaption{margin-top:6px;font-size:11px;color:var(--dim)}
 button{background:var(--accent);color:#0b0b10;border:0;border-radius:8px;
        padding:10px 18px;font-weight:600;font-size:14px;cursor:pointer}
@@ -608,7 +608,7 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 @media (max-width:780px){
   /* one column: the panes no longer have room to scroll inside, so hand the
      page its scrollbar back rather than clipping content out of reach */
-  body{height:auto;overflow:visible}
+  body{height:auto;min-width:0;overflow:visible}
   main{overflow:visible}
   #dress,#settings,#shots{max-height:none;overflow:visible}
   .wrap{padding:0 16px}
