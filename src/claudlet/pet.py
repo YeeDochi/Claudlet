@@ -169,9 +169,13 @@ MOTION_MENU = [
     ("celebrate", 2.5, {"ko": "축하", "en": "Celebrate"}),
 ]
 
-# device-px from the pet window's top down to the creature's feet (legs bottom).
-# creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
-# used to land the FEET on a window's top edge when perching (not the window box).
+# Device px from the pet window's top down to the creature's feet, used to land
+# the FEET on a window's top edge when perching (not the window box). It is
+# `(PAD_Y + foot_row) * u`, so it follows the SCALE and whichever creature is
+# worn -- a creature declares `foot_row` when its feet are not where the
+# built-in's are (the slime's dome ends higher). Pinned to U=5 it left the floor
+# line running through the middle of an enlarged pet. `Pet.foot_y` is the live
+# value; this constant is what the built-in works out to at the default scale.
 FOOT_Y = 89
 # art-row geometry (creature.py:346 "crown rows 3..5 ; legs rows 12..15"):
 # crown top ~row 3, feet ~row 15.8. used to stack companions body-on-head.
@@ -939,6 +943,11 @@ class Pet(QWidget):
             self._tip_name = hostinfo.session_title(self.session_id) or self._project
         return "%s(%s)" % (self._tip_name, short)
 
+    @property
+    def foot_y(self):
+        """Where this pet's feet are, measured from the top of its window."""
+        return (PAD_Y + getattr(self.avatar, "foot_row", FOOT_ROW)) * self.u
+
     def _resize_to_avatar(self):
         """Window size follows the avatar's art box and the current scale."""
         gw, gh = self.avatar.grid
@@ -1145,7 +1154,7 @@ class Pet(QWidget):
             # instead of clearing it). Re-apply after it moves so the position
             # actually published this tick is clear, not just the one before.
             left, right, _t, _f = self._bounds()
-            self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
+            self.x = roambounds.push_out_x(self.x, self.w, self.y + self.foot_y, self._no_go, left, right)
             self.x = min(max(self.x, left), right)   # containment wins over no-go
             self._vacate_if_trapped(_f)
         else:
@@ -1170,7 +1179,7 @@ class Pet(QWidget):
                         span = self.w * 1.5
                         cand = min(max(self._search_anchor
                                        + random.uniform(-span, span), lft), rgt)
-                        if roambounds.blocks_target(cand, self.w, self.y + FOOT_Y, self._no_go):
+                        if roambounds.blocks_target(cand, self.w, self.y + self.foot_y, self._no_go):
                             cand = min(max(self._search_anchor, lft), rgt)
                         self.target_x = cand
                     dx = self.target_x - self.x
@@ -1179,7 +1188,7 @@ class Pet(QWidget):
                 else:
                     self._search_anchor = None        # re-anchor next search episode
                 self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
-                self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, lft, rgt)
+                self.x = roambounds.push_out_x(self.x, self.w, self.y + self.foot_y, self._no_go, lft, rgt)
                 self.x = min(max(self.x, lft), rgt)   # containment wins over no-go
                 self._vacate_if_trapped(floor)
                 self.y = floor
@@ -1382,7 +1391,7 @@ class Pet(QWidget):
         for c in self._companions:
             box = self._companion_nav_box(c)
             foot = box.foot_y
-            lead_foot = FOOT_Y if leader is self else FOOT_Y * ratio
+            lead_foot = self.foot_y if leader is self else self.foot_y * ratio
             lead_x = leader.x + leader.w / 2.0
             lead_feet = leader.y + lead_foot
             lead_contain = self._contain if leader is self else leader._contain
@@ -1509,10 +1518,10 @@ class Pet(QWidget):
         window perch, window interior) coincide with the PET's, despite its
         smaller window. The trick: box.h - foot_y is kept equal to the pet's
         (self.h - FOOT_Y), while foot_y is the companion's TRUE drawn foot
-        (FOOT_Y*ratio) so a resolved position lands the DRAWN feet on the
+        (self.foot_y*ratio) so a resolved position lands the DRAWN feet on the
         surface. box.w is the real companion width, for the screen/edge clamps."""
-        foot = FOOT_Y * (_companion_scale(self.u) / float(self.u))
-        return follow_nav.Box(c.w, (self.h - FOOT_Y) + foot, foot)
+        foot = self.foot_y * (_companion_scale(self.u) / float(self.u))
+        return follow_nav.Box(c.w, (self.h - self.foot_y) + foot, foot)
 
     def _companion_bounds(self, c):
         """(left, right, top, floor) for a companion's current context: the
@@ -1656,7 +1665,7 @@ class Pet(QWidget):
             cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
         else:
             cur = geom.window_under_feet(
-                self.x + self.w / 2.0, self.y + FOOT_Y, self._wins)
+                self.x + self.w / 2.0, self.y + self.foot_y, self._wins)
         if cur is None:                        # pet is on the bare desktop
             c.apply_mask(QRegion(QRect(0, 0, c.w, c.h)))
             return
@@ -1675,7 +1684,7 @@ class Pet(QWidget):
         # bounds can shift under us (a window we're in/on moved or resized): pull
         # the pet back inside every tick so it never gets stranded through a wall.
         self.x = min(max(self.x, left), right)
-        self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
+        self.x = roambounds.push_out_x(self.x, self.w, self.y + self.foot_y, self._no_go, left, right)
         self.x = min(max(self.x, left), right)
         # surface under us dropped away (window closed/moved, or we walked off a
         # ledge) -> fall to it instead of snapping/teleporting.
@@ -1784,7 +1793,7 @@ class Pet(QWidget):
         return self._cursor_pos()
 
     def _nav_box(self):
-        return follow_nav.Box(self.w, self.h, FOOT_Y)
+        return follow_nav.Box(self.w, self.h, self.foot_y)
 
     def _explore_point(self):
         """A window point to go visit while idling, or None if no feed/windows."""
@@ -2023,7 +2032,7 @@ class Pet(QWidget):
                 "screen=%d,%d,%dx%d pet=(%d,%d) feet_y=%d\n" % (
                     scr.devicePixelRatio(), cal[0], cal[1], cal[2],
                     g.x(), g.y(), g.width(), g.height(),
-                    int(self.x), int(self.y), int(self.y) + FOOT_Y))
+                    int(self.x), int(self.y), int(self.y) + self.foot_y))
             for w in self._wins:
                 sys.stderr.write("[claudlet geom]   win %s cls=%s  %d,%d %dx%d "
                                  "top=%d pid=%s\n" % (
@@ -2146,7 +2155,7 @@ class Pet(QWidget):
                 return
         else:
             cx = self.x + self.w / 2.0
-            feet = self.y + FOOT_Y
+            feet = self.y + self.foot_y
             cur = geom.window_under_feet(cx, feet, self._wins)
             if cur is None:              # on the desktop -> always visible
                 self._show_full()
@@ -2235,13 +2244,13 @@ class Pet(QWidget):
         right = scr.right() - self.w
         top = scr.top()
         cx = self.x + self.w / 2.0
-        feet = self.y + FOOT_Y
+        feet = self.y + self.foot_y
         screen_bottom = self._screen_bottom_at(cx)
         surface = geom.support_surface_under(cx, self._wins, screen_bottom, feet)
         if surface >= screen_bottom:
             floor = surface - self.h        # screen floor: keep window fully on-screen
         else:
-            floor = surface - FOOT_Y        # window perch: feet on the top edge
+            floor = surface - self.foot_y        # window perch: feet on the top edge
         left, right = roambounds.restrict_span(left, right, self._roam_area, self.w)
         top, floor = roambounds.restrict_floor(top, floor, self._roam_area, self.h)
         return left, right, top, floor
@@ -2264,7 +2273,7 @@ class Pet(QWidget):
         config mistake)."""
         if not self._no_go:
             return
-        if not roambounds.blocks_target(self.x, self.w, self.y + FOOT_Y, self._no_go):
+        if not roambounds.blocks_target(self.x, self.w, self.y + self.foot_y, self._no_go):
             return
         screen_bottom = self._screen_bottom_at(self.x + self.w / 2.0)
         perched = floor < screen_bottom - self.h    # floor is a window top, not the screen floor
@@ -2788,7 +2797,10 @@ class Pet(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         ox = (side - cw) // 2
         oy = (side - ch) // 2
-        self.avatar.draw(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
+        # the tray icon is this pet, so it wears this pet's colour -- left off,
+        # every creature showed up in the built-in's orange down there
+        self.avatar.draw(p, ox, oy, u, state, _ICON_FRAME.get(state, 3),
+                         palette=self._palette)
         p.end()
         return QIcon(pm)
 

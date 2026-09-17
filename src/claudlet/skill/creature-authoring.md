@@ -13,7 +13,9 @@ class MyCreature:
     grid    = (22, 17)      # art-pixel box. The PET'S WINDOW IS SIZED FROM THIS
     states  = ("idle", ...) # what you can draw (see the list below)
     hats    = ()            # companion hat kinds, or () for none
-    palette = "#33CC66"     # YOUR default colour, until the user picks one
+    palette  = "#33CC66"    # YOUR default colour, until the user picks one
+    foot_row = 15.8         # where your feet are, in art rows — the pet stands
+                            # you on windows by this line (omit to use 15.8)
 
     def draw(self, p, ox, oy, u, state, frame, **kw): ...
     def set_lang(self, lang): ...

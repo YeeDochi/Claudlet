@@ -41,7 +41,7 @@ def test_only_recognised_keys_are_written(tmp_path, monkeypatch):
     C = U.clean_creature_updates
     assert C({"palette": "#4A90D9"}) == {"palette": "#4A90D9"}
     assert C({"palette": "shiny_teal"}) == {"palette": "shiny_teal"}
-    assert C({"palette": "; rm -rf /"}) == {}
+    assert C({"palette": "; rm -rf /"}) == {"palette": None}   # None = clear it
     assert C({"tool_states": {"Bash": "sing"}}) == {}
     assert C({"scale": 99}) == {"scale": petconfig.MAX_SCALE}
     assert C({"visor": "on"}) == {"visor": "on"}
@@ -112,11 +112,12 @@ def test_reset_goes_back_to_the_defaults(tmp_path, monkeypatch):
     path = _cfg(tmp_path, monkeypatch, avatar="claudlet",
                 creatures={"claudlet": {"palette": "#00FFCC", "scale": 9,
                                         "visor": "on"}})
-    out = U.apply({"palette": "auto", "scale": None, "visor": "auto"},
+    # clearing, not storing "auto": a stored value is a choice the user made and
+    # outranks the creature's own default, so resetting has to REMOVE it
+    out = U.apply({"palette": None, "scale": None, "visor": None},
                   broadcast=lambda line: 1)
     raw = json.loads(path.read_text(encoding="utf-8"))["creatures"]["claudlet"]
-    assert raw == {"palette": "auto", "scale": petconfig.DEFAULT_SCALE,
-                   "visor": "auto"}
+    assert raw == {}
     assert out["named"] is True and out["scale"] == petconfig.DEFAULT_SCALE
 
 

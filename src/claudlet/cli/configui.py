@@ -82,14 +82,19 @@ def clean_creature_updates(body):
 
     Anything unrecognised is dropped rather than written through: this endpoint
     edits the same file a user hand-writes tools/events into."""
+    # A None value means CLEAR, not "store the default". Resetting has to remove
+    # the setting so the creature's own default applies again -- writing "auto"
+    # instead made every creature reset to claudlet's orange, because a stored
+    # value is a choice the user made and outranks what the creature asks for.
     out = {}
-    pal = petconfig.clean_palette_opt(body.get("palette"))
-    if pal is not None:
-        out["palette"] = pal
+    if "palette" in body:
+        out["palette"] = petconfig.clean_palette_opt(body.get("palette"))
     if "scale" in body:
-        out["scale"] = petconfig.clamp_scale(body.get("scale"))
+        v = body.get("scale")
+        out["scale"] = None if v is None else petconfig.clamp_scale(v)
     if "visor" in body:
-        out["visor"] = petconfig.clean_visor(body.get("visor"))
+        v = body.get("visor")
+        out["visor"] = None if v is None else petconfig.clean_visor(v)
     return out
 
 
@@ -116,6 +121,7 @@ def apply(body, broadcast=None):
         creatures = dict(cfg.get("creatures") or {})
         merged = dict(creatures.get(target) or {})
         merged.update(mine)
+        merged = {k: v for k, v in merged.items() if v is not None}
         creatures[target] = merged
         top["creatures"] = creatures
     updates = top
@@ -359,8 +365,9 @@ $("save").addEventListener("click", async () =>
 $("wear").addEventListener("click", async () =>
   fill(await post({avatar: editing}, editing + " 로 갈아입혔습니다")));
 $("reset").addEventListener("click", async () =>
-  fill(await post({creature: editing, palette: "auto", scale: null,
-                   visor: "auto"}, editing + " 를 기본으로 되돌렸습니다")));
+  // null clears the setting so the creature's own default applies again
+  fill(await post({creature: editing, palette: null, scale: null, visor: null},
+                  editing + " 를 기본으로 되돌렸습니다")));
 fetch("/api/state").then((r) => r.json()).then(fill);
 // Tell the server the page is still open. It stops when this stops, which is
 // what closing the tab looks like from its side — otherwise a settings page

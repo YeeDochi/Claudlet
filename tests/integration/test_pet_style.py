@@ -100,3 +100,34 @@ def test_restyle_keeps_the_shiny_a_pet_was_born_with(tmp_path, monkeypatch):
         assert p.snapshot()["scale"] == 6
     finally:
         p._cleanup()
+
+
+def test_the_floor_line_follows_the_scale(tmp_path, monkeypatch):
+    """The foot line was pinned to the default scale, so an enlarged pet stood
+    with the floor running through the middle of its body."""
+    _config(tmp_path, monkeypatch, scale=9)
+    p = P.Pet(session_id="footscale")
+    try:
+        assert p.u == 9
+        assert p.foot_y == (P.PAD_Y + P.FOOT_ROW) * 9
+        assert p.foot_y > P.FOOT_Y          # the default-scale value it used to be
+    finally:
+        p._cleanup()
+
+
+def test_the_floor_line_follows_the_creature(tmp_path, monkeypatch):
+    """A creature whose feet are not where the built-in's are says so, rather
+    than standing sunk into or floating above the window it perches on."""
+    _config(tmp_path, monkeypatch)
+    p = P.Pet(session_id="footcreature")
+    try:
+        class Stumpy:
+            name, grid, states, hats = "stumpy", (22, 17), ("idle",), ()
+            foot_row = 10.0
+            def draw(self, *a, **k): pass
+            def set_lang(self, lang): pass
+
+        p.avatar = Stumpy()
+        assert p.foot_y == (P.PAD_Y + 10.0) * p.u
+    finally:
+        p._cleanup()
