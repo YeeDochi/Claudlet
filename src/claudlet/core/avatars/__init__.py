@@ -98,8 +98,9 @@ def _registry():
     # the built-in avatar's art module needs QtGui.
     from claudlet.core.avatars.astronaut import Astronaut
     from claudlet.core.avatars.builtin import Claudlet
+    from claudlet.core.avatars.codex import Codex
     from claudlet.core.avatars.slime import Slime
-    reg = {c.name: c for c in (Claudlet, Slime, Astronaut)}
+    reg = {c.name: c for c in (Claudlet, Slime, Astronaut, Codex)}
     try:
         names = sorted(os.listdir(CREATURES_DIR))
     except OSError:
