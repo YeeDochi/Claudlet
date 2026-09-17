@@ -21,7 +21,7 @@ import os
 import sys
 import time
 
-from claudlet.core import avatars, hostinfo, petconfig
+from claudlet.core import agents, avatars, hostinfo, petconfig
 
 # The page is often opened from the pet's right-click menu, where there is no
 # terminal to Ctrl-C and closing the tab would otherwise leave a server running
@@ -36,14 +36,35 @@ PREVIEW_STATES = ("idle", "work_computer", "celebrate", "sleeping")
 
 # ---------- pure: what the page shows and what a save does ----------
 
-def state_payload(cfg=None):
+def _agent_rows(cfg, current):
+    """Chips for the agent row -- empty when there is nothing to choose between,
+    so a single-agent machine sees exactly the page it always has."""
+    det = agents.detected()
+    if len(det) < 2:
+        return []
+    return [{"name": n, "label": agents.get(n)["label"], "selected": n == current,
+             "creature": (petconfig.avatar_for(cfg, n)
+                          or agents.get(n)["avatar"] or avatars.DEFAULT)}
+            for n in det]
+
+
+def current_agent(body, cfg):
+    """Which agent the page is dressing. The page posts it; absent (or unknown)
+    means the default agent, which is also what a single-agent machine has."""
+    a = (body or {}).get("agent")
+    return a if a in agents.AGENTS else agents.DEFAULT
+
+
+def state_payload(cfg=None, agent=None):
     """Everything the page needs to draw itself.
 
     Appearance belongs to the CREATURE: a slime and a claudlet want different
     colours and sizes, and one shared setting meant switching creature dragged
     the other one's look along."""
     cfg = petconfig.load_config() if cfg is None else cfg
-    chosen = cfg.get("avatar") or avatars.DEFAULT
+    agent = agent if agent in agents.AGENTS else agents.DEFAULT
+    chosen = (petconfig.avatar_for(cfg, agent)
+              or agents.get(agent)["avatar"] or avatars.DEFAULT)
     look = petconfig.for_creature(cfg, chosen, avatars.get(chosen))
     pal = look["palette"]
     return {
@@ -74,6 +95,8 @@ def state_payload(cfg=None):
                               if st in getattr(avatars.get(n), "states", ())]
                           or list(PREVIEW_STATES[:1])
                           for n in avatars.available()},
+        "agents": _agent_rows(cfg, agent),
+        "agent": agent,
     }
 
 
@@ -104,18 +127,33 @@ def apply(body, broadcast=None):
     `broadcast` is injectable so tests don't reach for sockets. Returns the
     payload the page redraws from, plus how many pets took it."""
     cfg = petconfig.load_config()
+    agent = current_agent(body, cfg)
     # which creature is worn is a top-level choice; how it LOOKS is stored under
     # that creature, so picking a colour for the slime cannot repaint claudlet.
     top = {}
     name = body.get("avatar")
     if isinstance(name, str) and name in avatars.available():
-        top["avatar"] = name
+        cur = cfg.get("avatar")
+        if isinstance(cur, dict):
+            worn = dict(cur)
+        elif isinstance(cur, str) and cur:
+            # promote the legacy single choice: it applied to every agent, so
+            # every agent keeps it -- except the one being changed now
+            worn = {n: cur for n in agents.detected()} or {agents.DEFAULT: cur}
+        else:
+            worn = {}
+        worn[agent] = name
+        top["avatar"] = worn
     # settings are saved to the creature the panel is SHOWING, which need not be
     # the one being worn — looking at another creature's settings and editing
     # them should not require putting it on first.
     editing = body.get("creature")
-    target = (editing if isinstance(editing, str) and editing in avatars.available()
-              else top.get("avatar") or cfg.get("avatar") or avatars.DEFAULT)
+    if isinstance(editing, str) and editing in avatars.available():
+        target = editing
+    elif isinstance(top.get("avatar"), dict):
+        target = top["avatar"][agent]
+    else:
+        target = petconfig.avatar_for(cfg, agent) or agents.get(agent)["avatar"] or avatars.DEFAULT
     mine = clean_creature_updates(body)
     if mine:
         creatures = dict(cfg.get("creatures") or {})
@@ -134,7 +172,7 @@ def apply(body, broadcast=None):
             told = send(json.dumps({"cmd": "restyle"}))
         except Exception:
             told = 0            # nothing running is not an error
-    payload = state_payload()
+    payload = state_payload(agent=agent)
     payload["applied"] = sorted(list(k for k in top if k != "creatures") + list(mine))
     payload["pets"] = told
     return payload
@@ -196,6 +234,7 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None,
 TEXT = {
     "ko": {
         "title": "크리처", "lead": "색과 크기를 정합니다. 저장하면 떠 있는 펫에 바로 반영됩니다.",
+        "agents": "에이전트",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "이 크리처 입히기", "worn_btn": "입고 있음",
         "reset": "기본으로", "worn": "착용 중", "notworn": "미착용",
@@ -209,6 +248,7 @@ TEXT = {
     },
     "en": {
         "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
+        "agents": "Agents",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Wear this one", "worn_btn": "Worn",
         "reset": "Defaults", "worn": "worn", "notworn": "not worn",
@@ -280,7 +320,10 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
   <p>__T_lead__</p>
 </header>
 <main>
-  <section id="creatures"><h2>__T_creatures__</h2><div id="list"></div></section>
+  <section id="creatures">
+    <div id="agents" hidden><h2>__T_agents__</h2><div id="agentlist" class="seg"></div></div>
+    <h2>__T_creatures__</h2><div id="list"></div>
+  </section>
   <section id="settings">
     <h2 id="who"></h2>
     <div class="row">
@@ -367,6 +410,17 @@ function showCreature(name) {
 }
 function fill(s) {
   S = s;
+  const rows = s.agents || [];
+  $("agents").hidden = rows.length < 2;
+  $("agentlist").innerHTML = rows.map((a) =>
+    `<button data-agent="${a.name}" aria-pressed="${a.selected}">${a.label}</button>`
+  ).join("");
+  for (const b of document.querySelectorAll("#agentlist button"))
+    b.addEventListener("click", async () => {
+      const r = await fetch("/api/state?agent=" + encodeURIComponent(b.dataset.agent));
+      editing = null;                       // show the new agent's creature
+      fill(await r.json());
+    });
   $("list").innerHTML = s.avatars.map((a) => `
     <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
       <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(a.colour)}">
@@ -401,7 +455,7 @@ $("save").addEventListener("click", async () =>
                    scale: +$("scale").value, visor: visorNow()},
                   T.saved.replace("%s", editing))));
 $("wear").addEventListener("click", async () =>
-  fill(await post({avatar: editing}, T.switched.replace("%s", editing))));
+  fill(await post({agent: S.agent, avatar: editing}, T.switched.replace("%s", editing))));
 $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
   fill(await post({creature: editing, palette: null, scale: null, visor: null},
@@ -462,7 +516,8 @@ def _handler_class():
                 self.server.last_seen = 0.0         # tab closed: stop now
                 return self._json({"ok": True})
             if u.path == "/api/state":
-                return self._json(state_payload())
+                q = parse_qs(u.query)
+                return self._json(state_payload(agent=q.get("agent", [None])[0]))
             if u.path == "/api/preview":
                 q = parse_qs(u.query)
                 png = render_png(q.get("palette", ["auto"])[0],

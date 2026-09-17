@@ -8,8 +8,9 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from claudlet.cli import configui
 from claudlet.cli import configui as U
-from claudlet.core import petconfig
+from claudlet.core import agents, petconfig
 
 
 def _cfg(tmp_path, monkeypatch, **keys):
@@ -227,3 +228,41 @@ def test_both_languages_say_the_same_things():
     # a missing key would render as a literal __T_whatever__ in someone's page
     assert set(U.TEXT["ko"]) == set(U.TEXT["en"])
     assert all(U.TEXT["ko"].values()) and all(U.TEXT["en"].values())
+
+
+def test_state_payload_lists_detected_agents(monkeypatch):
+    monkeypatch.setattr(agents, "detected", lambda home=None: ["claude", "codex"])
+    p = configui.state_payload({"avatar": {"claude": "claudlet", "codex": "codex"}})
+    names = [a["name"] for a in p["agents"]]
+    assert names == ["claude", "codex"]
+    assert [a["creature"] for a in p["agents"]] == ["claudlet", "codex"]
+    assert p["agents"][0]["label"] == "Claude Code"
+
+
+def test_state_payload_hides_the_chip_row_for_a_single_agent(monkeypatch):
+    monkeypatch.setattr(agents, "detected", lambda home=None: ["claude"])
+    assert configui.state_payload({"avatar": "claudlet"})["agents"] == []
+
+
+def test_wearing_a_creature_writes_only_that_agents_key(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(agents, "detected", lambda home=None: ["claude", "codex"])
+    monkeypatch.setattr(configui.petconfig, "load_config",
+                        lambda: {"avatar": {"claude": "claudlet", "codex": "codex"}})
+    monkeypatch.setattr(configui.petconfig, "save_keys", saved.update)
+
+    configui.apply({"agent": "codex", "avatar": "slime"}, broadcast=lambda p: 0)
+
+    assert saved["avatar"] == {"claude": "claudlet", "codex": "slime"}
+
+
+def test_legacy_string_avatar_is_promoted_without_losing_the_choice(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(agents, "detected", lambda home=None: ["claude", "codex"])
+    monkeypatch.setattr(configui.petconfig, "load_config", lambda: {"avatar": "slime"})
+    monkeypatch.setattr(configui.petconfig, "save_keys", saved.update)
+
+    configui.apply({"agent": "codex", "avatar": "astronaut"}, broadcast=lambda p: 0)
+
+    # claude keeps what the single string meant; only codex changes
+    assert saved["avatar"] == {"claude": "slime", "codex": "astronaut"}
