@@ -57,8 +57,40 @@ Claude가 **서브에이전트**를 띄우면, 하나당 모자 쓴 작은 도�
 
 ```bash
 pipx install claudlet
-claudlet-install      # 훅 + /claudlet 스킬 등록 (idempotent)
+claudlet-install      # 감지된 에이전트 전부에 훅 + /claudlet 스킬 등록 (idempotent)
 ```
+
+`claudlet-install` 은 **찾은 에이전트마다** 훅을 걸고 `/claudlet` 스킬을 그 에이전트의
+스킬 폴더(`~/.claude/skills`, `~/.codex/skills`)에 링크해요. 리눅스에서는 설정 앱
+바로가기(`claudlet.desktop`)와 아이콘도 같이 넣어요.
+
+### 다른 에이전트 (Codex)
+
+claudlet은 Claude Code 전용이 아니에요. `claudlet-install`(과
+`claudlet-install-hooks`)은 **찾은 에이전트 전부**에 훅을 걸어요 — Claude Code는
+`~/.claude/settings.json`, Codex는 `~/.codex/hooks.json`. 하나만 걸고 싶으면:
+
+```bash
+claudlet-install-hooks --agent codex          # Codex만
+claudlet-install-hooks --agent claude,codex   # 둘 다, 명시적으로
+claudlet-install-hooks --remove --agent codex # Codex 훅만 제거
+```
+
+Codex는 `~/.codex/config.toml`에 이게 있어야 훅을 실행해요:
+
+```toml
+[features]
+hooks = true
+```
+
+그 파일에 들어있는 **다른 앱의 훅은 건드리지 않아요** — claudlet은 자기 것만 손댑니다.
+
+에이전트가 둘 이상 감지되면 설정 페이지(`claudlet-config`)에 에이전트 줄이 생겨서,
+Claude Code와 Codex에 **서로 다른 크리처**를 입힐 수 있어요.
+
+알아둘 차이 하나: Codex는 `Notification` 이벤트를 안 보내요. 그래서 Claude Code가
+그걸로 띄우던 상태(권한 요청·유휴 알림)는 Codex에선 안 떠요 — 대신 Codex의
+`PermissionRequest`가 권한 쪽을 맡습니다.
 
 버전 확인은 `claudlet-version` (설치본 vs 최신 릴리즈). **릴리즈** 최신으로는
 `pipx upgrade claudlet && claudlet-install`, **develop**(엣지) 최신으로는
@@ -152,10 +184,18 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 
 ![설정 화면](docs/settings-ui.png)
 
-`/claudlet setting` 을 치면 **어떤 크리처를 입힐지**, 그리고 크리처마다 **색과 크기**를
-고르는 페이지가 열려요. 목록의 크리처들은 **진짜 렌더러로 그려서** 보여주기 때문에
-화면에서 보이는 게 곧 바탕화면에 뜨는 모습이에요. 설정은 크리처마다 따로라서, 하나를
-꾸며도 다른 크리처 색이 따라 바뀌지 않아요.
+`/claudlet setting`(또는 `claudlet-config ui`)을 치면 **어떤 크리처를 입힐지**, 그리고
+크리처마다 **색과 크기**를 고르는 페이지가 열려요. 목록의 크리처들은 **진짜 렌더러로
+그려서** 보여주기 때문에 화면에서 보이는 게 곧 바탕화면에 뜨는 모습이에요. 설정은
+크리처마다 따로라서, 하나를 꾸며도 다른 크리처 색이 따라 바뀌지 않아요.
+
+에이전트가 둘 이상 깔려 있으면 **에이전트마다 탭**이 생겨요 — Claude Code 와 Codex 에
+각각 다른 크리처를 입힐 수 있어요. 터미널이 편하면 `claudlet-config wear <크리처>
+[--agent codex]` 한 줄로도 바뀌고, 떠 있는 펫은 바로 갈아입어요.
+
+페이지는 고정 포트로 로컬에서 열리고 평소 쓰는 브라우저로 떠요. 웹앱 manifest 도 같이
+주기 때문에 브라우저 메뉴에서 **앱으로 설치**하면 그다음부터는 자기 창으로 열리고,
+설치 없이 그 창만 쓰고 싶으면 `claudlet-config ui --app` 이에요.
 
 크리처는 데이터 파일이 아니라 작은 **패키지**예요. 펫은 "지금 이 상태" 만 알려주고,
 그게 어떻게 보이는지는 전부 크리처 안에서 정해요. 그래서 새로 만들 수 있어요:
@@ -166,11 +206,12 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 ```
 
 `~/.config/claudlet/creatures/<이름>/` 에 만들어지고 설정 목록에 바로 떠요. 기본으로
-세 마리가 들어 있어요:
+네 마리가 들어 있어요:
 
-![같은 상태를 각자 방식으로 — claudlet, astronaut, slime](docs/creatures.png)
+![같은 상태를 각자 방식으로 — claudlet, codex, astronaut, slime](docs/creatures.png)
 
-그중 둘은 **예제**로 들어 있고, 둘 다 기본 크리처와 몸꼴이 달라요:
+**codex** 는 Codex 세션의 펫이 기본으로 입는 크리처고, 나머지 둘은 **본보기**예요.
+둘 다 기본 크리처와 몸꼴이 전혀 달라요:
 
 - **astronaut** — 인간형. 헬멧·몸통·두 팔·두 다리·등에 멘 생명유지팩으로 두 발로
   서요. 팔은 어깨가 붙박이고 **손이** 움직이고, 혼자 돌아갈 때를 헤드셋 대신
@@ -181,6 +222,20 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 둘 다 고민하고 타이핑하고 잠들어요 — 모션과 프롭은 크리처가 아니라 **펫이 주는**
 거라서, 크리처는 몸만 그리면 돼요. 직접 만들 거면 둘 중 아무거나
 [creature-authoring.md](src/claudlet/skill/creature-authoring.md) 와 같이 읽어보세요.
+
+### 크리처 주고받기
+
+![크리처 가져오기](docs/settings-import.png)
+
+크리처 줄 옆의 화살표 버튼이 **지금 보고 있는 크리처를 zip 으로 내보내고**, 남이 준
+크리처를 **가져와요**(터미널에서는 `claudlet-config export <크리처>` /
+`import <파일.zip>`).
+
+가져오기는 **남의 파이썬을 내 기계에서 돌리는 일**이에요 — 펫이 시작할 때 그 패키지를
+임포트하니까요. 그래서 일부러 두 단계예요: 압축 안에 뭐가 들었는지 먼저 보여주고,
+네가 "설치" 를 누르기 전에는 아무것도 쓰지 않아요. 대상 폴더 밖으로 나가려 하거나,
+심볼릭 링크를 숨겼거나, 파일명에 제어문자가 있거나, 크리처치고 말이 안 되게 큰
+아카이브는 그냥 거부하고, 설치가 도중에 실패해도 **원래 있던 크리처는 그대로** 남아요.
 계약과 함정은 [creature-authoring.md](src/claudlet/skill/creature-authoring.md) 에 있어요.
 
 ## 명령어
@@ -192,11 +247,14 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 | `claudlet` | 펫 바로 실행 (standalone). |
 | `claudlet-install` | Claude Code에 훅 + `/claudlet` 스킬 등록 — 설치 후 한 번 실행. |
 | `claudlet-uninstall` | 펫 종료 + 훅·스킬 해제 + 정리 (`--purge`면 설정도 삭제). |
-| `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). `ui` 는 겉모습 페이지를 열어요. |
+| `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). `ui` 는 겉모습 페이지 (`--app` 은 자기 창으로, `--agent <이름>` 은 그 에이전트 화면으로). |
+| `claudlet-config wear <크리처>` | 크리처 갈아입히기. `--agent <이름>` 이면 그 에이전트만. 인자 없이 치면 목록. |
+| `claudlet-config export <크리처>` | 크리처를 zip 으로 내보내기 (`--out <폴더\|파일.zip>`, `--force` 덮어쓰기). |
+| `claudlet-config import <파일.zip>` | 받은 크리처 설치 — 내용물을 먼저 보여줘요 (`--yes` 확인 생략, `--force` 같은 이름 교체). |
 | `claudlet-version` | 설치된 버전 vs PyPI 최신 릴리즈 표시. |
 | `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
 | `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
-| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만 (`--remove`로 취소). |
+| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만, 감지된 에이전트 전부에 (`--agent codex`로 좁히기, `--remove`로 취소). |
 | `claudlet-macos-diag` | macOS 창 좌표 원본 출력 (perch 문제 진단). |
 | `claudlet-hook` | 내부용 — Claude Code 훅이 호출, 직접 쓰는 게 아님. |
 

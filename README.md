@@ -59,8 +59,43 @@ commands on your PATH), then wire it into Claude Code:
 
 ```bash
 pipx install claudlet
-claudlet-install      # registers the hooks + /claudlet skill (idempotent)
+claudlet-install      # hooks + /claudlet skill, for every agent found (idempotent)
 ```
+
+`claudlet-install` registers the hooks for **each agent it finds** and links the
+`/claudlet` skill into that agent's own skills folder (`~/.claude/skills`,
+`~/.codex/skills`). On Linux it also drops a desktop entry and icon for the
+settings app.
+
+### Other agents (Codex)
+
+claudlet isn't Claude-Code-only. `claudlet-install` (and `claudlet-install-hooks`)
+registers hooks for **every agent it finds** — Claude Code via
+`~/.claude/settings.json`, Codex via `~/.codex/hooks.json`. Narrow it when you
+want just one:
+
+```bash
+claudlet-install-hooks --agent codex          # only Codex
+claudlet-install-hooks --agent claude,codex   # both, explicitly
+claudlet-install-hooks --remove --agent codex # unhook just Codex
+```
+
+Codex runs hooks only when `~/.codex/config.toml` has:
+
+```toml
+[features]
+hooks = true
+```
+
+Other apps' hook entries in those files are left alone — claudlet only ever
+touches its own.
+
+When more than one agent is detected, the settings page (`claudlet-config`) grows
+an agent row, so Claude Code and Codex can wear **different creatures**.
+
+One difference worth knowing: Codex sends no `Notification` event, so the states
+Claude Code drives through it (permission prompt, idle nudge) don't fire for
+Codex — its own `PermissionRequest` covers the permission case instead.
 
 Check your version with `claudlet-version` (installed vs latest release). Update
 to the newest **release** with `pipx upgrade claudlet && claudlet-install`, or to
@@ -158,10 +193,21 @@ happening at a glance.
 
 ![The settings page](docs/settings-ui.png)
 
-`/claudlet setting` opens a page where you pick **which creature** the pet wears
-and, for each one, its **colour** and **size**. Every creature is previewed with
-the real renderer, so what you see is what lands on the desktop. Settings belong
-to the creature, so dressing one never repaints another.
+`/claudlet setting` (or `claudlet-config ui`) opens a page where you pick
+**which creature** the pet wears and, for each one, its **colour** and **size**.
+Every creature is previewed with the real renderer, so what you see is what lands
+on the desktop. Settings belong to the creature, so dressing one never repaints
+another.
+
+When more than one agent is installed, the page gets **a tab per agent** — Claude
+Code and Codex can wear different creatures. Prefer the command line?
+`claudlet-config wear <creature> [--agent codex]` switches it without opening
+anything, and running pets change at once.
+
+The page is served locally on a fixed port and opens in your ordinary browser. It
+also ships a web-app manifest, so you can **install it** from your browser's menu;
+after that it opens as its own window, and `claudlet-config ui --app` gives you
+that window without installing.
 
 A creature is a small package, not a data file — the pet tells it which state to
 be in and everything about how that looks is inside. `/claudlet make <what you
@@ -173,12 +219,12 @@ want>` writes one for you:
 ```
 
 It lands in `~/.config/claudlet/creatures/<name>/` and shows up in the settings
-list. Three ship with the pet:
+list. Four ship with the pet:
 
-![claudlet, astronaut and slime across the same states](docs/creatures.png)
+![claudlet, codex, astronaut and slime across the same states](docs/creatures.png)
 
-Two of them are there as **worked examples**, and neither is shaped like the
-built-in:
+**codex** is the one a Codex session's pet wears by default; the other two are
+there as **worked examples**, and neither is shaped like the built-in:
 
 - **astronaut** — a humanoid. Helmet, torso, two arms, two legs, a pack on its
   back. Its arms hang from fixed shoulders and the *hands* move, and it answers
@@ -193,6 +239,21 @@ pet, not from the creature — a creature only draws a body. Read either one nex
 to [creature-authoring.md](src/claudlet/skill/creature-authoring.md) if you are
 writing your own.
 
+### Sharing a creature
+
+![Importing a creature](docs/settings-import.png)
+
+The arrow buttons beside the creature bar export the one you are looking at as a
+`.zip`, and import one someone sent you (`claudlet-config export <creature>` /
+`import <file.zip>` do the same from a shell).
+
+Importing runs someone else's Python on your machine — the pet imports the
+package at startup — so it is deliberately a two-step: claudlet shows you what is
+inside the archive and installs nothing until you say go. Archives that try to
+escape the target directory, hide a symlink, carry control characters in a
+filename, or weigh more than a creature plausibly can are refused outright, and an
+install that fails leaves the creature you already had untouched.
+
 ## Commands
 
 `pipx install claudlet` puts these on your PATH:
@@ -202,11 +263,14 @@ writing your own.
 | `claudlet` | Launch a pet right now (standalone). |
 | `claudlet-install` | Register the hooks + `/claudlet` skill in Claude Code — run once after installing. |
 | `claudlet-uninstall` | Stop pets, unregister the hooks + skill, clean up (`--purge` also deletes your config). |
-| `claudlet-config` | Show / scaffold / open the user config (`--path`, `init`, `open`); `ui` opens the appearance page. |
+| `claudlet-config` | Show / scaffold / open the user config (`--path`, `init`, `open`); `ui` opens the appearance page (`--app` for a window of its own, `--agent <name>` to open on that agent). |
+| `claudlet-config wear <creature>` | Put a creature on, `--agent <name>` for one agent only; no argument lists what is available. |
+| `claudlet-config export <creature>` | Zip a creature to share (`--out <dir\|file.zip>`, `--force` to overwrite). |
+| `claudlet-config import <file.zip>` | Install a creature someone shared, after showing you what is inside (`--yes` to skip the prompt, `--force` to replace one of the same name). |
 | `claudlet-version` | Show the installed version vs the latest PyPI release. |
 | `claudlet-attach` | Attach a pet to the current Claude Code session. |
 | `claudlet-motion <name>` | Play a motion on running pets (`jump`, `wave`, … ; `stop`, `list`). |
-| `claudlet-install-hooks` | Just the hooks half of `claudlet-install` (`--remove` to undo). |
+| `claudlet-install-hooks` | Just the hooks half of `claudlet-install`, for every detected agent (`--agent codex` to narrow, `--remove` to undo). |
 | `claudlet-macos-diag` | Print raw macOS window coordinates (perch troubleshooting). |
 | `claudlet-hook` | Internal — invoked by Claude Code's hooks, not by you. |
 

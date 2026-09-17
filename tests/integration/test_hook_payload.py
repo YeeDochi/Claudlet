@@ -31,23 +31,21 @@ def test_missing_fields_omitted():
     assert "tool_name" not in msg
 
 
-def test_sock_for_uses_session(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    assert mod.sock_for({"session_id": "xyz"}) is None       # no pet running yet
-    (tmp_path / "claudlet-xyz.port").write_text("54321")
-    assert mod.sock_for({"session_id": "xyz"}) == 54321
-    assert mod.sock_for({}) is None
-
-
-def _run_main(monkeypatch, session_id, pet_alive_result, launch_calls, sent):
+def _run_main(monkeypatch, session_id, pet_alive_result, launch_calls, sent,
+              agent="claude", transcript_path=None):
     monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: pet_alive_result)
     monkeypatch.setattr(mod, "_launch_pet",
                          lambda *a, **k: launch_calls.append((a, k)))
     monkeypatch.setattr(mod, "_send",
                          lambda port, payload: sent.append((port, payload)))
-    monkeypatch.setattr(mod.sys, "argv", ["claudlet-hook", "SessionStart"])
-    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
-        {"session_id": session_id, "hook_event_name": "SessionStart"})))
+    argv = ["claudlet-hook", "SessionStart"]
+    if agent != "claude":
+        argv += ["--agent", agent]
+    data = {"session_id": session_id, "hook_event_name": "SessionStart"}
+    if transcript_path is not None:
+        data["transcript_path"] = str(transcript_path)
+    monkeypatch.setattr(mod.sys, "argv", argv)
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(data)))
     mod.main()
 
 
@@ -82,6 +80,30 @@ def test_session_start_sends_when_pet_confirmed_alive(tmp_path, monkeypatch):
     _run_main(monkeypatch, "live", True, launch_calls, sent)
     assert launch_calls == []
     assert len(sent) == 1
+
+
+def test_codex_session_start_ignores_missing_rollout(tmp_path, monkeypatch):
+    """Codex tool workers announce short-lived sessions without creating the
+    rollout they name; those internal sessions must not get their own pet."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    launch_calls, sent = [], []
+    missing = tmp_path / "rollout-2026-09-17T14-47-05-01a0ade7-7ee0.jsonl"
+    _run_main(monkeypatch, "01a0ade7-7ee0", False, launch_calls, sent,
+              agent="codex", transcript_path=missing)
+
+    assert launch_calls == []
+    assert sent == []
+
+
+def test_codex_session_start_launches_for_a_real_rollout(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    rollout = tmp_path / "rollout-2026-09-17T14-46-53-01a0ade7-518a.jsonl"
+    rollout.write_text("", encoding="utf-8")
+    launch_calls, sent = [], []
+    _run_main(monkeypatch, "01a0ade7-518a", False, launch_calls, sent,
+              agent="codex", transcript_path=rollout)
+
+    assert len(launch_calls) == 1
 
 
 class _RefusingSocket:
@@ -260,3 +282,44 @@ def test_build_message_omits_the_title_when_unavailable():
 def test_win_console_title_is_none_off_windows(monkeypatch):
     monkeypatch.setattr(mod.os, "name", "posix")
     assert mod._win_console_title(101) is None
+
+
+def test_agent_arg_defaults_to_claude():
+    assert mod.agent_arg(["claudlet-hook", "Stop"]) == "claude"
+    assert mod.agent_arg(["claudlet-hook", "Stop", "--agent", "codex"]) == "codex"
+    assert mod.agent_arg(["claudlet-hook", "Stop", "--agent=codex"]) == "codex"
+    # an unknown agent must not crash a hook; it degrades to the default
+    assert mod.agent_arg(["claudlet-hook", "Stop", "--agent", "wat"]) == "claude"
+
+
+def test_session_of_falls_back_to_the_transcript_uuid():
+    uuid = "01a0acb1-0899-7763-8512-b9d0b28c1f02"
+    data = {"transcript_path":
+            "/home/u/.codex/sessions/2026/09/17/rollout-2026-09-17T09-07-58-%s.jsonl" % uuid}
+    assert mod.session_of(data) == uuid
+    assert mod.session_of({"session_id": "abc", "transcript_path": "x"}) == "abc"
+    assert mod.session_of({}) == "default"
+
+
+def test_build_message_still_carries_event_and_session():
+    line = mod.build_message(["claudlet-hook", "PreToolUse", "--agent", "codex"],
+                              {"session_id": "s1", "tool_name": "shell"})
+    msg = json.loads(line)
+    assert msg["event"] == "PreToolUse" and msg["session"] == "s1"
+    assert msg["tool_name"] == "shell"
+
+
+def test_build_message_uses_session_of_for_a_codex_payload_with_no_session_id():
+    # main() keys the port file with session_of(data) (which falls back to the
+    # transcript's rollout UUID for Codex, which sends no session_id). If
+    # build_message used data.get("session_id") or "default" instead, the pet
+    # would be found by its real uuid while every message told the engine the
+    # session was "default" -- two different rules for "which session is this".
+    uuid = "01a0acb1-0899-7763-8512-b9d0b28c1f02"
+    data = {"transcript_path":
+            "/home/u/.codex/sessions/2026/09/17/rollout-2026-09-17T09-07-58-%s.jsonl" % uuid,
+            "tool_name": "exec"}
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "PreToolUse", "--agent", "codex"], data))
+    assert msg["session"] == uuid
+    assert msg["session"] == mod.session_of(data)

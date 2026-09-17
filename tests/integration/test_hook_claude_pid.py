@@ -20,6 +20,13 @@ def test_direct_child_of_claude():
     assert mod.resolve_claude_pid(90, info) == 90
 
 
+def test_resolve_pid_finds_the_named_agent_process():
+    t = tree({10: ("codex", 5), 5: ("zsh", 1)})
+    assert mod.resolve_claude_pid(10, t, needle="codex") == 10
+    # the default needle must not match codex
+    assert mod.resolve_claude_pid(10, t) == 0
+
+
 def test_no_claude_in_chain_returns_zero():
     info = tree({90: ("zsh", 80), 80: ("systemd", 1)})
     assert mod.resolve_claude_pid(90, info) == 0

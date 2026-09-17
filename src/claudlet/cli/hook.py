@@ -12,6 +12,7 @@ Must never block or fail Claude: every error is swallowed and exit is always 0.
 """
 import sys
 import os
+import re
 import json
 import socket
 import subprocess
@@ -31,8 +32,41 @@ except Exception:
 
 try:
     from claudlet.core import hostinfo
+    from claudlet.core import agents
 except Exception:
     hostinfo = None
+    agents = None
+
+
+def agent_arg(argv):
+    """Which agent this hook invocation serves. The installer puts
+    `--agent <name>` in the registered command; an old settings.json without
+    it (or a name we don't know) means Claude Code."""
+    for i, a in enumerate(argv):
+        if a == "--agent" and i + 1 < len(argv):
+            name = argv[i + 1]
+            break
+        if a.startswith("--agent="):
+            name = a.split("=", 1)[1]
+            break
+    else:
+        return agents.DEFAULT
+    return name if name in agents.AGENTS else agents.DEFAULT
+
+
+_ROLLOUT = re.compile(
+    r"rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$",
+    re.I)
+
+
+def session_of(data):
+    """The session key for this payload. Codex may omit session_id but always
+    names the transcript, whose filename ends in the session uuid."""
+    sid = data.get("session_id")
+    if sid:
+        return str(sid)
+    m = _ROLLOUT.search(str(data.get("transcript_path") or "").replace("\\", "/"))
+    return m.group(1) if m else "default"
 
 
 def build_message(argv, data, title=None):
@@ -43,7 +77,7 @@ def build_message(argv, data, title=None):
     the caller reads it off the console and passes it in.
     """
     event = (argv[1] if len(argv) > 1 else "") or data.get("hook_event_name", "")
-    msg = {"event": event, "session": data.get("session_id") or "default"}
+    msg = {"event": event, "session": session_of(data)}
     if title:
         msg["title"] = title
     for key in ("tool_name", "notification_type", "error_type",
@@ -77,11 +111,7 @@ def build_message(argv, data, title=None):
     return json.dumps(msg) + "\n"
 
 
-def sock_for(data):
-    return hostinfo.read_session_port(data.get("session_id") or "default")
-
-
-def resolve_claude_pid(start_pid, proc_info, max_hops=32):
+def resolve_claude_pid(start_pid, proc_info, max_hops=32, needle="claude"):
     """Walk up the parent chain from start_pid to the Claude Code process.
 
     Claude runs hooks under a transient shell, so os.getppid() is that
@@ -104,7 +134,7 @@ def resolve_claude_pid(start_pid, proc_info, max_hops=32):
         if info is None:
             return 0
         comm, ppid = info
-        if "claude" in comm:
+        if needle in comm:
             return pid
         pid = ppid
     return 0
@@ -223,9 +253,10 @@ def _proc_info(pid):
         return None
 
 
-def _launch_pet(session_id, host):
-    # Give the reaper the real Claude Code pid, not our transient shell parent.
-    claude_pid = resolve_claude_pid(os.getppid(), _proc_info)
+def _launch_pet(session_id, host, agent):
+    # Give the reaper the real agent pid, not our transient shell parent.
+    claude_pid = resolve_claude_pid(os.getppid(), _proc_info,
+                                    needle=agents.get(agent)["proc"])
     # Launch the pet as `python -m claudlet` with THIS interpreter so it works
     # cross-OS; detach so it outlives the hook. start_new_session is POSIX-only.
     kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
@@ -239,7 +270,8 @@ def _launch_pet(session_id, host):
     env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
     subprocess.Popen(
         [sys.executable, "-m", "claudlet", "--session", session_id,
-         "--host", host, "--claude-pid", str(claude_pid)], env=env, **kw)
+         "--host", host, "--agent", agent,
+         "--claude-pid", str(claude_pid)], env=env, **kw)
 
 
 def _send(port, payload):
@@ -267,7 +299,26 @@ def main():
         data = {}
 
     event = (sys.argv[1] if len(sys.argv) > 1 else "") or data.get("hook_event_name", "")
-    session_id = data.get("session_id") or "default"
+    agent = agent_arg(sys.argv)
+    session_id = session_of(data)
+
+    # Codex tool workers emit SessionStart with a transcript path but never
+    # create that rollout. They are implementation details, not user sessions.
+    if (event == "SessionStart" and agent == "codex"
+            and not os.path.isfile(str(data.get("transcript_path") or ""))):
+        return
+
+    if os.environ.get("CLAUDLET_DEBUG_HOOK"):
+        try:
+            import time as _time
+            import tempfile as _tempfile
+            with open(os.path.join(_tempfile.gettempdir(),
+                                   "claudlet-hookdebug.jsonl"), "a") as f:
+                f.write(json.dumps({"t": _time.time(), "agent": agent,
+                                    "event": event, "payload": data},
+                                   ensure_ascii=False) + "\n")
+        except Exception:
+            pass
 
     # Opt-in companion-lifetime diagnostic (CLAUDLET_DEBUG_BG=1), same spirit as
     # CLAUDLET_DEBUG_GEOM: append each Stop/SubagentStop's raw background_tasks
@@ -303,7 +354,7 @@ def main():
             # dropping this event on a timing coincidence.
             had_port = hostinfo.read_session_port(session_id) is not None
             if not hostinfo.pet_alive(session_id):
-                _launch_pet(session_id, hostinfo.detect_host())
+                _launch_pet(session_id, hostinfo.detect_host(), agent)
                 launched_fresh = not had_port
         except Exception:
             pass

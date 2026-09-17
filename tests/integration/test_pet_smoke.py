@@ -38,6 +38,23 @@ def test_pet_answers_liveness_ping(pet):
     assert pet.snapshot()["quit_armed"] is False   # a ping is NOT a Claude event
 
 
+def test_snapshot_reports_which_agent_the_pet_serves(pet):
+    assert pet.snapshot()["agent"] == "claude"
+
+
+def test_codex_permission_request_raises_attention():
+    # No `qapp`/`agent` fixture exists in this harness; construct the Pet
+    # directly (as the `pet` fixture does internally) and tear down the same
+    # way harness.py's fixture does, via _cleanup().
+    p = P.Pet(session_id="codex-1", host="unknown", agent="codex")
+    try:
+        send_hook(p, "PermissionRequest", session="c1")
+        p._tick()
+        assert p.snapshot()["state"] == "attention"
+    finally:
+        p._cleanup()
+
+
 def test_companion_follows_when_far_and_stops_when_near():
     # only walks toward the pet once the gap exceeds FOLLOW_START, converges to
     # within FOLLOW_STOP, then stays put (hysteresis) — no jitter, and crucially
@@ -1793,6 +1810,21 @@ def test_tooltip_names_the_session(pet):
     tip = pet.snapshot()["tooltip"]
     assert tip == "%s(%s)" % (os.path.basename(os.getcwd()),
                               pet.session_id.split("-")[0])
+
+
+def test_codex_tooltip_names_the_indexed_thread(tmp_path, monkeypatch):
+    import json
+    index = tmp_path / "session_index.jsonl"
+    index.write_text(json.dumps({
+        "id": "01a0ade7-518a",
+        "thread_name": "클로들렛 훅 수정",
+    }, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(hostinfo, "CODEX_SESSION_INDEX", str(index), raising=False)
+    p = P.Pet(session_id="01a0ade7-518a", host="unknown", agent="codex")
+    try:
+        assert p.snapshot()["tooltip"] == "클로들렛 훅 수정(01a0ade7)"
+    finally:
+        p._cleanup()
 
 
 def test_click_focus_picks_our_project_window(pet):

@@ -36,6 +36,7 @@ from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QReg
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
+from claudlet.core import agents
 from claudlet.core import avatars
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
@@ -56,12 +57,13 @@ from claudlet.platform import geom
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
-def _avatar_name(cfg=None):
+def _avatar_name(cfg=None, agent=None):
     """Which creature to wear. Env beats config so one pet can be run as
-    somebody else without changing everyone's setting. An unknown name falls
-    back to the built-in inside avatars.get()."""
+    somebody else; then the user's choice for THIS agent; then the agent's own
+    default creature. An unknown name falls back inside avatars.get()."""
     return (os.environ.get("CLAUDLET_AVATAR")
-            or (cfg or {}).get("avatar")
+            or petconfig.avatar_for(cfg or {}, agent)
+            or (agents.get(agent)["avatar"] if agent else None)
             or None)
 
 
@@ -519,8 +521,11 @@ class ZoneOverlay(QWidget):
 
 
 class Pet(QWidget):
-    def __init__(self, session_id="default", host="unknown", claude_pid=0):
+    def __init__(self, session_id="default", host="unknown", claude_pid=0,
+                 agent="claude"):
         super().__init__()
+        self.agent = agent if agent in agents.AGENTS else agents.DEFAULT
+        spec = agents.get(self.agent)
         # The KWin geom feed and geom.EXCLUDE_CLASSES filter our own windows
         # out by resourceClass "claudlet", which Qt derives from the application
         # name — main() sets it, but a Pet constructed directly (demo/embedding)
@@ -547,7 +552,7 @@ class Pet(QWidget):
         self.port_file = hostinfo.session_port_file(session_id)
 
         cfg = petconfig.load_config()
-        self.avatar = avatars.get(_avatar_name(cfg))
+        self.avatar = avatars.get(_avatar_name(cfg, self.agent))
         self.u = petconfig.for_creature(cfg, self.avatar.name, self.avatar)["scale"]
         self._visor_mode = petconfig.DEFAULT_VISOR
         self._resize_to_avatar()
@@ -591,9 +596,9 @@ class Pet(QWidget):
         self._palette_roll = (random.random(), random.random())
         self._apply_style(cfg)
         self.engine = StateEngine(is_focused=self._is_focused,
-                                  tool_states=cfg["tool_states"],
+                                  tool_states={**spec["tools"], **cfg["tool_states"]},
                                   event_states=cfg["event_states"],
-                                  raw_events=cfg["raw_events"])
+                                  raw_events={**spec["raw_events"], **cfg["raw_events"]})
         # language for user-facing strings (speech bubbles, tray, menus)
         self.lang = petconfig.resolve_lang(cfg.get("lang", "auto"))
         self.avatar.set_lang(self.lang)
@@ -944,7 +949,10 @@ class Pet(QWidget):
         short = str(self.session_id).split("-")[0]
         if now - self._tip_checked >= TIP_REFRESH_SEC or not getattr(self, "_tip_name", ""):
             self._tip_checked = now
-            self._tip_name = hostinfo.session_title(self.session_id) or self._project
+            title = (hostinfo.codex_session_title(self.session_id)
+                     if self.agent == "codex"
+                     else hostinfo.session_title(self.session_id))
+            self._tip_name = title or self._project
         return "%s(%s)" % (self._tip_name, short)
 
     @property
@@ -988,9 +996,17 @@ class Pet(QWidget):
         the window resized and the pet nudged back inside the screen."""
         cfg = petconfig.load_config()
         before = (self.u, self.avatar.name)
-        want = _avatar_name(cfg)
-        if want and want != self.avatar.name:
-            self.avatar = avatars.get(want)     # 크리처를 갈아입는다
+        want = _avatar_name(cfg, self.agent)
+        # Compare against the RESOLVED avatar's name, not the requested one: an
+        # unresolvable name (e.g. a registry default whose creature package
+        # isn't installed) falls back to the same built-in every time, and
+        # comparing the raw request against self.avatar.name would never
+        # match -- re-running avatars.get() (a registry rescan) on every
+        # restyle forever instead of settling once resolved.
+        if want:
+            resolved = avatars.get(want)
+            if resolved.name != self.avatar.name:
+                self.avatar = resolved          # 크리처를 갈아입는다
         self._apply_style(cfg)
         if (self.u, self.avatar.name) != before:
             self._resize_to_avatar()
@@ -1052,6 +1068,7 @@ class Pet(QWidget):
             "scale": self.u,                     # device px per art pixel
             "size": (self.w, self.h),
             "avatar": self.avatar.name,
+            "agent": self.agent,
             "hidden": self._hidden_for_win,                   # occluded away entirely
             "masked": self._masked,                           # clipped to exposed sliver
             "no_go": len(self._no_go),
@@ -2630,7 +2647,8 @@ class Pet(QWidget):
         별도 프로세스로 detach 한다 — 서버를 이 안에서 돌리면 펫의 이벤트 루프가
         멈춰 크리처가 얼어붙는다. 실패해도 조용히 넘어간다: 설정 창이 안 뜨는
         것이 펫이 죽는 것보다 낫다."""
-        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui"]
+        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui",
+               "--agent", self.agent]
         kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
               "stderr": subprocess.DEVNULL}
         if hasattr(os, "setsid"):
@@ -3116,6 +3134,7 @@ def main():
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")
     ap.add_argument("--claude-pid", type=int, default=0)
+    ap.add_argument("--agent", default=agents.DEFAULT)
     args, _ = ap.parse_known_args()
 
     # One pet per session: hold an exclusive lock. If another pet already holds
@@ -3155,7 +3174,8 @@ def main():
             macos.set_accessory_policy()
         except Exception:
             pass                              # never block startup over cosmetics
-    pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid)
+    pet = Pet(session_id=args.session, host=args.host, claude_pid=args.claude_pid,
+              agent=args.agent)
     pet._lock_fd = lock_fd                    # keep the fd (and the lock) alive
     # always tear down the KWin geom script — including on `kill`/SIGTERM, which
     # otherwise skips _cleanup and leaks a script that keeps pushing geometry.

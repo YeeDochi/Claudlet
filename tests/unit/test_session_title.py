@@ -64,3 +64,14 @@ def test_a_huge_transcript_still_finds_the_title(tmp_path):
                 + noise
                 + [{"type": "ai-title", "aiTitle": "최근 제목", "sessionId": "s5"}])
     assert H.session_title("s5", root=str(tmp_path)) == "최근 제목"
+
+
+def test_codex_title_comes_from_the_latest_session_index_entry(tmp_path):
+    index = tmp_path / "session_index.jsonl"
+    index.write_text("\n".join([
+        json.dumps({"id": "other", "thread_name": "다른 대화"}, ensure_ascii=False),
+        json.dumps({"id": "s1", "thread_name": "처음 제목"}, ensure_ascii=False),
+        json.dumps({"id": "s1", "thread_name": "최신 제목"}, ensure_ascii=False),
+    ]) + "\n", encoding="utf-8")
+
+    assert H.codex_session_title("s1", path=str(index)) == "최신 제목"

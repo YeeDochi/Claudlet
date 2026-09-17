@@ -247,6 +247,7 @@ def pet_alive(session_id, timeout=0.3):
 # name is what a person recognises a session BY, so it is what the pet's hover
 # tooltip should say; the session id means nothing to anyone.
 TRANSCRIPTS = os.path.expanduser("~/.claude/projects")
+CODEX_SESSION_INDEX = os.path.expanduser("~/.codex/session_index.jsonl")
 _TITLE_TAIL = 64 * 1024        # the title is re-emitted per prompt; the tail has it
 
 
@@ -295,3 +296,24 @@ def session_title(session_id, root=None, tail=_TITLE_TAIL):
             title = str(d["aiTitle"]).strip()
         continue
     return title
+
+
+def codex_session_title(session_id, path=None):
+    """The latest title Codex recorded for this session, or ""."""
+    import json
+    path = CODEX_SESSION_INDEX if path is None else path
+    if not session_id:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get("id") == session_id and d.get("thread_name"):
+            return str(d["thread_name"]).strip()
+    return ""

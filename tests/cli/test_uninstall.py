@@ -62,8 +62,10 @@ def _stub_teardown(monkeypatch, calls):
     monkeypatch.setattr(U, "stop_running_pets", lambda: calls.append("stop") or 2)
     monkeypatch.setattr(U.install_hooks, "main",
                         lambda argv=None: calls.append(("hooks", argv)))
-    monkeypatch.setattr(U.install, "_unlink_skill",
-                        lambda: calls.append("unlink"))
+    monkeypatch.setattr(U.install, "_unlink_skills",
+                        lambda home=None: calls.append("unlink"))
+    monkeypatch.setattr(U.install, "uninstall_desktop_entry",
+                        lambda home=None: calls.append("desktop"))
     monkeypatch.setattr(U, "clean_port_files", lambda: calls.append("clean") or 0)
     monkeypatch.setattr(U, "purge_config", lambda: calls.append("purge") or True)
 
@@ -78,6 +80,7 @@ def test_main_default_tears_down_without_purge(monkeypatch, capsys):
     assert "stop" in calls
     assert ("hooks", ["--remove"]) in calls     # hooks removed, not installed
     assert "unlink" in calls
+    assert "desktop" in calls
     assert "clean" in calls
     assert "purge" not in calls                 # default must NOT touch config
     # guides the user to remove the package themselves (we never self-uninstall)
