@@ -835,6 +835,26 @@ def test_installed_pwa_command_skips_an_unreadable_entry(tmp_path, monkeypatch):
     assert U.installed_pwa_command("claudlet 크리처", apps_dir=str(d)) is None
 
 
+def test_find_windows_pwa_shortcut_matches_localized_start_menu_entry():
+    paths = [
+        r"C:\Users\u\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Chrome 앱\YouTube.lnk",
+        r"C:\Users\u\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Chrome 앱\claudlet 크리처.lnk",
+    ]
+    assert U.find_windows_pwa_shortcut(paths, "claudlet 크리처") == paths[1]
+
+
+def test_find_windows_pwa_shortcut_is_case_insensitive_and_skips_bad_values():
+    paths = [None, r"C:\Apps\CLAUDLET 크리처.LNK"]
+    assert U.find_windows_pwa_shortcut(paths, "claudlet 크리처") == paths[1]
+
+
+def test_windows_pwa_lookup_walks_nested_start_menu_directory(tmp_path):
+    app = tmp_path / "Chrome 앱" / "claudlet 크리처.lnk"
+    app.parent.mkdir()
+    app.write_text("shortcut")
+    assert U._windows_pwa_shortcut("claudlet 크리처", [str(tmp_path)]) == str(app)
+
+
 # ---------- launch order: explicit app window > installed PWA > ordinary
 # browser, with every fallback intact ----------
 
@@ -894,6 +914,18 @@ def test_launch_browser_a_lookup_error_still_ends_at_the_ordinary_browser(monkey
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
     U.launch_browser("http://x/", app_window=False)
     assert opened == ["http://x/"]
+
+
+def test_launch_browser_opens_windows_pwa_shortcut_with_startfile(monkeypatch):
+    opened = []
+    monkeypatch.setattr(U, "browser_command", lambda url: None)
+    monkeypatch.setattr(U, "installed_pwa_command",
+                        lambda *a, **kw: r"C:\Apps\claudlet.lnk")
+    monkeypatch.setattr(U.os, "name", "nt")
+    monkeypatch.setattr(U.os, "startfile", lambda path: opened.append(path),
+                        raising=False)
+    U.launch_browser("http://x/", app_window=False)
+    assert opened == [r"C:\Apps\claudlet.lnk"]
 
 
 # ---------- installable: manifest, service worker, icon ----------

@@ -212,14 +212,57 @@ def find_installed_pwa(entries, app_name):
     return None
 
 
+def find_windows_pwa_shortcut(paths, app_name):
+    """Return the installed Windows PWA shortcut named ``app_name``.
+
+    Chrome and Edge put installed web apps below the user's Start Menu (often
+    in a localized subdirectory such as ``Chrome 앱``).  The shortcut's file
+    name is the manifest name, so no COM dependency is needed just to identify
+    our app.  ``paths`` is injected to keep the matching rule unit-testable.
+    """
+    wanted = app_name.casefold()
+    for path in paths or ():
+        try:
+            if (os.path.splitext(os.path.basename(path))[1].casefold() == ".lnk"
+                    and os.path.splitext(os.path.basename(path))[0].casefold()
+                    == wanted):
+                return path
+        except (AttributeError, TypeError):
+            continue
+    return None
+
+
+def _windows_pwa_shortcut(app_name, roots=None):
+    """Find our PWA in the per-user or all-users Windows Start Menu."""
+    if roots is None:
+        roots = [
+            os.path.join(os.environ.get("APPDATA", ""),
+                         "Microsoft", "Windows", "Start Menu", "Programs"),
+            os.path.join(os.environ.get("PROGRAMDATA", ""),
+                         "Microsoft", "Windows", "Start Menu", "Programs"),
+        ]
+    paths = []
+    for root in roots:
+        if not root:
+            continue
+        try:
+            for base, _dirs, files in os.walk(root):
+                paths.extend(os.path.join(base, name) for name in files
+                             if name.lower().endswith(".lnk"))
+        except OSError:
+            continue
+    return find_windows_pwa_shortcut(paths, app_name)
+
+
 def installed_pwa_command(app_name, apps_dir=None):
     """Thin OS shell over `find_installed_pwa`: reads the real desktop-entry
     directory and hands its contents to the pure matcher.
 
-    A no-op (returns None) rather than an error whenever there is nothing to
-    read: the directory doesn't exist (macOS, Windows, or a Linux box with no
-    installed PWAs), or a listed file can't be opened -- one unreadable entry
-    is skipped, not fatal to the ones after it."""
+    On Windows this returns the installed PWA's ``.lnk`` path; on Linux it
+    returns the desktop entry's argv.  A no-op (returns None) rather than an
+    error whenever there is nothing to read."""
+    if os.name == "nt" and apps_dir is None:
+        return _windows_pwa_shortcut(app_name)
     d = apps_dir if apps_dir is not None else os.path.expanduser(
         "~/.local/share/applications")
     try:
@@ -1335,9 +1378,12 @@ def launch_browser(url, app_window=False, apps_dir=None):
             cmd = None
     try:
         if cmd:
-            import subprocess
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+            if isinstance(cmd, str) and os.name == "nt":
+                os.startfile(cmd)
+            else:
+                import subprocess
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
             return
         import webbrowser
         webbrowser.open(url)
