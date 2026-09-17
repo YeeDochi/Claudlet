@@ -4,23 +4,31 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 from claudlet.core import creature as C
 from claudlet import pet as P
+from claudlet.core import petconfig
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
 
-def test_companion_unit_is_whole_pixels():
-    # a fractional unit made every companion art pixel alternate 2px/3px wide
-    assert float(P.COMPANION_U).is_integer(), P.COMPANION_U
+def test_companion_unit_is_whole_pixels_at_every_scale():
+    # a fractional unit made every companion art pixel alternate 2px/3px wide,
+    # so the companion scale must stay whole however the pet is scaled
+    for u in range(petconfig.MIN_SCALE, petconfig.MAX_SCALE + 1):
+        cu = P._companion_scale(u)
+        assert float(cu).is_integer() and cu >= 2, (u, cu)
 
 
 def test_companion_window_holds_the_whole_sprite():
     # (GRID_H + 2 * PAD_Y) * 2.5 was 52.5, so int() clipped half a pixel off the
     # window and the sprite lost its bottom row
-    w = (C.GRID_W + 2 * P.PAD_X) * P.COMPANION_U
-    h = (C.GRID_H + 2 * P.PAD_Y) * P.COMPANION_U
-    assert int(w) == w and int(h) == h, (w, h)
+    for u in range(petconfig.MIN_SCALE, petconfig.MAX_SCALE + 1):
+        cu = P._companion_scale(u)
+        w = (C.GRID_W + 2 * P.PAD_X) * cu
+        h = (C.GRID_H + 2 * P.PAD_Y) * cu
+        assert int(w) == w and int(h) == h, (u, w, h)
 
 
 def test_companion_draw_origin_is_on_the_grid():
-    assert float(P.PAD_X * P.COMPANION_U).is_integer()
-    assert float(P.PAD_Y * P.COMPANION_U).is_integer()
+    for u in range(petconfig.MIN_SCALE, petconfig.MAX_SCALE + 1):
+        cu = P._companion_scale(u)
+        assert float(P.PAD_X * cu).is_integer()
+        assert float(P.PAD_Y * cu).is_integer()
