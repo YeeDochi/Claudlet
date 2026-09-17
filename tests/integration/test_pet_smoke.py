@@ -128,13 +128,34 @@ def test_companion_blinks_over_when_a_level_apart(monkeypatch):
     try:
         monkeypatch.setattr(p.engine, "agents_active", lambda: 1)
         p.mode = "roam"
+        # Same flat, windowless floor its sibling test below pins down. Left to
+        # whatever windows a previous test cached, the follow intent comes back
+        # as something the give-up counter resets on, and the teleport never
+        # fires -- which is why this passed alone and failed inside the suite.
+        p._wins = []
+        p.x = 100.0
+        p.y = p.floor_y
         p._sync_companion()
         c = p._companion
-        c.x, c.y = p.x + 500, p.y + P.COMPANION_BLINK_DY + 200   # far + a level below
-        for _ in range(P.COMPANION_REUNITE_TICKS):
-            c.y = p.y + P.COMPANION_BLINK_DY + 200   # stays stranded on its level
+        # Pin BOTH axes every tick, not just y. Left free, the companion simply
+        # walks back to the pet -- which satisfies "ended up beside the pet"
+        # without the teleport ever firing, so this test used to pass on the
+        # walk and fail whenever a roaming pet's random start put the companion
+        # somewhere it could not walk back from in time.
+        far_x = p.x + 500
+        level_below = p.y + P.COMPANION_BLINK_DY + 200
+        blinked_at = None
+        for tick in range(P.COMPANION_REUNITE_TICKS * 2):
+            c.x, c.y = far_x, level_below        # stays stranded, out of reach
             p._sync_companion()
-        assert abs((c.x + c.w / 2.0) - (p.x + p.w / 2.0)) < c.w  # blinked to the pet
+            if abs(c.y - p.y) == 0.0:            # only the teleport levels it
+                blinked_at = tick
+                break
+
+        assert blinked_at is not None, "companion never gave up and teleported"
+        # a GIVE-UP teleport: the grace period is spent first, it is not instant
+        assert blinked_at >= P.COMPANION_REUNITE_TICKS - 1
+        assert abs((c.x + c.w / 2.0) - (p.x + p.w / 2.0)) < c.w  # beside the pet
     finally:
         p._cleanup()
 
