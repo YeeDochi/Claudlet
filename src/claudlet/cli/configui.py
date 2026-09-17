@@ -191,8 +191,45 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None,
 
 # ---------- the shell ----------
 
+# The page follows the same `lang` setting the pet does. Korean-only was fine
+# while this was one developer's tool; it ships now.
+TEXT = {
+    "ko": {
+        "title": "크리처", "lead": "색과 크기를 정합니다. 저장하면 떠 있는 펫에 바로 반영됩니다.",
+        "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
+        "save": "저장", "wear": "이 크리처 입히기", "worn_btn": "입고 있음",
+        "reset": "기본으로", "worn": "착용 중", "notworn": "미착용",
+        "settings_of": "%s 설정",
+        "visor_auto": "오토모드일 때", "visor_on": "항상", "visor_off": "안 함",
+        "named": "지금은 %s — 색을 고르면 바뀝니다",
+        "saved": "%s 설정을 저장했습니다", "switched": "%s 로 갈아입혔습니다",
+        "reverted": "%s 를 기본으로 되돌렸습니다",
+        "applied_pets": " — 펫 %d마리에 반영", "applied_next": " — 다음에 뜨는 펫부터",
+        "serving": "claudlet 크리처 설정: ", "stop": "(창을 닫거나 Ctrl-C 로 종료)",
+    },
+    "en": {
+        "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
+        "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
+        "save": "Save", "wear": "Wear this one", "worn_btn": "Worn",
+        "reset": "Defaults", "worn": "worn", "notworn": "not worn",
+        "settings_of": "%s settings",
+        "visor_auto": "When unattended", "visor_on": "Always", "visor_off": "Never",
+        "named": "currently %s — pick a colour to change it",
+        "saved": "Saved %s", "switched": "Now wearing %s",
+        "reverted": "%s back to defaults",
+        "applied_pets": " — %d pet(s) updated", "applied_next": " — from the next pet on",
+        "serving": "claudlet creature settings: ", "stop": "(close the page, or Ctrl-C)",
+    },
+}
+
+
+def texts(cfg=None):
+    cfg = petconfig.load_config() if cfg is None else cfg
+    return TEXT[petconfig.resolve_lang(cfg.get("lang"))]
+
+
 PAGE_TEMPLATE = """<!doctype html><meta charset="utf-8">
-<title>claudlet — 크리처</title>
+<title>claudlet — __T_title__</title>
 <style>
 :root{color-scheme:dark;--bg:#16161a;--card:#212128;--line:#33333d;--fg:#ECECF0;--dim:#9A9AA8}
 *{box-sizing:border-box}
@@ -239,33 +276,33 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 @media (max-width:720px){main{padding:16px}label{width:100%}}
 </style>
 <header>
-  <h1>크리처</h1>
-  <p>색과 크기를 정합니다. 저장하면 떠 있는 펫에 바로 반영됩니다.</p>
+  <h1>__T_title__</h1>
+  <p>__T_lead__</p>
 </header>
 <main>
-  <section id="creatures"><h2>크리처</h2><div id="list"></div></section>
+  <section id="creatures"><h2>__T_creatures__</h2><div id="list"></div></section>
   <section id="settings">
-    <h2 id="who">설정</h2>
+    <h2 id="who"></h2>
     <div class="row">
-      <label for="col">색</label>
+      <label for="col">__T_colour__</label>
       <input type="color" id="col">
       <code id="hex"></code>
       <span id="isnamed" style="color:var(--dim)"></span>
     </div>
     <div class="row">
-      <label for="scale">크기</label>
+      <label for="scale">__T_size__</label>
       <input type="range" id="scale" min="2" max="12" step="1">
       <code id="scaleval"></code>
     </div>
     <div class="row">
-      <label>특수 모드</label>
+      <label>__T_special__</label>
       <div id="visor" class="seg"></div>
     </div>
     <div id="shots"></div>
     <div class="row" style="margin:18px 0 0">
-      <button id="save">저장</button>
-      <button id="wear" class="ghost">이 크리처 입히기</button>
-      <button id="reset" class="ghost">기본으로</button>
+      <button id="save">__T_save__</button>
+      <button id="wear" class="ghost">__T_wear__</button>
+      <button id="reset" class="ghost">__T_reset__</button>
       <span id="said"></span>
     </div>
   </section>
@@ -288,7 +325,8 @@ function shot(state, cacheBust) {
   return `<figure><img src="/api/preview?${q}" alt="${state}">
           <figcaption>${state}</figcaption></figure>`;
 }
-const VISOR_LABEL = {auto: "오토모드일 때", on: "항상", off: "안 함"};
+const T = __T_JSON__;
+const VISOR_LABEL = {auto: T.visor_auto, on: T.visor_on, off: T.visor_off};
 function visorNow() {
   const on = document.querySelector("#visor button[aria-pressed=true]");
   return on ? on.dataset.v : "auto";
@@ -299,10 +337,10 @@ function redraw() {
   const t = Date.now();
   const states = (S.avatar_states && S.avatar_states[editing]) || S.states;
   $("shots").innerHTML = states.map((s) => shot(s, t)).join("");
-  $("who").textContent = editing + " 설정";
+  $("who").textContent = T.settings_of.replace("%s", editing);
   const isWorn = editing === worn();
   $("wear").disabled = isWorn;
-  $("wear").textContent = isWorn ? "입고 있음" : "이 크리처 입히기";
+  $("wear").textContent = isWorn ? T.worn_btn : T.wear;
   for (const c of document.querySelectorAll(".card"))
     c.setAttribute("aria-current", String(c.dataset.name === editing));
 }
@@ -324,7 +362,7 @@ function showCreature(name) {
     });
   }
   $("isnamed").textContent = isHex ? ""
-    : "지금은 " + pal + " — 색을 고르면 바뀝니다";
+    : T.named.replace("%s", pal);
   redraw();
 }
 function fill(s) {
@@ -333,8 +371,8 @@ function fill(s) {
     <div class="card" data-name="${a.name}" aria-selected="${a.selected}">
       <img src="/api/preview?state=idle&scale=3&avatar=${encodeURIComponent(a.name)}&palette=${encodeURIComponent(a.colour)}">
       <div><div>${a.name}</div>
-        ${a.selected ? '<span class="worn">착용 중</span>'
-                     : '<span class="notworn">미착용</span>'}
+        ${a.selected ? `<span class="worn">${T.worn}</span>`
+                     : `<span class="notworn">${T.notworn}</span>`}
       </div></div>`).join("");
   for (const card of document.querySelectorAll(".card"))
     card.addEventListener("click", () => showCreature(card.dataset.name));
@@ -353,21 +391,21 @@ async function post(body, note) {
   const r = await fetch("/api/config", {method: "POST",
     headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
   const out = await r.json();
-  $("said").textContent = note + (out.pets ? ` — 펫 ${out.pets}마리에 반영`
-                                           : " — 다음에 뜨는 펫부터");
+  $("said").textContent = note + (out.pets
+      ? T.applied_pets.replace("%d", out.pets) : T.applied_next);
   for (const b of ["save", "reset", "wear"]) $(b).disabled = false;
   return out;
 }
 $("save").addEventListener("click", async () =>
   fill(await post({creature: editing, palette: $("col").value,
                    scale: +$("scale").value, visor: visorNow()},
-                  editing + " 설정을 저장했습니다")));
+                  T.saved.replace("%s", editing))));
 $("wear").addEventListener("click", async () =>
-  fill(await post({avatar: editing}, editing + " 로 갈아입혔습니다")));
+  fill(await post({avatar: editing}, T.switched.replace("%s", editing))));
 $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
   fill(await post({creature: editing, palette: null, scale: null, visor: null},
-                  editing + " 를 기본으로 되돌렸습니다")));
+                  T.reverted.replace("%s", editing))));
 fetch("/api/state").then((r) => r.json()).then(fill);
 // Tell the server the page is still open. It stops when this stops, which is
 // what closing the tab looks like from its side — otherwise a settings page
@@ -381,7 +419,15 @@ window.addEventListener("pagehide", () => {
 """
 
 
-PAGE = PAGE_TEMPLATE.replace("__HEARTBEAT__", str(HEARTBEAT_MS))
+def page(cfg=None):
+    """The page in the user's language. Built per request rather than once at
+    import: the language can change in the config while the server is up."""
+    t = texts(cfg)
+    out = PAGE_TEMPLATE.replace("__HEARTBEAT__", str(HEARTBEAT_MS))
+    out = out.replace("__T_JSON__", json.dumps(t, ensure_ascii=False))
+    for key, val in t.items():
+        out = out.replace("__T_%s__" % key, val)
+    return out
 
 
 def _handler_class():
@@ -408,7 +454,7 @@ def _handler_class():
         def do_GET(self):
             u = urlparse(self.path)
             if u.path == "/":
-                return self._send(200, PAGE.encode("utf-8"),
+                return self._send(200, page().encode("utf-8"),
                                   "text/html; charset=utf-8")
             if u.path == "/api/alive":
                 return self._json({"ok": True})     # the page is still open
@@ -456,8 +502,9 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT):
     srv.timeout = 5                     # wake up often enough to notice silence
     srv.last_seen = time.monotonic()
     url = "http://127.0.0.1:%d/" % srv.server_port
-    print("claudlet 크리처 설정: " + url)
-    print("(창을 닫거나 Ctrl-C 로 종료)")
+    t = texts()
+    print(t["serving"] + url)
+    print(t["stop"])
     if open_browser:
         try:
             import webbrowser

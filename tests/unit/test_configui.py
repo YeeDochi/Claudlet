@@ -208,5 +208,22 @@ def test_the_server_stops_once_the_page_stops_saying_it_is_open():
 
 
 def test_the_page_sends_a_heartbeat_and_a_goodbye():
-    assert "/api/alive" in U.PAGE and str(U.HEARTBEAT_MS) in U.PAGE
-    assert "/api/bye" in U.PAGE          # closing the tab stops it at once
+    pg = U.page({})
+    assert "/api/alive" in pg and str(U.HEARTBEAT_MS) in pg
+    assert "/api/bye" in pg              # closing the tab stops it at once
+
+
+def test_the_page_follows_the_language_setting():
+    # the pet already speaks the user's language; the settings page shipped
+    # Korean-only, which was fine while it was one developer's tool
+    ko, en = U.page({"lang": "ko"}), U.page({"lang": "en"})
+    assert "크리처" in ko and "Creatures" in en
+    assert "크리처" not in en
+    for pg in (ko, en):
+        assert "__T_" not in pg, "an untranslated placeholder reached the page"
+
+
+def test_both_languages_say_the_same_things():
+    # a missing key would render as a literal __T_whatever__ in someone's page
+    assert set(U.TEXT["ko"]) == set(U.TEXT["en"])
+    assert all(U.TEXT["ko"].values()) and all(U.TEXT["en"].values())
