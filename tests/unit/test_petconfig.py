@@ -1,3 +1,4 @@
+import pytest
 import os, json, tempfile
 
 from claudlet.core import petconfig
@@ -54,6 +55,7 @@ def test_non_dict_json_yields_empty():
         assert petconfig.load_config(p) == EMPTY
 
 
+@pytest.mark.real_config_path
 def test_config_path_respects_xdg(monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdgtest")
     assert petconfig.config_path() == os.path.join("/tmp/xdgtest", "claudlet", "config.json")

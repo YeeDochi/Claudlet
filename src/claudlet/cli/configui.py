@@ -161,6 +161,7 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 button{background:#6B8AFF;color:#0b0b10;border:0;border-radius:8px;
        padding:10px 18px;font-weight:600;font-size:14px;cursor:pointer}
 button[disabled]{opacity:.5;cursor:default}
+button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
 #said{color:var(--dim);font-size:13px;margin-left:12px}
 @media (max-width:720px){main{padding:16px}label{width:100%}}
 </style>
@@ -185,7 +186,9 @@ button[disabled]{opacity:.5;cursor:default}
     </div>
     <div id="shots"></div>
     <div class="row" style="margin:18px 0 0">
-      <button id="save">저장</button><span id="said"></span>
+      <button id="save">저장</button>
+      <button id="reset" class="ghost">기본으로</button>
+      <span id="said"></span>
     </div>
   </section>
 </main>
@@ -219,18 +222,26 @@ function fill(s) {
   redraw();
   if (s.named) $("isnamed").textContent = "지금은 " + s.palette + " — 색을 고르면 바뀝니다";
 }
-$("col").addEventListener("input", redraw);
-$("scale").addEventListener("input", redraw);
-$("save").addEventListener("click", async () => {
-  $("save").disabled = true;
+// 색 입력은 브라우저에 따라 드래그 중 input 을, OS 색 대화상자를 쓰면 닫을 때
+// change 만 쏜다. 둘 다 들어야 고른 색이 바로 미리보기에 뜬다.
+for (const ev of ["input", "change"]) {
+  $("col").addEventListener(ev, redraw);
+  $("scale").addEventListener(ev, redraw);
+}
+async function post(body, note) {
+  $("save").disabled = $("reset").disabled = true;
   const r = await fetch("/api/config", {method: "POST",
-    headers: {"content-type": "application/json"},
-    body: JSON.stringify({palette: $("col").value, scale: +$("scale").value})});
+    headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
   const out = await r.json();
-  $("said").textContent = out.pets ? `저장했습니다 — 펫 ${out.pets}마리에 반영`
-                                   : "저장했습니다 — 다음에 뜨는 펫부터";
-  $("save").disabled = false;
-});
+  $("said").textContent = note + (out.pets ? ` — 펫 ${out.pets}마리에 반영`
+                                           : " — 다음에 뜨는 펫부터");
+  $("save").disabled = $("reset").disabled = false;
+  return out;
+}
+$("save").addEventListener("click", () =>
+  post({palette: $("col").value, scale: +$("scale").value}, "저장했습니다"));
+$("reset").addEventListener("click", async () =>
+  fill(await post({palette: "auto", scale: null}, "기본으로 되돌렸습니다")));
 fetch("/api/state").then((r) => r.json()).then(fill);
 </script>
 """

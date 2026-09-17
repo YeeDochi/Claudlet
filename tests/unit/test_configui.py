@@ -90,3 +90,22 @@ def test_preview_never_rolls_a_shiny():
     # colour the user did not pick
     for _ in range(20):
         assert U.render_png("auto", 3)[:4] == b"\x89PNG"
+
+
+def test_reset_goes_back_to_the_defaults(tmp_path, monkeypatch):
+    # once a colour is picked there has to be a way back: "auto" is what rolls
+    # the rare shiny again, and scale returns to the built-in size
+    path = _cfg(tmp_path, monkeypatch, palette="#00FFCC", scale=9)
+    out = U.apply({"palette": "auto", "scale": None}, broadcast=lambda line: 1)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["palette"] == "auto" and raw["scale"] == petconfig.DEFAULT_SCALE
+    assert out["named"] is True and out["scale"] == petconfig.DEFAULT_SCALE
+
+
+def test_preview_shows_the_colour_being_picked_not_the_saved_one(tmp_path,
+                                                                 monkeypatch):
+    # the page renders the picker's current value, which is not yet in config
+    _cfg(tmp_path, monkeypatch, palette="#00FFCC")
+    picked = U.render_png("#D97757", 5, "idle")
+    saved = U.render_png("#00FFCC", 5, "idle")
+    assert picked != saved

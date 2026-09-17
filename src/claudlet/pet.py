@@ -137,6 +137,7 @@ UI = {
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
+           "settings": "🎨 크리처 설정…",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
            "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)"},
@@ -145,6 +146,7 @@ UI = {
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
+           "settings": "🎨 Creature settings…",
            "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
            "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
            "roam": "Roam freely", "dock_reset": "Reset dock position"},
@@ -2518,6 +2520,8 @@ class Pet(QWidget):
             a_comp_del = QAction(self.ui["comp_del"], m)
             m.addAction(a_comp_del)
         m.addSeparator()
+        a_settings = QAction(self.ui["settings"], m)
+        m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
         m.addAction(a_zone_edit)
         a_zone_clear = None
@@ -2549,6 +2553,8 @@ class Pet(QWidget):
             self._spawn_test_companion(+1)
         elif a_comp_del is not None and chosen == a_comp_del:
             self._spawn_test_companion(-1)
+        elif chosen == a_settings:
+            self._open_settings()
         elif chosen == a_zone_edit:
             self._enter_zone_edit()
         elif a_zone_clear is not None and chosen == a_zone_clear:
@@ -2571,6 +2577,26 @@ class Pet(QWidget):
         self.dnd = not self.dnd
         if getattr(self, "_act_dnd", None) is not None:
             self._act_dnd.setChecked(self.dnd)
+
+    def _open_settings(self):
+        """크리처 설정 페이지를 띄운다 (claudlet-config ui).
+
+        별도 프로세스로 detach 한다 — 서버를 이 안에서 돌리면 펫의 이벤트 루프가
+        멈춰 크리처가 얼어붙는다. 실패해도 조용히 넘어간다: 설정 창이 안 뜨는
+        것이 펫이 죽는 것보다 낫다."""
+        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui"]
+        kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL}
+        if hasattr(os, "setsid"):
+            kw["start_new_session"] = True          # POSIX: 펫과 함께 죽지 않게
+        env = dict(os.environ)
+        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
+        env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
+        env.pop("QT_QPA_PLATFORM", None)   # 펫은 xcb 를 강제한다; 미리보기는 offscreen
+        try:
+            subprocess.Popen(cmd, env=env, **kw)
+        except OSError:
+            pass
 
     def _spawn_test_companion(self, delta):
         """Test helper (right-click menu): make a companion appear/disappear
