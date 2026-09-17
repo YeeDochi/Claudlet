@@ -45,7 +45,8 @@ than raising** — the pet passes everything it knows:
 | `energy` | `1.0` fresh … `0.0` exhausted |
 | `happy` | being petted right now |
 | `gaze` | `(dx, dy)`, roughly −1…1, where the cursor is |
-| `visor`, `cap`, `pocket` | auto-mode headset, companion hat, pocket-peek |
+| `cap` | a hat kind, for companion creatures |
+| `pocket` | peeking out of a slit in the screen |
 
 Paint with `p.fillRect(...)`; the pet has already set the pen to `NoPen` and
 antialiasing off.
@@ -55,9 +56,9 @@ antialiasing off.
 Two things in `claudlet.core.creature` are **tools, not rules**. The built-in
 creature uses them. A GIF-backed creature ignores them entirely.
 
-### `state_rig(state, frame, energy=1.0, happy=False, visor=None, gaze=(0,0))`
+### `state_rig(state, frame, energy=1.0, happy=False, autonomous=False, gaze=(0,0))`
 
-Twenty-eight states' worth of tuned motion, as plain numbers. Use it and your
+Twenty-nine states' worth of tuned motion, as plain numbers. Use it and your
 creature moves like claudlet does without you inventing any of it:
 
 | key | meaning |
