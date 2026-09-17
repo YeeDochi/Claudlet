@@ -146,8 +146,8 @@ The creature's pose tracks what Claude is doing — editing, reading, calling MC
 thinking, waiting on your input, celebrating (see the sheet above). While Claude
 runs **unattended** (auto / bypass mode) it shows that too — the built-in pulls
 a VR visor down over its eyes. It also **perches on and rides your windows** —
-walking along the top or
-living inside — and clips/hides when the window it's on is covered or minimized.
+walking along the top or living inside — and clips/hides when the window it's on
+is covered or minimized.
 
 When Claude runs **subagents**, a hatted **companion** appears for each one (up to
 three) and trails the pet in a duckling chain, mirroring the subagent's activity
@@ -177,13 +177,21 @@ list. Three ship with the pet:
 
 ![claudlet, astronaut and slime across the same states](docs/creatures.png)
 
-**slime** has no legs — a stride becomes a hop, and a lean is a shear rather
-than a rotation. **astronaut** is a humanoid that stands upright and answers
-the unattended flag with a lit visor instead of a headset. Both still think,
-type and sleep, because the motion and the props come from the pet, not from
-the creature. Read
-`slime.py` if you are writing your own; the contract and the pitfalls are in
-[creature-authoring.md](src/claudlet/skill/creature-authoring.md).
+Two of them are there as **worked examples**, and neither is shaped like the
+built-in:
+
+- **astronaut** — a humanoid. Helmet, torso, two arms, two legs, a pack on its
+  back. Its arms hang from fixed shoulders and the *hands* move, and it answers
+  the unattended flag with a lit visor and a blinking antenna rather than a
+  headset.
+- **slime** — no legs at all. A stride becomes a hop, and a lean is a shear
+  rather than a rotation, because rotating a stack of thin slabs smears every
+  edge.
+
+Both still think, type and sleep, because the motion and the props come from the
+pet, not from the creature — a creature only draws a body. Read either one next
+to [creature-authoring.md](src/claudlet/skill/creature-authoring.md) if you are
+writing your own.
 
 ## Commands
 
