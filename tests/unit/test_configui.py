@@ -713,6 +713,164 @@ def test_browser_command_is_none_without_a_chromium_family_browser():
     assert U.browser_command("http://x/", which=lambda n: None) is None
 
 
+# ---------- installed-PWA lookup: find our settings page among installed
+# chromium/edge web apps, so "settings" can open the app someone installed
+# instead of always a plain tab ----------
+
+_OURS = """[Desktop Entry]
+Version=1.0
+Terminal=false
+Type=Application
+Name=claudlet 크리처
+Exec=/opt/google/chrome/google-chrome --profile-directory=Default --app-id=gflghkeoenmpajpibkmhelgbooaocgbf
+Icon=chrome-gflghkeoenmpajpibkmhelgbooaocgbf-Default
+StartupWMClass=crx_gflghkeoenmpajpibkmhelgbooaocgbf
+"""
+
+_DECOY = """[Desktop Entry]
+Version=1.0
+Terminal=false
+Type=Application
+Name=YouTube
+Exec=/opt/google/chrome/google-chrome --profile-directory=Default --app-id=agimnkijcaahngcdmfeangaknmldooml %U
+Icon=chrome-agimnkijcaahngcdmfeangaknmldooml-Default
+StartupWMClass=crx_agimnkijcaahngcdmfeangaknmldooml
+"""
+
+_MALFORMED = "this is not a desktop entry at all\n%%%broken=="
+
+
+def test_find_installed_pwa_matches_ours_among_several_entries():
+    entries = {
+        "chrome-agimnkijcaahngcdmfeangaknmldooml-Default.desktop": _DECOY,
+        "chrome-gflghkeoenmpajpibkmhelgbooaocgbf-Default.desktop": _OURS,
+        "chrome-broken-Default.desktop": _MALFORMED,
+    }
+    argv = U.find_installed_pwa(entries, "claudlet 크리처")
+    assert argv == ["/opt/google/chrome/google-chrome",
+                    "--profile-directory=Default",
+                    "--app-id=gflghkeoenmpajpibkmhelgbooaocgbf"]
+
+
+def test_find_installed_pwa_strips_field_codes():
+    entries = {"msedge-x-Default.desktop": _DECOY.replace("chrome-", "msedge-")}
+    argv = U.find_installed_pwa(entries, "YouTube")
+    assert "%U" not in argv
+    assert argv[-1] == "--app-id=agimnkijcaahngcdmfeangaknmldooml"
+
+
+def test_find_installed_pwa_none_when_nothing_matches():
+    entries = {"chrome-agimnkijcaahngcdmfeangaknmldooml-Default.desktop": _DECOY}
+    assert U.find_installed_pwa(entries, "claudlet 크리처") is None
+
+
+def test_find_installed_pwa_ignores_non_pwa_and_malformed_entries():
+    entries = {"claudlet.desktop": "[Desktop Entry]\nName=claudlet 크리처\nExec=claudlet\n",
+              "chrome-broken-Default.desktop": _MALFORMED}
+    # "claudlet.desktop" isn't a chrome-/msedge- PWA entry, so even though its
+    # Name matches it must not be picked up as the installed app
+    assert U.find_installed_pwa(entries, "claudlet 크리처") is None
+
+
+def test_find_installed_pwa_none_on_empty_or_missing_entries():
+    assert U.find_installed_pwa({}, "claudlet 크리처") is None
+    assert U.find_installed_pwa(None, "claudlet 크리처") is None
+
+
+def test_installed_pwa_command_reads_the_real_directory(tmp_path):
+    d = tmp_path / "applications"
+    d.mkdir()
+    (d / "chrome-decoy-Default.desktop").write_text(_DECOY, encoding="utf-8")
+    (d / "chrome-ours-Default.desktop").write_text(_OURS, encoding="utf-8")
+    argv = U.installed_pwa_command("claudlet 크리처", apps_dir=str(d))
+    assert argv[0] == "/opt/google/chrome/google-chrome"
+    assert "--app-id=gflghkeoenmpajpibkmhelgbooaocgbf" in argv
+
+
+def test_installed_pwa_command_is_a_noop_when_the_directory_is_missing(tmp_path):
+    # macOS / Windows: this directory never exists there
+    assert U.installed_pwa_command("claudlet 크리처",
+                                   apps_dir=str(tmp_path / "nope")) is None
+
+
+def test_installed_pwa_command_skips_an_unreadable_entry(tmp_path, monkeypatch):
+    d = tmp_path / "applications"
+    d.mkdir()
+    (d / "chrome-ours-Default.desktop").write_text(_OURS, encoding="utf-8")
+    real_open = open
+
+    def flaky_open(path, *a, **kw):
+        if "chrome-ours" in str(path):
+            raise OSError("permission denied")
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", flaky_open)
+    # the one entry that would have matched is unreadable; still ends at None
+    # (rather than raising) instead of crashing the whole lookup
+    assert U.installed_pwa_command("claudlet 크리처", apps_dir=str(d)) is None
+
+
+# ---------- launch order: explicit app window > installed PWA > ordinary
+# browser, with every fallback intact ----------
+
+def test_launch_browser_prefers_an_explicit_app_window(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(U, "browser_command", lambda url: ["explicit-app", url])
+    monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: ["installed-pwa"])
+    monkeypatch.setattr(U, "chrome_profile_dir", lambda: str(tmp_path / "profile"))
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
+    U.launch_browser("http://x/", app_window=True)
+    assert calls == [["explicit-app", "http://x/"]]
+
+
+def test_launch_browser_falls_back_to_the_installed_pwa(monkeypatch):
+    calls = []
+    monkeypatch.setattr(U, "browser_command", lambda url: None)
+    monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: ["installed-pwa"])
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
+    U.launch_browser("http://x/", app_window=False)
+    assert calls == [["installed-pwa"]]
+
+
+def test_launch_browser_falls_back_to_the_ordinary_browser(monkeypatch):
+    opened = []
+    monkeypatch.setattr(U, "browser_command", lambda url: None)
+    monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: None)
+    import webbrowser
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
+    U.launch_browser("http://x/", app_window=False)
+    assert opened == ["http://x/"]
+
+
+def test_launch_browser_explicit_app_window_requested_but_absent_still_checks_pwa(monkeypatch):
+    # app_window=True with no chromium-family browser on PATH (browser_command
+    # returns None) must not stop at "no app window" -- it still falls
+    # through to the installed-PWA step and then the ordinary browser.
+    calls = []
+    monkeypatch.setattr(U, "browser_command", lambda url: None)
+    monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: ["installed-pwa"])
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
+    U.launch_browser("http://x/", app_window=True)
+    assert calls == [["installed-pwa"]]
+
+
+def test_launch_browser_a_lookup_error_still_ends_at_the_ordinary_browser(monkeypatch):
+    opened = []
+    monkeypatch.setattr(U, "browser_command", lambda url: None)
+
+    def boom(*a, **kw):
+        raise RuntimeError("should never escape launch_browser")
+
+    monkeypatch.setattr(U, "installed_pwa_command", boom)
+    import webbrowser
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
+    U.launch_browser("http://x/", app_window=False)
+    assert opened == ["http://x/"]
+
+
 # ---------- installable: manifest, service worker, icon ----------
 
 def _get(port, path):

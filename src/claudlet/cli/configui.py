@@ -152,6 +152,73 @@ def browser_command(url, which=None, size=APP_WINDOW, profile_dir=None):
     return None
 
 
+PWA_ENTRY_PREFIXES = ("chrome-", "msedge-")   # chromium-family PWA installers
+
+
+def find_installed_pwa(entries, app_name):
+    """argv to launch the installed PWA for `app_name` (our manifest's
+    "name"), or None if nothing matches. `entries` is {filename: raw .desktop
+    text} -- injected rather than read here, so this is pure and testable.
+
+    Chromium/Edge write one `chrome-<app-id>-Default.desktop` /
+    `msedge-<app-id>-Default.desktop` per installed PWA, each with an
+    Exec= line carrying --app-id=<id> and a Name= taken from the web app
+    manifest at install time. Matched by that Name, not a hardcoded string,
+    so a manifest-name change is picked up without touching this matcher.
+    Any entry that isn't ours, or can't be parsed, is skipped -- one bad or
+    unrelated file must never hide a real match in another."""
+    import configparser
+    import re
+    import shlex
+    field_code = re.compile(r"^%[a-zA-Z]$")
+    for name, text in (entries or {}).items():
+        if not (name.endswith(".desktop") and name.startswith(PWA_ENTRY_PREFIXES)):
+            continue
+        try:
+            # RawConfigParser: Exec= routinely contains bare "%" (field codes),
+            # which the interpolating ConfigParser would choke on.
+            cp = configparser.RawConfigParser(strict=False)
+            cp.read_string(text)
+            entry = cp["Desktop Entry"]
+            if entry.get("Name") != app_name:
+                continue
+            exe = entry.get("Exec")
+            if not exe:
+                continue
+            argv = [tok for tok in shlex.split(exe) if not field_code.match(tok)]
+        except Exception:
+            continue
+        if argv:
+            return argv
+    return None
+
+
+def installed_pwa_command(app_name, apps_dir=None):
+    """Thin OS shell over `find_installed_pwa`: reads the real desktop-entry
+    directory and hands its contents to the pure matcher.
+
+    A no-op (returns None) rather than an error whenever there is nothing to
+    read: the directory doesn't exist (macOS, Windows, or a Linux box with no
+    installed PWAs), or a listed file can't be opened -- one unreadable entry
+    is skipped, not fatal to the ones after it."""
+    d = apps_dir if apps_dir is not None else os.path.expanduser(
+        "~/.local/share/applications")
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return None
+    entries = {}
+    for name in names:
+        if not name.endswith(".desktop"):
+            continue
+        try:
+            with open(os.path.join(d, name), "r", encoding="utf-8") as f:
+                entries[name] = f.read()
+        except OSError:
+            continue
+    return find_installed_pwa(entries, app_name)
+
+
 def manifest(cfg=None):
     """The PWA manifest, as data. The icons come from /api/icon, which draws the
     creature the user is actually wearing -- the repo carries no image assets."""
@@ -1217,25 +1284,39 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
     return url
 
 
-def launch_browser(url, app_window=False):
-    """Open the page in the user's ORDINARY browser.
+def launch_browser(url, app_window=False, apps_dir=None):
+    """Open the page. In order:
 
-    `app_window=True` asks for a chrome-less app window instead (its own Chrome
-    profile, so the flags actually apply -- a second invocation on the default
-    profile is swallowed by the running Chrome). That is opt-in: a bare window
-    with no address bar reads as "some strange app", and the page is an ordinary
-    local page. Someone who wants it as an app installs it (the manifest is
-    served for exactly that) or passes --app.
+    1. An explicitly requested chrome-less app window (`app_window=True`,
+       today's --app) -- its own Chrome profile, so the flags actually apply
+       (a second invocation on the default profile is swallowed by the
+       running Chrome).
+    2. The installed PWA for this page, if the user has installed one
+       (see `installed_pwa_command`) -- so once installed, "settings" opens
+       THAT window instead of leaving it to be found by hand.
+    3. The user's ORDINARY browser -- what happens with nothing installed
+       and no --app.
 
-    Best effort: a settings page that does not open is not worth an exception."""
+    Every fallback is intact: no chromium-family browser, no desktop-entry
+    directory (macOS/Windows), or an unparsable entry all fall straight
+    through to the ordinary browser rather than raising.
+
+    Best effort throughout: a settings page that does not open is not worth
+    an exception."""
     cmd = browser_command(url) if app_window else None
+    if cmd:
+        try:
+            os.makedirs(chrome_profile_dir(), exist_ok=True)
+        except OSError:
+            pass                         # Chrome creates it itself if needed
+    else:
+        try:
+            cmd = installed_pwa_command(manifest()["name"], apps_dir=apps_dir)
+        except Exception:
+            cmd = None
     try:
         if cmd:
             import subprocess
-            try:
-                os.makedirs(chrome_profile_dir(), exist_ok=True)
-            except OSError:
-                pass                     # Chrome creates it itself if needed
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
             return
