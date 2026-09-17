@@ -51,12 +51,67 @@ class Avatar(Protocol):
 
 DEFAULT = "claudlet"
 
+# Where creatures other than the built-in live. One directory per creature,
+# holding a Python package that exposes AVATAR.
+#
+# A creature is a PACKAGE, not a data file, because the pet only ever tells it
+# WHICH STATE to be in -- the creature decides everything about how that looks.
+# Drawing it as code, playing a GIF, blitting a sprite sheet: all of that is
+# inside, and none of it is our business. A data format would have had to
+# anticipate every way someone might want to draw, and the first attempt at one
+# spent itself re-inventing what code already does.
+#
+# Importing from here runs the creature's code, the same as any plugin: it is
+# the user's own directory, and a creature someone sends you is code you chose
+# to install.
+import os
+
+CREATURES_DIR = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+    "claudlet", "creatures")
+
+
+def _load_dir(path):
+    """Import one creature directory and return its avatar class/factory.
+
+    Anything wrong with it -- no entry point, a syntax error, an import of
+    something that isn't installed -- means this creature is skipped, never
+    that the pet fails to start."""
+    import importlib.util
+    for entry in ("__init__.py", "creature.py"):
+        f = os.path.join(path, entry)
+        if not os.path.isfile(f):
+            continue
+        try:
+            name = "claudlet_creature_" + os.path.basename(path)
+            spec = importlib.util.spec_from_file_location(name, f)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return getattr(mod, "AVATAR", None)
+        except Exception:
+            return None
+    return None
+
 
 def _registry():
     # imported lazily: this package is pulled in by Qt-free modules too, and
     # the built-in avatar's art module needs QtGui.
+    from claudlet.core.avatars.astronaut import Astronaut
     from claudlet.core.avatars.builtin import Claudlet
-    return {Claudlet.name: Claudlet}
+    from claudlet.core.avatars.slime import Slime
+    reg = {c.name: c for c in (Claudlet, Slime, Astronaut)}
+    try:
+        names = sorted(os.listdir(CREATURES_DIR))
+    except OSError:
+        return reg
+    for n in names:
+        path = os.path.join(CREATURES_DIR, n)
+        if not os.path.isdir(path):
+            continue
+        made = _load_dir(path)
+        if made is not None:
+            reg[getattr(made, "name", n)] = made
+    return reg
 
 
 def available():

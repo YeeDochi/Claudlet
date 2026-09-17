@@ -13,7 +13,7 @@ def _write(tmp, obj):
 
 EMPTY = {"tool_states": {}, "event_states": {}, "raw_events": {}, "lang": "auto",
          "roam_area": None, "no_go": [], "palette": "auto",
-         "scale": petconfig.DEFAULT_SCALE,
+         "scale": petconfig.DEFAULT_SCALE, "avatar": None, "creatures": {},
          "dock": petconfig.default_dock()}
 
 

@@ -37,7 +37,7 @@ from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
 from claudlet.core import avatars
-from claudlet.core.state_engine import StateEngine, AUTO_ROAM, AUTO_STATES
+from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
 from claudlet.platform import konsole
 from claudlet.platform import winterm
@@ -56,10 +56,13 @@ from claudlet.platform import geom
 
 # ---- config ----
 U = 5                                   # art-pixel size in device px
-def _avatar_name():
-    """Which avatar to wear. Env only for now: a config key would be dead
-    weight until a second avatar exists, and the selector lands with it."""
-    return os.environ.get("CLAUDLET_AVATAR") or None
+def _avatar_name(cfg=None):
+    """Which creature to wear. Env beats config so one pet can be run as
+    somebody else without changing everyone's setting. An unknown name falls
+    back to the built-in inside avatars.get()."""
+    return (os.environ.get("CLAUDLET_AVATAR")
+            or (cfg or {}).get("avatar")
+            or None)
 
 
 def _scale(cfg):
@@ -133,7 +136,7 @@ _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 # right-click / tray menu UI strings, per language
 UI = {
     "ko": {"follow": "커서 따라오기", "motions": "모션",
-           "float": "주머니 쏙 (고개만 빼꼼)", "quiet": "조용히 (알림 끔)",
+           "float": "호버링 (제자리에 떠 있기)", "quiet": "조용히 (알림 끔)",
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
@@ -142,7 +145,7 @@ UI = {
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
            "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
-           "float": "Pocket (peek out)", "quiet": "Quiet (mute)",
+           "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
@@ -166,9 +169,13 @@ MOTION_MENU = [
     ("celebrate", 2.5, {"ko": "축하", "en": "Celebrate"}),
 ]
 
-# device-px from the pet window's top down to the creature's feet (legs bottom).
-# creature legs bottom ~15.8 art rows; with PAD_Y=2 and U=5: (2 + 15.8) * 5 ≈ 89.
-# used to land the FEET on a window's top edge when perching (not the window box).
+# Device px from the pet window's top down to the creature's feet, used to land
+# the FEET on a window's top edge when perching (not the window box). It is
+# `(PAD_Y + foot_row) * u`, so it follows the SCALE and whichever creature is
+# worn -- a creature declares `foot_row` when its feet are not where the
+# built-in's are (the slime's dome ends higher). Pinned to U=5 it left the floor
+# line running through the middle of an enlarged pet. `Pet.foot_y` is the live
+# value; this constant is what the built-in works out to at the default scale.
 FOOT_Y = 89
 # art-row geometry (creature.py:346 "crown rows 3..5 ; legs rows 12..15"):
 # crown top ~row 3, feet ~row 15.8. used to stack companions body-on-head.
@@ -536,8 +543,9 @@ class Pet(QWidget):
         self.port_file = hostinfo.session_port_file(session_id)
 
         cfg = petconfig.load_config()
-        self.avatar = avatars.get(_avatar_name())
-        self.u = _scale(cfg)
+        self.avatar = avatars.get(_avatar_name(cfg))
+        self.u = petconfig.for_creature(cfg, self.avatar.name, self.avatar)["scale"]
+        self._visor_mode = petconfig.DEFAULT_VISOR
         self._resize_to_avatar()
 
         primary = QApplication.primaryScreen().availableGeometry()
@@ -935,6 +943,11 @@ class Pet(QWidget):
             self._tip_name = hostinfo.session_title(self.session_id) or self._project
         return "%s(%s)" % (self._tip_name, short)
 
+    @property
+    def foot_y(self):
+        """Where this pet's feet are, measured from the top of its window."""
+        return (PAD_Y + getattr(self.avatar, "foot_row", FOOT_ROW)) * self.u
+
     def _resize_to_avatar(self):
         """Window size follows the avatar's art box and the current scale."""
         gw, gh = self.avatar.grid
@@ -942,24 +955,43 @@ class Pet(QWidget):
         self.h = (gh + 2 * PAD_Y) * self.u
         self.setFixedSize(self.w, self.h)
 
+    def _autonomous(self):
+        """Whether to tell the creature the "running unattended" mode is on.
+
+        The setting decides what we SEND, not how it is drawn, so pinning it on
+        or off works for every creature rather than only for the one that
+        happens to render it as a visor."""
+        if self._visor_mode == "on":
+            return True
+        if self._visor_mode == "off":
+            return False
+        return bool(getattr(self, "_auto", False))
+
     def _apply_style(self, cfg):
         """Palette and scale from config. The shiny roll is drawn ONCE per pet
         (in __init__) and reused here, so re-reading the config can't re-roll a
         shiny away mid-life."""
-        pal = os.environ.get("CLAUDLET_PALETTE") or cfg.get("palette", "auto")
+        look = petconfig.for_creature(cfg, self.avatar.name, self.avatar)
+        pal = os.environ.get("CLAUDLET_PALETTE") or look["palette"]
         self._palette = petconfig.resolve_palette(pal, *self._palette_roll)
-        self.u = _scale(cfg)
+        self.u = petconfig.clamp_scale(os.environ.get("CLAUDLET_SCALE")
+                                       or look["scale"])
+        self._visor_mode = look["visor"]
 
     def _restyle(self):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
         without restarting: colour applies on the next paint, a new scale needs
         the window resized and the pet nudged back inside the screen."""
         cfg = petconfig.load_config()
-        before = self.u
+        before = (self.u, self.avatar.name)
+        want = _avatar_name(cfg)
+        if want and want != self.avatar.name:
+            self.avatar = avatars.get(want)     # 크리처를 갈아입는다
         self._apply_style(cfg)
-        if self.u != before:
+        if (self.u, self.avatar.name) != before:
             self._resize_to_avatar()
             for c in self._companions + self._departing:
+                c.avatar = self.avatar
                 c.rescale(_companion_scale(self.u))
         self.update()
 
@@ -1047,7 +1079,10 @@ class Pet(QWidget):
                   and self.mode not in ("held", "thrown"))
         # in auto mode the "looking things up" states wander (visor on); coding/
         # agent/skill stay put and focus. idle/waiting roam as before.
-        roaming = (eff in ("idle", "sleeping") or eff in AUTO_ROAM) \
+        # wandering while it works belongs to the UNATTENDED mode, not to the
+        # work itself: ordinary web/search work stays put the way it always did
+        auto_roam = eff in AUTO_ROAM and getattr(self, "_auto", False)
+        roaming = (eff in ("idle", "sleeping") or auto_roam) \
             and self.mode == "roam" and not self.dnd
         resting = self._idle_behavior in idle_engine.RESTING
         self.idle_energy.update(now, resting=(roaming and resting))
@@ -1119,7 +1154,7 @@ class Pet(QWidget):
             # instead of clearing it). Re-apply after it moves so the position
             # actually published this tick is clear, not just the one before.
             left, right, _t, _f = self._bounds()
-            self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
+            self.x = roambounds.push_out_x(self.x, self.w, self.y + self.foot_y, self._no_go, left, right)
             self.x = min(max(self.x, left), right)   # containment wins over no-go
             self._vacate_if_trapped(_f)
         else:
@@ -1144,7 +1179,7 @@ class Pet(QWidget):
                         span = self.w * 1.5
                         cand = min(max(self._search_anchor
                                        + random.uniform(-span, span), lft), rgt)
-                        if roambounds.blocks_target(cand, self.w, self.y + FOOT_Y, self._no_go):
+                        if roambounds.blocks_target(cand, self.w, self.y + self.foot_y, self._no_go):
                             cand = min(max(self._search_anchor, lft), rgt)
                         self.target_x = cand
                     dx = self.target_x - self.x
@@ -1153,7 +1188,7 @@ class Pet(QWidget):
                 else:
                     self._search_anchor = None        # re-anchor next search episode
                 self.x = min(max(self.x, lft), rgt)   # stay inside current bounds
-                self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, lft, rgt)
+                self.x = roambounds.push_out_x(self.x, self.w, self.y + self.foot_y, self._no_go, lft, rgt)
                 self.x = min(max(self.x, lft), rgt)   # containment wins over no-go
                 self._vacate_if_trapped(floor)
                 self.y = floor
@@ -1356,7 +1391,7 @@ class Pet(QWidget):
         for c in self._companions:
             box = self._companion_nav_box(c)
             foot = box.foot_y
-            lead_foot = FOOT_Y if leader is self else FOOT_Y * ratio
+            lead_foot = self.foot_y if leader is self else self.foot_y * ratio
             lead_x = leader.x + leader.w / 2.0
             lead_feet = leader.y + lead_foot
             lead_contain = self._contain if leader is self else leader._contain
@@ -1483,10 +1518,10 @@ class Pet(QWidget):
         window perch, window interior) coincide with the PET's, despite its
         smaller window. The trick: box.h - foot_y is kept equal to the pet's
         (self.h - FOOT_Y), while foot_y is the companion's TRUE drawn foot
-        (FOOT_Y*ratio) so a resolved position lands the DRAWN feet on the
+        (self.foot_y*ratio) so a resolved position lands the DRAWN feet on the
         surface. box.w is the real companion width, for the screen/edge clamps."""
-        foot = FOOT_Y * (_companion_scale(self.u) / float(self.u))
-        return follow_nav.Box(c.w, (self.h - FOOT_Y) + foot, foot)
+        foot = self.foot_y * (_companion_scale(self.u) / float(self.u))
+        return follow_nav.Box(c.w, (self.h - self.foot_y) + foot, foot)
 
     def _companion_bounds(self, c):
         """(left, right, top, floor) for a companion's current context: the
@@ -1630,7 +1665,7 @@ class Pet(QWidget):
             cur = next((w for w in self._wins if w.wid == self._contain.wid), None)
         else:
             cur = geom.window_under_feet(
-                self.x + self.w / 2.0, self.y + FOOT_Y, self._wins)
+                self.x + self.w / 2.0, self.y + self.foot_y, self._wins)
         if cur is None:                        # pet is on the bare desktop
             c.apply_mask(QRegion(QRect(0, 0, c.w, c.h)))
             return
@@ -1649,7 +1684,7 @@ class Pet(QWidget):
         # bounds can shift under us (a window we're in/on moved or resized): pull
         # the pet back inside every tick so it never gets stranded through a wall.
         self.x = min(max(self.x, left), right)
-        self.x = roambounds.push_out_x(self.x, self.w, self.y + FOOT_Y, self._no_go, left, right)
+        self.x = roambounds.push_out_x(self.x, self.w, self.y + self.foot_y, self._no_go, left, right)
         self.x = min(max(self.x, left), right)
         # surface under us dropped away (window closed/moved, or we walked off a
         # ledge) -> fall to it instead of snapping/teleporting.
@@ -1724,9 +1759,11 @@ class Pet(QWidget):
         self.y = floor
 
     def _walk_render(self):
-        """Render state while walking a roam leg: an auto_* variant walks with its
-        visor + prop on; plain idle/waiting roaming shows the generic walk."""
-        return self.claude_state if self.claude_state in AUTO_ROAM else "walk"
+        """Render state while walking a roam leg: a work state the pet wanders
+        through keeps its own look; plain idle/waiting roaming shows a walk."""
+        return (self.claude_state
+                if self.claude_state in AUTO_ROAM and getattr(self, "_auto", False)
+                else "walk")
 
     def _on_cursor(self, xy):
         try:
@@ -1756,7 +1793,7 @@ class Pet(QWidget):
         return self._cursor_pos()
 
     def _nav_box(self):
-        return follow_nav.Box(self.w, self.h, FOOT_Y)
+        return follow_nav.Box(self.w, self.h, self.foot_y)
 
     def _explore_point(self):
         """A window point to go visit while idling, or None if no feed/windows."""
@@ -1995,7 +2032,7 @@ class Pet(QWidget):
                 "screen=%d,%d,%dx%d pet=(%d,%d) feet_y=%d\n" % (
                     scr.devicePixelRatio(), cal[0], cal[1], cal[2],
                     g.x(), g.y(), g.width(), g.height(),
-                    int(self.x), int(self.y), int(self.y) + FOOT_Y))
+                    int(self.x), int(self.y), int(self.y) + self.foot_y))
             for w in self._wins:
                 sys.stderr.write("[claudlet geom]   win %s cls=%s  %d,%d %dx%d "
                                  "top=%d pid=%s\n" % (
@@ -2118,7 +2155,7 @@ class Pet(QWidget):
                 return
         else:
             cx = self.x + self.w / 2.0
-            feet = self.y + FOOT_Y
+            feet = self.y + self.foot_y
             cur = geom.window_under_feet(cx, feet, self._wins)
             if cur is None:              # on the desktop -> always visible
                 self._show_full()
@@ -2207,13 +2244,13 @@ class Pet(QWidget):
         right = scr.right() - self.w
         top = scr.top()
         cx = self.x + self.w / 2.0
-        feet = self.y + FOOT_Y
+        feet = self.y + self.foot_y
         screen_bottom = self._screen_bottom_at(cx)
         surface = geom.support_surface_under(cx, self._wins, screen_bottom, feet)
         if surface >= screen_bottom:
             floor = surface - self.h        # screen floor: keep window fully on-screen
         else:
-            floor = surface - FOOT_Y        # window perch: feet on the top edge
+            floor = surface - self.foot_y        # window perch: feet on the top edge
         left, right = roambounds.restrict_span(left, right, self._roam_area, self.w)
         top, floor = roambounds.restrict_floor(top, floor, self._roam_area, self.h)
         return left, right, top, floor
@@ -2236,7 +2273,7 @@ class Pet(QWidget):
         config mistake)."""
         if not self._no_go:
             return
-        if not roambounds.blocks_target(self.x, self.w, self.y + FOOT_Y, self._no_go):
+        if not roambounds.blocks_target(self.x, self.w, self.y + self.foot_y, self._no_go):
             return
         screen_bottom = self._screen_bottom_at(self.x + self.w / 2.0)
         perched = floor < screen_bottom - self.h    # floor is a window top, not the screen floor
@@ -2263,10 +2300,10 @@ class Pet(QWidget):
         pocket = self._floating and self.mode not in ("held", "thrown")
         if pocket:
             state = self._pocket_render_state(state, now)
-        # in an auto mode the visor stays on: worn by the auto_* states,
-        # pushed up onto the head for every other state.
-        vis = "up" if getattr(self, "_auto", False) and \
-            state not in AUTO_STATES else None
+        # "running unattended" is reported as a flag; what it LOOKS like is the
+        # creature's call (the built-in wears a visor, another might glow, or
+        # ignore it). The setting can pin it on or off for creatures that use it.
+        autonomous = self._autonomous()
         petted = now < self._pet_react_until
         energy = 1.0 if pocket and now < self._pocket_awake_until else self.idle_energy.value
         gaze = cursor_gaze(
@@ -2286,8 +2323,9 @@ class Pet(QWidget):
             u = self.u
             ox, oy = PAD_X * self.u, PAD_Y * self.u
         self.avatar.draw(p, ox, oy, u, state, self.frame,
-                         facing=self.facing, visor=vis, energy=energy,
-                         palette=self._palette, happy=petted, pocket=pocket,
+                         facing=self.facing, autonomous=autonomous,
+                         energy=energy,
+                         palette=self._palette, happy=petted, hovering=pocket,
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
@@ -2615,6 +2653,7 @@ class Pet(QWidget):
             return
         def _add(rect):
             self._no_go.append(rect)
+            self._sync_zone_check()
         def _done():
             # finishing on ANY monitor's overlay tears down the whole session;
             # null each _on_done first so their closeEvent doesn't re-enter here.
@@ -2634,11 +2673,18 @@ class Pet(QWidget):
             ov.raise_()
             ov.activateWindow()
 
+    def _sync_zone_check(self):
+        """"금지구역 지우기" 는 지울 구역이 있을 때만 보인다. 트레이 메뉴는 한 번
+        만들어 두고 계속 쓰므로 구역이 생기거나 사라질 때 맞춰 준다."""
+        if self._act_zone_clear is not None:
+            self._act_zone_clear.setVisible(bool(self._no_go))
+
     def _clear_zones(self):
         self._no_go = []
         for ov in self._zone_overlays:
             ov._zones = []
             ov.update()
+        self._sync_zone_check()
 
     def _toggle_float(self):
         # off -> clear (restores gravity); on -> float mode
@@ -2678,6 +2724,7 @@ class Pet(QWidget):
         self._act_float = None
         self._act_follow = None
         self._act_dock = None
+        self._act_zone_clear = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = None
             return
@@ -2721,6 +2768,21 @@ class Pet(QWidget):
 
             self._act_dnd = QAction(self.ui["quiet"], m, checkable=True)
             m.addAction(self._act_dnd)
+
+            # the tray is the pet's menu for people who can't catch a roaming
+            # creature, so it carries the same entries rather than a subset
+            m.addSeparator()
+            act_settings = QAction(self.ui["settings"], m)
+            m.addAction(act_settings)
+            act_settings.triggered.connect(self._open_settings)
+            act_zone = QAction(self.ui["zone_edit"], m)
+            m.addAction(act_zone)
+            act_zone.triggered.connect(self._enter_zone_edit)
+            self._act_zone_clear = QAction(self.ui["zone_clear"], m)
+            m.addAction(self._act_zone_clear)
+            self._act_zone_clear.setVisible(bool(self._no_go))
+            self._act_zone_clear.triggered.connect(self._clear_zones)
+
             act_quit = QAction(self.ui["quit"], m)
             m.addSeparator()
             m.addAction(act_quit)
@@ -2759,7 +2821,10 @@ class Pet(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         ox = (side - cw) // 2
         oy = (side - ch) // 2
-        self.avatar.draw(p, ox, oy, u, state, _ICON_FRAME.get(state, 3))
+        # the tray icon is this pet, so it wears this pet's colour -- left off,
+        # every creature showed up in the built-in's orange down there
+        self.avatar.draw(p, ox, oy, u, state, _ICON_FRAME.get(state, 3),
+                         palette=self._palette)
         p.end()
         return QIcon(pm)
 

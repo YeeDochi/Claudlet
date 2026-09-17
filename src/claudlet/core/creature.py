@@ -18,25 +18,23 @@ import math
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtCore import QRect, QRectF
 
-# autonomous (auto/bypass mode) variants: the pet wears a visor and wanders while
-# it works, each work type keeping its own prop. `autopilot` is the generic cruise.
-AUTO_VARIANTS = ("auto_computer", "auto_search", "auto_web",
-                 "auto_agent", "auto_skill")
-# states that animate with a walking leg cycle: plain walk, the generic autopilot
-# stroll, and the auto variants that actually roam (web/search). coding/agent/skill
-# variants stay put, so their legs don't do a walk cycle.
-_WALKERS = ("walk", "autopilot", "auto_web", "auto_search")
+# States whose legs are mid-stride. `walk` and `autopilot` always are; web and
+# search work only while running unattended, because that is when the pet
+# wanders through them instead of standing still.
+_WALKERS = ("walk", "autopilot")
+_AUTO_WALKERS = ("work_web", "work_search")
+
+
+def _is_walking(state, autonomous):
+    return state in _WALKERS or (autonomous and state in _AUTO_WALKERS)
+
 
 STATES = ("idle", "walk", "work_computer", "work_search", "work_web",
-          "work_agent", "work_skill", "autopilot") + AUTO_VARIANTS + (
+          "work_agent", "work_skill", "autopilot",
           "thinking", "attention", "asking",
           "error", "angry", "celebrate", "sleeping", "held", "falling",
           "jump", "wave", "sing", "juggle", "float", "climbdown", "strain",
           "leap", "observe", "tic", "settle", "doze")
-
-# prop drawn beside each auto_* variant (auto_skill uses a visor glint instead)
-_AUTO_PROP = {"auto_computer": "window", "auto_search": "magnify",
-              "auto_web": "phone", "auto_agent": "clones_v"}
 
 # short spoken line per communicative state (typed out in a bubble), per language
 SPEECH = {                      # Korean (default; also drives the mockup sheet)
@@ -159,20 +157,18 @@ def _tilt_for(tilt):
     return 0.0 if abs(tilt) < SMOOTH_TILT_DEG else tilt
 
 
-def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
-                  energy=1.0, palette=None, happy=False, pocket=False,
-                  gaze=(0.0, 0.0)):
-    """Draw the creature. All coordinates are in art pixels * u.
+def state_rig(state, frame, energy=1.0, happy=False, autonomous=False,
+              gaze=(0.0, 0.0)):
+    """How a state moves, as plain numbers — no Qt, no drawing.
 
-    visor="up" pushes a VR-headset up onto the head (auto mode while not actively
-    "looking"); the auto_* states draw the headset worn over the eyes themselves.
-    """
-    p.setPen(p.pen())  # no-op keep
-    from PyQt6.QtCore import Qt
-    p.setPen(Qt.PenStyle.NoPen)
+    This is the creature's motion vocabulary: how far the body bobs, how it
+    squashes and leans, where the legs are in their cycle, which eyes and prop
+    are worn, what the arms are doing. `draw_creature` paints the built-in art
+    with it; an avatar built from someone else's pixels drives ITS parts from
+    the same numbers, so every state a custom creature can strike is one this
+    table already describes.
 
-    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
-
+    Pure: same arguments, same dict."""
     # ---- per-state rig parameters ----
     bob = 0.0          # whole-body vertical offset (art px)
     sx, sy = 1.0, 1.0  # squash/stretch
@@ -229,16 +225,8 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         bob = _sin(frame, 20, 0.5)
         legphase = (frame / 16.0) % 1.0
         tilt = 2.0
-        eyes = "shades"
+        eyes = "open"
         prop = "gear"
-    elif state in AUTO_VARIANTS:
-        # visor on, wandering while it works: same relaxed stroll as autopilot,
-        # but each work type carries its own prop (auto_skill: a red visor glint).
-        bob = _sin(frame, 20, 0.5)
-        legphase = (frame / 16.0) % 1.0
-        tilt = 2.0
-        eyes = "shades_glint" if state == "auto_skill" else "shades"
-        prop = _AUTO_PROP.get(state)
     elif state == "thinking":
         bob = _sin(frame, 46, 0.35)
         tilt = _sin(frame, 92, 3.0)               # slow head cant, "hmm"
@@ -383,198 +371,39 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
         if nod > 0.9:
             prop = "zzz"
 
-    body_dy = _snap_offset(bob + baseline_lift, u)
-
     # arm pose derived from state (arms live on the LEFT/RIGHT sides)
     arm = {"work_computer": "none", "attention": "up", "celebrate": "up",
            "held": "up", "falling": "up", "juggle": "up", "wave": "wave",
            "climbdown": "up", "leap": "up"}.get(state, "side")
     arm_swing = (_sin(frame, 12, 0.5) if state == "walk" else
-                 _sin(frame, 16, 0.5) if state in _WALKERS else 0.0)
+                 _sin(frame, 16, 0.5) if _is_walking(state, autonomous) else 0.0)
 
-    # ---- geometry (art-pixel space), origin at ox,oy ----
-    # body occupies cols 3..18, rows 5..12 ; legs rows 12..15 ; crown rows 3..5
-    cx = GRID_W / 2.0
+    return {"bob": bob, "sx": sx, "sy": sy, "tilt": tilt, "legphase": legphase,
+            "eyes": eyes, "prop": prop, "front_tap": front_tap,
+            "baseline_lift": baseline_lift, "droop": droop,
+            "autonomous": bool(autonomous),
+            "arm": arm, "arm_swing": arm_swing,
+            # whether legphase means "mid-stride" this state, or is being
+            # reused to mean something else (jump/doze: legs tucked)
+            "walking": _is_walking(state, autonomous)}
 
-    def px(col, row, w, h, color):
-        # apply squash/stretch about body center
-        bcx, bcy = 10.5, 9.0
-        X = bcx + (col - bcx) * sx
-        Y = bcy + (row - bcy) * sy + body_dy
-        W = w * sx
-        H = h * sy
-        _fill(p, ox + X * u, oy + Y * u, W * u, H * u, color)
 
-    # 주머니 빼꼼: 화면에 가로 틈을 내고 고개만 내민 연출. 슬릿 아래는 클립해
-    # 안 그려지고(투명), 립/손은 함수 끝에서 틈 위로 덧그린다. 표정/프롭은 현재
-    # 상태 그대로라 고민/작업/완료 표정이 주머니에서도 보인다.
-    POCKET_LIP = 11.6         # 눈(row ~7.4)보다 넉넉히 아래 — 표정이 안 묻히게
-    if pocket:
-        p.setClipRect(QRectF(ox - 4 * u, oy - 6 * u,
-                             (GRID_W + 8) * u, (POCKET_LIP + 6) * u))
+def draw_prop(p, ox, oy, u, prop, frame, state, body_dy=0.0, facing=1,
+              palette=None):
+    """Draw the object a state carries: the laptop, the magnifier, the phone,
+    the speech bubble, the z's, the juggling balls.
 
-    if happy:
-        eyes = "happy"          # 상태 무관 웃는 눈 (쓰다듬기 반응)
-    if pocket:
-        arm = "none"            # 기본 측면 팔 끔 — 슬릿 잡은 그립 손만 남긴다
+    Pulled out of `draw_creature` because these are OBJECTS, not body parts. A
+    creature someone else drew still thinks, still finishes a task, still falls
+    asleep — and asking whoever draws it to also draw eleven props in every
+    state is asking for a thing nobody finishes. An avatar says WHERE its prop
+    hangs; this draws WHAT hangs there. A custom avatar can override an
+    individual prop later, but it inherits the whole vocabulary by default.
 
-    p.save()
-    # face direction of travel: mirror the BODY only. Props/text (drawn after the
-    # matching p.restore below) stay upright, so speech bubbles and z's never
-    # read backwards when the creature walks left.
-    if facing < 0:
-        p.translate(2 * (ox + cx * u), 0)
-        p.scale(-1, 1)
-    # tilt about creature center
-    tilt = _tilt_for(tilt)
-    if tilt:
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.translate(ox + cx * u, oy + 10 * u)
-        p.rotate(tilt)
-        p.translate(-(ox + cx * u), -(oy + 10 * u))
-
-    # ---- legs (behind body) ----
-    # 4 legs; walk cycle lifts diagonal pairs (symmetric about body center 10.5)
-    leg_cols = [4.0, 7.5, 11.5, 15.0]
-    for i, lc in enumerate(leg_cols):
-        lift = 0.0
-        if state in _WALKERS:
-            ph = (legphase + (0.5 if i % 2 else 0.0)) % 1.0
-            lift = max(0.0, math.sin(ph * math.pi)) * 1.3
-        if state == "work_computer" and i >= 2:  # front two legs tap
-            lift = front_tap
-        if state == "celebrate":
-            lift = 1.6
-        px(lc, 12.4 - lift, 2.0, 3.4, ORANGE_D)
-
-    # ---- arms: one block per side, body-shade color, drawn behind body ----
-    if arm == "none":
-        pass   # hands are drawn on the laptop (working state)
-    elif arm == "up":
-        # raised out to the sides, up near the shoulders
-        px(1.6, 4.6, 2.1, 1.9, ORANGE_D)
-        px(17.3, 4.6, 2.1, 1.9, ORANGE_D)
-    elif arm == "wave":
-        # left arm down at side, right arm raised and swinging (the wave)
-        wv = _sin(frame, 16, 1.4)
-        px(1.0, 7.9, 2.2, 1.9, ORANGE_D)                 # left arm at side
-        px(17.3, 3.4 + wv, 2.1, 1.9, ORANGE_D)           # right arm up, waving
-    elif arm == "tap":
-        # dropped down-forward, gently tapping (typing), opposite phase
-        px(2.2, 10.0 + front_tap, 2.1, 1.7, ORANGE_D)
-        px(17.7, 10.0 + (0.8 - front_tap), 2.1, 1.7, ORANGE_D)
-    else:
-        # held straight out to the sides (default), gentle swing while walking
-        px(1.0, 7.9 + arm_swing, 2.2, 1.9, ORANGE_D)
-        px(17.8, 7.9 - arm_swing, 2.2, 1.9, ORANGE_D)
-
-    # ---- body ---- clean square block, dark outline for crisp edges
-    bx0, bx1 = 3.0, 18.0
-    by0, by1 = 5.0, 12.5
-    bw = bx1 - bx0
-    px(bx0, by0, bw, by1 - by0, ORANGE)                # full rectangle
-    px(bx0, by0, bw, 0.9, ORANGE_L)                    # top bevel highlight
-    px(bx0, by1 - 1.0, bw, 1.0, ORANGE_D)              # bottom shade
-
-    # ---- eyes ---- (front-biased; faces right by default)
-    e1, e2 = 5.8, 13.8   # eye columns — wide-set (~2.5x the previous spacing)
-    er = 7.4
-    def eye(col, kind):
-        gazeable = kind in ("open", "focus", "up", "wide")
-        col += gaze[0] * facing * 0.65 if gazeable else 0.0
-        row = er + (gaze[1] * 0.45 if gazeable else 0.0)
-        if kind == "open":
-            px(col, row, 1.4, 1.8, EYE)
-        elif kind == "blink":
-            px(col, row + 1.0, 1.4, 0.6, EYE)
-        elif kind == "sleep":
-            px(col - 0.6, row + 1.0, 2.6, 0.6, EYE)   # wider closed eyes when sleeping
-        elif kind == "focus":
-            px(col, row + 0.6, 1.6, 0.9, EYE)
-        elif kind == "squint":
-            # scrunched-shut straining eyes "><": each eye is two short strokes
-            # meeting at a point on its INNER side, so the vertices point toward
-            # the nose. Left eye ">" (point on its right), right eye "<" (point
-            # on its left) — a MIRRORED per-eye shape, so key off which side the
-            # eye is on (this style only; others stay identical L/R).
-            left = col < 10.0
-            c = col + (0.5 if left else -0.5)         # shift ½ cell inward (nose)
-            vtx = c + 0.9 if left else c              # inner vertex block x
-            outr = c if left else c + 0.9             # outer stroke ends x
-            px(outr, row + 0.3, 1.1, 0.6, EYE)         # upper stroke (outer end)
-            px(vtx, row + 0.85, 1.1, 0.6, EYE)         # inner vertex (mid)
-            px(outr, row + 1.4, 1.1, 0.6, EYE)         # lower stroke (outer end)
-        elif kind == "up":
-            px(col, row - 0.4, 1.4, 1.6, EYE)
-        elif kind == "wide":
-            px(col - 0.2, row - 0.4, 1.9, 2.4, EYE)
-        elif kind == "x":
-            px(col, row, 1.7, 0.5, EYE); px(col + 0.6, row - 0.6, 0.5, 1.7, EYE)
-        elif kind == "happy":
-            px(col, row + 0.8, 0.6, 0.6, EYE); px(col + 0.55, row + 0.3, 0.6, 0.6, EYE); px(col + 1.1, row + 0.8, 0.6, 0.6, EYE)
-    def headset(top, glint):
-        # the SAME VR headset, drawn with its housing top at row `top`. Worn over
-        # the eyes when down; the identical shape raised onto the head when up.
-        px(3.9, top, 13.2, 2.7, VISOR)                       # silver housing
-        px(3.5, top, 1.6, 3.1, VISOR)                        # left wrap (down)
-        px(15.9, top, 1.6, 3.1, VISOR)                       # right wrap (down)
-        px(3.9, top, 13.2, 0.5, VISOR_HI)                    # top highlight rim
-        px(3.9, top + 2.1, 13.2, 0.6, VISOR_D)               # bottom shade
-        px(5.0, top + 0.5, 11.0, 1.5, VISOR_GLASS)           # dark screen inset
-        swp = frame % 96                                     # travelling reflection
-        if swp < 12:
-            px(5.4 + swp * 0.9, top + 0.55, 0.9, 1.4, QColor("#9FD3FF"))
-        else:
-            px(9.6, top + 0.75, 1.7, 0.45, QColor("#3A4256"))
-        if glint and (frame % 24) < 12:
-            px(12.8, top + 0.85, 1.1, 0.8, QColor("#FF3B3B"))  # red status LED
-
-    if eyes in ("shades", "shades_glint"):
-        headset(er - 0.5, glint=(eyes == "shades_glint"))   # worn over the eyes
-    else:
-        eye(e1, eyes); eye(e2, eyes)
-        if visor == "up":
-            headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
-
-    if cap:
-        # a hat on the crown (agent companions) — drawn in head space so it
-        # bobs/tilts/mirrors with the body. pieces are centred on the body
-        # centre col 10.5 (an off-centre hat reads as tilted at small u).
-        if cap in ("agent", "cap"):            # yellow kindergarten cap
-            px(3.7, 3.6, 13.6, 1.0, CAP_D)     # brim across the head, front shade
-            px(5.3, 2.0, 10.4, 2.0, CAP)       # rounded crown of the cap
-            px(6.9, 1.1, 7.2, 1.2, CAP)        # dome top
-            px(6.9, 1.1, 7.2, 0.4, CAP_HI)     # highlight rim
-            px(9.7, 0.4, 1.6, 1.0, CAP_D)      # little top button
-        elif cap == "hardhat":                 # construction helmet
-            px(3.2, 3.7, 14.6, 1.0, HARD)      # wide brim
-            px(5.3, 1.5, 10.4, 2.4, HARD)      # dome
-            px(6.9, 0.8, 7.2, 1.0, HARD)       # dome top
-            px(9.6, 0.5, 1.8, 3.2, HARD_HI)    # white centre ridge
-        elif cap == "beret":                   # artist beret
-            px(4.6, 2.9, 11.8, 1.5, BERET)     # flat blob
-            px(6.0, 2.1, 9.0, 1.0, BERET)      # upper puff
-            px(9.9, 1.2, 1.2, 1.1, BERET_D)    # stem
-        elif cap == "tophat":                  # tiny top hat
-            px(4.4, 3.9, 12.2, 0.8, INK)       # brim
-            px(6.6, 0.3, 7.8, 3.8, INK)        # cylinder
-            px(6.6, 2.9, 7.8, 0.9, INK_BAND)   # band
-        elif cap == "propeller":               # propeller beanie (spinning!)
-            px(5.6, 2.9, 9.8, 1.6, PROP)       # cap base
-            px(7.2, 2.0, 6.6, 1.1, PROP)       # dome
-            px(9.9, 1.0, 1.2, 1.2, PROP)       # stick
-            if (frame // 4) % 2 == 0:          # blades: wide <-> narrow = spin
-                px(6.6, 0.3, 7.8, 0.8, PROP_BLADE)
-            else:
-                px(8.9, 0.3, 3.2, 0.8, PROP_BLADE)
-        elif cap == "beanie":                  # knitted beanie + pompom
-            px(4.8, 3.3, 11.4, 1.2, BEANIE_D)  # folded band
-            px(5.3, 1.6, 10.4, 2.0, BEANIE)    # knit dome
-            px(6.9, 0.9, 7.2, 1.0, BEANIE)
-            px(9.6, 0.0, 1.8, 1.2, WHITE)      # pompom
-
-    p.restore()
-
+    Coordinates are art pixels from (ox, oy); `body_dy` is the shared bob so the
+    prop rides with the creature. Untilted on purpose — a speech bubble that
+    leans with a stumbling creature reads as a bug."""
+    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
     # ---- props (screen-ish space, not tilted) ----
     def rect(col, row, w, h, color):
         Y = row + body_dy
@@ -758,7 +587,226 @@ def draw_creature(p, ox, oy, u, state, frame, facing=1, visor=None, cap=None,
                        Qt.AlignmentFlag.AlignCenter, text)
             p.setPen(Qt.PenStyle.NoPen)
 
-    if pocket:
+
+def draw_creature(p, ox, oy, u, state, frame, facing=1, autonomous=False, cap=None,
+                  energy=1.0, palette=None, happy=False, hovering=False,
+                  gaze=(0.0, 0.0)):
+    """Draw the creature. All coordinates are in art pixels * u.
+
+    `hovering` says the pet has been parked out of the way. THIS creature shows
+    that by cutting a slit in the screen and peeking its head out of it; another
+    may simply float, fade, or shrink -- the pet only says it is parked.
+
+    `autonomous` says Claude is running unattended. THIS creature shows that as a
+    VR headset -- worn over the eyes while it works, pushed up onto the head
+    otherwise. That is this creature's choice; the pet only reports the mode,
+    and another creature may glow, change colour, or ignore it entirely.
+    """
+    p.setPen(p.pen())  # no-op keep
+    from PyQt6.QtCore import Qt
+    p.setPen(Qt.PenStyle.NoPen)
+
+    ORANGE, ORANGE_L, ORANGE_D, BANG = palette_colors(palette)
+
+    rig = state_rig(state, frame, energy, happy, autonomous, gaze)
+    bob, sx, sy = rig["bob"], rig["sx"], rig["sy"]
+    tilt, legphase = rig["tilt"], rig["legphase"]
+    eyes, prop = rig["eyes"], rig["prop"]
+    front_tap, baseline_lift = rig["front_tap"], rig["baseline_lift"]
+    arm, arm_swing = rig["arm"], rig["arm_swing"]
+
+    body_dy = _snap_offset(bob + baseline_lift, u)
+
+    # ---- geometry (art-pixel space), origin at ox,oy ----
+    # body occupies cols 3..18, rows 5..12 ; legs rows 12..15 ; crown rows 3..5
+    cx = GRID_W / 2.0
+
+    def px(col, row, w, h, color):
+        # apply squash/stretch about body center
+        bcx, bcy = 10.5, 9.0
+        X = bcx + (col - bcx) * sx
+        Y = bcy + (row - bcy) * sy + body_dy
+        W = w * sx
+        H = h * sy
+        _fill(p, ox + X * u, oy + Y * u, W * u, H * u, color)
+
+    # 주머니 빼꼼: 화면에 가로 틈을 내고 고개만 내민 연출. 슬릿 아래는 클립해
+    # 안 그려지고(투명), 립/손은 함수 끝에서 틈 위로 덧그린다. 표정/프롭은 현재
+    # 상태 그대로라 고민/작업/완료 표정이 주머니에서도 보인다.
+    POCKET_LIP = 11.6         # 눈(row ~7.4)보다 넉넉히 아래 — 표정이 안 묻히게
+    if hovering:
+        p.setClipRect(QRectF(ox - 4 * u, oy - 6 * u,
+                             (GRID_W + 8) * u, (POCKET_LIP + 6) * u))
+
+    if happy:
+        eyes = "happy"          # 상태 무관 웃는 눈 (쓰다듬기 반응)
+    if hovering:
+        arm = "none"            # 기본 측면 팔 끔 — 슬릿 잡은 그립 손만 남긴다
+
+    p.save()
+    # face direction of travel: mirror the BODY only. Props/text (drawn after the
+    # matching p.restore below) stay upright, so speech bubbles and z's never
+    # read backwards when the creature walks left.
+    if facing < 0:
+        p.translate(2 * (ox + cx * u), 0)
+        p.scale(-1, 1)
+    # tilt about creature center
+    tilt = _tilt_for(tilt)
+    if tilt:
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.translate(ox + cx * u, oy + 10 * u)
+        p.rotate(tilt)
+        p.translate(-(ox + cx * u), -(oy + 10 * u))
+
+    # ---- legs (behind body) ----
+    # 4 legs; walk cycle lifts diagonal pairs (symmetric about body center 10.5)
+    leg_cols = [4.0, 7.5, 11.5, 15.0]
+    for i, lc in enumerate(leg_cols):
+        lift = 0.0
+        if rig["walking"]:
+            ph = (legphase + (0.5 if i % 2 else 0.0)) % 1.0
+            lift = max(0.0, math.sin(ph * math.pi)) * 1.3
+        if state == "work_computer" and i >= 2:  # front two legs tap
+            lift = front_tap
+        if state == "celebrate":
+            lift = 1.6
+        px(lc, 12.4 - lift, 2.0, 3.4, ORANGE_D)
+
+    # ---- arms: one block per side, body-shade color, drawn behind body ----
+    if arm == "none":
+        pass   # hands are drawn on the laptop (working state)
+    elif arm == "up":
+        # raised out to the sides, up near the shoulders
+        px(1.6, 4.6, 2.1, 1.9, ORANGE_D)
+        px(17.3, 4.6, 2.1, 1.9, ORANGE_D)
+    elif arm == "wave":
+        # left arm down at side, right arm raised and swinging (the wave)
+        wv = _sin(frame, 16, 1.4)
+        px(1.0, 7.9, 2.2, 1.9, ORANGE_D)                 # left arm at side
+        px(17.3, 3.4 + wv, 2.1, 1.9, ORANGE_D)           # right arm up, waving
+    elif arm == "tap":
+        # dropped down-forward, gently tapping (typing), opposite phase
+        px(2.2, 10.0 + front_tap, 2.1, 1.7, ORANGE_D)
+        px(17.7, 10.0 + (0.8 - front_tap), 2.1, 1.7, ORANGE_D)
+    else:
+        # held straight out to the sides (default), gentle swing while walking
+        px(1.0, 7.9 + arm_swing, 2.2, 1.9, ORANGE_D)
+        px(17.8, 7.9 - arm_swing, 2.2, 1.9, ORANGE_D)
+
+    # ---- body ---- clean square block, dark outline for crisp edges
+    bx0, bx1 = 3.0, 18.0
+    by0, by1 = 5.0, 12.5
+    bw = bx1 - bx0
+    px(bx0, by0, bw, by1 - by0, ORANGE)                # full rectangle
+    px(bx0, by0, bw, 0.9, ORANGE_L)                    # top bevel highlight
+    px(bx0, by1 - 1.0, bw, 1.0, ORANGE_D)              # bottom shade
+
+    # ---- eyes ---- (front-biased; faces right by default)
+    e1, e2 = 5.8, 13.8   # eye columns — wide-set (~2.5x the previous spacing)
+    er = 7.4
+    def eye(col, kind):
+        gazeable = kind in ("open", "focus", "up", "wide")
+        col += gaze[0] * facing * 0.65 if gazeable else 0.0
+        row = er + (gaze[1] * 0.45 if gazeable else 0.0)
+        if kind == "open":
+            px(col, row, 1.4, 1.8, EYE)
+        elif kind == "blink":
+            px(col, row + 1.0, 1.4, 0.6, EYE)
+        elif kind == "sleep":
+            px(col - 0.6, row + 1.0, 2.6, 0.6, EYE)   # wider closed eyes when sleeping
+        elif kind == "focus":
+            px(col, row + 0.6, 1.6, 0.9, EYE)
+        elif kind == "squint":
+            # scrunched-shut straining eyes "><": each eye is two short strokes
+            # meeting at a point on its INNER side, so the vertices point toward
+            # the nose. Left eye ">" (point on its right), right eye "<" (point
+            # on its left) — a MIRRORED per-eye shape, so key off which side the
+            # eye is on (this style only; others stay identical L/R).
+            left = col < 10.0
+            c = col + (0.5 if left else -0.5)         # shift ½ cell inward (nose)
+            vtx = c + 0.9 if left else c              # inner vertex block x
+            outr = c if left else c + 0.9             # outer stroke ends x
+            px(outr, row + 0.3, 1.1, 0.6, EYE)         # upper stroke (outer end)
+            px(vtx, row + 0.85, 1.1, 0.6, EYE)         # inner vertex (mid)
+            px(outr, row + 1.4, 1.1, 0.6, EYE)         # lower stroke (outer end)
+        elif kind == "up":
+            px(col, row - 0.4, 1.4, 1.6, EYE)
+        elif kind == "wide":
+            px(col - 0.2, row - 0.4, 1.9, 2.4, EYE)
+        elif kind == "x":
+            px(col, row, 1.7, 0.5, EYE); px(col + 0.6, row - 0.6, 0.5, 1.7, EYE)
+        elif kind == "happy":
+            px(col, row + 0.8, 0.6, 0.6, EYE); px(col + 0.55, row + 0.3, 0.6, 0.6, EYE); px(col + 1.1, row + 0.8, 0.6, 0.6, EYE)
+    def headset(top, glint):
+        # the SAME VR headset, drawn with its housing top at row `top`. Worn over
+        # the eyes when down; the identical shape raised onto the head when up.
+        px(3.9, top, 13.2, 2.7, VISOR)                       # silver housing
+        px(3.5, top, 1.6, 3.1, VISOR)                        # left wrap (down)
+        px(15.9, top, 1.6, 3.1, VISOR)                       # right wrap (down)
+        px(3.9, top, 13.2, 0.5, VISOR_HI)                    # top highlight rim
+        px(3.9, top + 2.1, 13.2, 0.6, VISOR_D)               # bottom shade
+        px(5.0, top + 0.5, 11.0, 1.5, VISOR_GLASS)           # dark screen inset
+        swp = frame % 96                                     # travelling reflection
+        if swp < 12:
+            px(5.4 + swp * 0.9, top + 0.55, 0.9, 1.4, QColor("#9FD3FF"))
+        else:
+            px(9.6, top + 0.75, 1.7, 0.45, QColor("#3A4256"))
+        if glint and (frame % 24) < 12:
+            px(12.8, top + 0.85, 1.1, 0.8, QColor("#FF3B3B"))  # red status LED
+
+    # the headset comes DOWN over the eyes while it is actually working and sits
+    # pushed up on the head the rest of the time, so "busy" still reads at a
+    # glance now that working unattended is no longer a state of its own.
+    working = state.startswith("work_") or state == "autopilot"
+    if autonomous and working:
+        headset(er - 0.5, glint=(state == "work_skill"))
+    else:
+        eye(e1, eyes); eye(e2, eyes)
+        if autonomous:
+            headset(er - 4.5, glint=False)   # same headset, pushed up onto the head
+
+    if cap:
+        # a hat on the crown (agent companions) — drawn in head space so it
+        # bobs/tilts/mirrors with the body. pieces are centred on the body
+        # centre col 10.5 (an off-centre hat reads as tilted at small u).
+        if cap in ("agent", "cap"):            # yellow kindergarten cap
+            px(3.7, 3.6, 13.6, 1.0, CAP_D)     # brim across the head, front shade
+            px(5.3, 2.0, 10.4, 2.0, CAP)       # rounded crown of the cap
+            px(6.9, 1.1, 7.2, 1.2, CAP)        # dome top
+            px(6.9, 1.1, 7.2, 0.4, CAP_HI)     # highlight rim
+            px(9.7, 0.4, 1.6, 1.0, CAP_D)      # little top button
+        elif cap == "hardhat":                 # construction helmet
+            px(3.2, 3.7, 14.6, 1.0, HARD)      # wide brim
+            px(5.3, 1.5, 10.4, 2.4, HARD)      # dome
+            px(6.9, 0.8, 7.2, 1.0, HARD)       # dome top
+            px(9.6, 0.5, 1.8, 3.2, HARD_HI)    # white centre ridge
+        elif cap == "beret":                   # artist beret
+            px(4.6, 2.9, 11.8, 1.5, BERET)     # flat blob
+            px(6.0, 2.1, 9.0, 1.0, BERET)      # upper puff
+            px(9.9, 1.2, 1.2, 1.1, BERET_D)    # stem
+        elif cap == "tophat":                  # tiny top hat
+            px(4.4, 3.9, 12.2, 0.8, INK)       # brim
+            px(6.6, 0.3, 7.8, 3.8, INK)        # cylinder
+            px(6.6, 2.9, 7.8, 0.9, INK_BAND)   # band
+        elif cap == "propeller":               # propeller beanie (spinning!)
+            px(5.6, 2.9, 9.8, 1.6, PROP)       # cap base
+            px(7.2, 2.0, 6.6, 1.1, PROP)       # dome
+            px(9.9, 1.0, 1.2, 1.2, PROP)       # stick
+            if (frame // 4) % 2 == 0:          # blades: wide <-> narrow = spin
+                px(6.6, 0.3, 7.8, 0.8, PROP_BLADE)
+            else:
+                px(8.9, 0.3, 3.2, 0.8, PROP_BLADE)
+        elif cap == "beanie":                  # knitted beanie + pompom
+            px(4.8, 3.3, 11.4, 1.2, BEANIE_D)  # folded band
+            px(5.3, 1.6, 10.4, 2.0, BEANIE)    # knit dome
+            px(6.9, 0.9, 7.2, 1.0, BEANIE)
+            px(9.6, 0.0, 1.8, 1.2, WHITE)      # pompom
+
+    p.restore()
+
+    draw_prop(p, ox, oy, u, prop, frame, state, body_dy, facing, palette)
+
+    if hovering:
         p.setClipping(False)
         slit_y = oy + POCKET_LIP * u
         SLOT = QColor("#141418")      # 화면을 가른 어두운 틈 안쪽(몸이 들어가는 어둠)

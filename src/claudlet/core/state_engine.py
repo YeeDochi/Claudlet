@@ -20,25 +20,13 @@ TOOL_STATES = {
 # planning, not autonomous execution.
 AUTO_MODES = {"auto", "bypassPermissions"}
 
-# Under an auto mode the pet puts its visor on and wanders while it works: each
-# work type keeps its own flavour (prop/animation) but visor-clad. Maps the plain
-# work state -> its autonomous "auto_*" variant. Anything without a variant falls
-# back to the generic `autopilot` cruise.
-AUTO_VARIANT = {
-    "work_computer": "auto_computer",
-    "work_search": "auto_search",
-    "work_web": "auto_web",
-    "work_agent": "auto_agent",
-    "work_skill": "auto_skill",
-}
-AUTO_STATES = {"autopilot", *AUTO_VARIANT.values()}
-
-# of those, the ones that WANDER the screen while working — "looking things up"
-# reads as roaming; coding/agent/skill stay put and focus. (pet.py roam gating)
-AUTO_ROAM = {"auto_web", "auto_search"}
+# Work states the pet keeps WANDERING through while running unattended. This is
+# behaviour, not looks: "it is off doing things by itself" reads from the pet
+# moving about, and that stays the engine's business whatever creature is worn.
+AUTO_ROAM = {"work_web", "work_search"}
 
 WORK_STATES = {"work_computer", "work_search", "work_web",
-               "work_agent", "work_skill"} | AUTO_STATES
+               "work_agent", "work_skill"}
 
 # the direct single-state events, keyed by short name -> default state. Users can
 # override any of these via config (see petconfig.py).
@@ -51,7 +39,7 @@ DEFAULT_EVENT_STATES = {
     "permission": "attention",  # Notification / permission_prompt
     "idle_prompt": "sleeping",  # Notification / idle_prompt
     "asking": "asking",         # PreToolUse / AskUserQuestion or ExitPlanMode
-    "autopilot": "autopilot",   # PreToolUse while permission_mode is autonomous
+    "autopilot": "autopilot",   # kept mappable: a user may still target it
 }
 
 # tools that mean "Claude is waiting on the user to answer" rather than working:
@@ -82,8 +70,6 @@ PRIORITY = {
     "work_agent": 4, "work_skill": 4,
     "thinking": 3, "celebrate": 2, "idle": 1, "sleeping": 0,
 }
-for _st in AUTO_STATES:                 # auto variants show at work-level priority
-    PRIORITY[_st] = 4
 
 DEBOUNCE = 0.8
 SLEEP_TIMEOUT = 60.0
@@ -200,12 +186,12 @@ class StateEngine:
             elif tool in ASK_TOOLS:
                 s.set_state(self._events["asking"], now)   # waiting on the user
             else:
-                st = self._tool_state(tool)
-                if ev.get("permission_mode") in AUTO_MODES:
-                    # visor on, wandering while it works: each work type keeps its
-                    # own flavour as an auto_* variant; else -> generic autopilot.
-                    st = AUTO_VARIANT.get(st, self._events["autopilot"])
-                self._set_work(s, st, now)
+                # Running unattended used to fork into a parallel set of
+                # auto_* states that differed only in wearing a visor. That was
+                # the engine dictating how the creature LOOKS, which is the
+                # creature's business now: the mode is reported as a flag and
+                # each creature shows it however it likes, or not at all.
+                self._set_work(s, self._tool_state(tool), now)
         elif name == "Notification":
             nt = ev.get("notification_type", "")
             if nt == "permission_prompt":

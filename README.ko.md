@@ -140,13 +140,48 @@ setx PATH "$env:USERPROFILE\claudlet\bin;$env:PATH"
 ## 뭘 보여주나요
 
 크리처의 포즈가 Claude가 지금 뭘 하는지를 따라가요 — 편집·읽기·MCP 호출·생각·
-입력 대기·완료(위 시트 참고). **auto/bypass 모드**에선 VR 바이저를 끼고 순항하고, 작업 종류별로
-변형이 있어요. 또 **창에 올라타고 함께 다녀요** — 상단을 걷거나 안에서 지내고, 올라탄 창이
+입력 대기·완료(위 시트 참고). Claude가 **혼자 알아서 돌아갈 때**(auto/bypass 모드)도
+그걸 보여줘요 — 기본 크리처는 VR 바이저를 눈 위로 내려 써요. 또 **창에 올라타고 함께 다녀요** — 상단을 걷거나 안에서 지내고, 올라탄 창이
 가려지거나 최소화되면 같이 잘리거나 숨어요.
 
 Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니언**(최대 3마리)이 나타나 펫을
 오리 행렬로 따라다니며 서브에이전트 활동을 반영하고, 끝나면 작은 축하와 함께 떠나요 — 에이전트
 작업이 지금 돌고 있다는 걸 한눈에 보여줘요.
+
+## 내 맘대로 꾸미기
+
+![설정 화면](docs/settings-ui.png)
+
+`/claudlet setting` 을 치면 **어떤 크리처를 입힐지**, 그리고 크리처마다 **색과 크기**를
+고르는 페이지가 열려요. 목록의 크리처들은 **진짜 렌더러로 그려서** 보여주기 때문에
+화면에서 보이는 게 곧 바탕화면에 뜨는 모습이에요. 설정은 크리처마다 따로라서, 하나를
+꾸며도 다른 크리처 색이 따라 바뀌지 않아요.
+
+크리처는 데이터 파일이 아니라 작은 **패키지**예요. 펫은 "지금 이 상태" 만 알려주고,
+그게 어떻게 보이는지는 전부 크리처 안에서 정해요. 그래서 새로 만들 수 있어요:
+
+```
+/claudlet make 검은 고양이
+/claudlet make 시무룩한 작은 로봇
+```
+
+`~/.config/claudlet/creatures/<이름>/` 에 만들어지고 설정 목록에 바로 떠요. 기본으로
+세 마리가 들어 있어요:
+
+![같은 상태를 각자 방식으로 — claudlet, astronaut, slime](docs/creatures.png)
+
+그중 둘은 **예제**로 들어 있고, 둘 다 기본 크리처와 몸꼴이 달라요:
+
+- **astronaut** — 인간형. 헬멧·몸통·두 팔·두 다리·등에 멘 생명유지팩으로 두 발로
+  서요. 팔은 어깨가 붙박이고 **손이** 움직이고, 혼자 돌아갈 때를 헤드셋 대신
+  **빛나는 바이저와 깜빡이는 안테나**로 보여줘요.
+- **slime** — 다리가 아예 없어요. 걷기는 통통 튀는 것이 되고, 기울 때는 회전하는
+  대신 옆으로 밀려요(얇은 판을 쌓은 몸이라 돌리면 가장자리가 다 뭉개지거든요).
+
+둘 다 고민하고 타이핑하고 잠들어요 — 모션과 프롭은 크리처가 아니라 **펫이 주는**
+거라서, 크리처는 몸만 그리면 돼요. 직접 만들 거면 둘 중 아무거나
+[creature-authoring.md](src/claudlet/skill/creature-authoring.md) 와 같이 읽어보세요.
+계약과 함정은 [creature-authoring.md](src/claudlet/skill/creature-authoring.md) 에 있어요.
 
 ## 명령어
 
@@ -157,7 +192,7 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 | `claudlet` | 펫 바로 실행 (standalone). |
 | `claudlet-install` | Claude Code에 훅 + `/claudlet` 스킬 등록 — 설치 후 한 번 실행. |
 | `claudlet-uninstall` | 펫 종료 + 훅·스킬 해제 + 정리 (`--purge`면 설정도 삭제). |
-| `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). |
+| `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). `ui` 는 겉모습 페이지를 열어요. |
 | `claudlet-version` | 설치된 버전 vs PyPI 최신 릴리즈 표시. |
 | `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
 | `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
@@ -173,6 +208,8 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 - `/claudlet` — **이** 세션에 펫 붙이기 (세션 활동에 반응)
 - `/claudlet standalone` — 세션에 안 붙은 장식용 펫
 - `/claudlet <모션>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (그리고 `list`, `stop`)
+- `/claudlet setting` — 겉모습: 어떤 크리처를 입힐지, 그 크리처의 색 · 크기 · 특수모드 표시
+- `/claudlet make <설명>` — 펫이 입을 새 크리처를 만들어줘요
 - `/claudlet config` — 설정 보기, 또는 자연어로 요청("Bash 돌 때 점프하게")하면 Claude가 대신 편집
 - `/claudlet update` — 최신 릴리즈로 업데이트 (`update latest`면 develop 최신); 버전 보여주고 단계 안내
 
@@ -180,6 +217,7 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 
 - **[사용법 & 인터랙션](docs/usage.ko.md)** — 드래그/던지기, 클릭-포커스, 트레이 메뉴, 모션, 자동시작, 제거
 - **[설정](docs/configuration.ko.md)** — 어떤 활동에 어떤 애니를 보일지 재매핑 (`claudlet-config` 또는 `/claudlet config`로 위치 확인·점검)
+- **[크리처 만들기](src/claudlet/skill/creature-authoring.md)** — 계약, 크리처가 물려받는 모션·프롭 도구, 안 겪어도 되는 렌더링 함정들
 - **[플랫폼 지원](docs/platform.ko.md)** — 지원 매트릭스 + 각 OS 테스트 방법
 - **[기여 가이드](CONTRIBUTING.ko.md)** — 개발 환경 설정, 테스트 실행, 코드 스타일, 브랜치 모델
 - **[변경 이력](https://github.com/YeeDochi/Claudlet/releases/latest)** — 릴리즈마다 뭐가 바뀌었는지 (한/영 병기)

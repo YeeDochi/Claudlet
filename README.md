@@ -143,15 +143,55 @@ pet just roams. See **[Platform support](docs/platform.md)**.
 ## What it shows
 
 The creature's pose tracks what Claude is doing — editing, reading, calling MCP,
-thinking, waiting on your input, celebrating (see the sheet above). In **auto /
-bypass mode** it puts on a VR visor and cruises, with a per-tool variant for each
-activity. It also **perches on and rides your windows** — walking along the top or
-living inside — and clips/hides when the window it's on is covered or minimized.
+thinking, waiting on your input, celebrating (see the sheet above). While Claude
+runs **unattended** (auto / bypass mode) it shows that too — the built-in pulls
+a VR visor down over its eyes. It also **perches on and rides your windows** —
+walking along the top or living inside — and clips/hides when the window it's on
+is covered or minimized.
 
 When Claude runs **subagents**, a hatted **companion** appears for each one (up to
 three) and trails the pet in a duckling chain, mirroring the subagent's activity
 and leaving with a little celebration when it finishes — so you can see agent work
 happening at a glance.
+
+## Make it yours
+
+![The settings page](docs/settings-ui.png)
+
+`/claudlet setting` opens a page where you pick **which creature** the pet wears
+and, for each one, its **colour** and **size**. Every creature is previewed with
+the real renderer, so what you see is what lands on the desktop. Settings belong
+to the creature, so dressing one never repaints another.
+
+A creature is a small package, not a data file — the pet tells it which state to
+be in and everything about how that looks is inside. `/claudlet make <what you
+want>` writes one for you:
+
+```
+/claudlet make 검은 고양이
+/claudlet make a grumpy little robot
+```
+
+It lands in `~/.config/claudlet/creatures/<name>/` and shows up in the settings
+list. Three ship with the pet:
+
+![claudlet, astronaut and slime across the same states](docs/creatures.png)
+
+Two of them are there as **worked examples**, and neither is shaped like the
+built-in:
+
+- **astronaut** — a humanoid. Helmet, torso, two arms, two legs, a pack on its
+  back. Its arms hang from fixed shoulders and the *hands* move, and it answers
+  the unattended flag with a lit visor and a blinking antenna rather than a
+  headset.
+- **slime** — no legs at all. A stride becomes a hop, and a lean is a shear
+  rather than a rotation, because rotating a stack of thin slabs smears every
+  edge.
+
+Both still think, type and sleep, because the motion and the props come from the
+pet, not from the creature — a creature only draws a body. Read either one next
+to [creature-authoring.md](src/claudlet/skill/creature-authoring.md) if you are
+writing your own.
 
 ## Commands
 
@@ -162,7 +202,7 @@ happening at a glance.
 | `claudlet` | Launch a pet right now (standalone). |
 | `claudlet-install` | Register the hooks + `/claudlet` skill in Claude Code — run once after installing. |
 | `claudlet-uninstall` | Stop pets, unregister the hooks + skill, clean up (`--purge` also deletes your config). |
-| `claudlet-config` | Show / scaffold / open the user config (`--path`, `init`, `open`). |
+| `claudlet-config` | Show / scaffold / open the user config (`--path`, `init`, `open`); `ui` opens the appearance page. |
 | `claudlet-version` | Show the installed version vs the latest PyPI release. |
 | `claudlet-attach` | Attach a pet to the current Claude Code session. |
 | `claudlet-motion <name>` | Play a motion on running pets (`jump`, `wave`, … ; `stop`, `list`). |
@@ -178,6 +218,8 @@ drive the pet straight from a prompt:
 - `/claudlet` — attach a pet to **this** session (so it reacts to the session's activity)
 - `/claudlet standalone` — an unattached, decorative pet
 - `/claudlet <motion>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (plus `list`, `stop`)
+- `/claudlet setting` — appearance: which creature, and its colour / size / unattended look
+- `/claudlet make <description>` — write a new creature for the pet to wear
 - `/claudlet config` — show the config, or just ask in plain language ("jump when I run Bash") and Claude edits it for you
 - `/claudlet update` — update to the latest release (`update latest` for the tip of develop); shows your version and walks you through it
 
@@ -185,6 +227,7 @@ drive the pet straight from a prompt:
 
 - **[Usage & interaction](docs/usage.md)** — drag & throw, click-to-focus, tray menu, motions, autostart, uninstall
 - **[Configuration](docs/configuration.md)** — remap which animation shows for which Claude Code activity (run `claudlet-config` or `/claudlet config` to locate & inspect it)
+- **[Writing a creature](src/claudlet/skill/creature-authoring.md)** — the contract, the motion/prop tools a creature inherits, and the rendering mistakes worth skipping
 - **[Platform support](docs/platform.md)** — support matrix + how to test on your OS
 - **[Contributing](CONTRIBUTING.md)** — dev setup, running tests, code style, branch model
 - **[Changelog](https://github.com/YeeDochi/Claudlet/releases/latest)** — what changed in each release (English + Korean)
