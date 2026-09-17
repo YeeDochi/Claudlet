@@ -17,6 +17,9 @@ import json
 import glob
 import socket
 import tempfile
+from claudlet.cli import utf8_output
+
+utf8_output()
 
 # Share the transport definitions with the pet/hook (loopback address, runtime
 # dir, .port parse) instead of re-deriving them here — a second copy silently

@@ -19,6 +19,9 @@ from claudlet.cli import motion
 from claudlet.core import petconfig
 from claudlet.cli import install
 from claudlet.cli import install_hooks
+from claudlet.cli import utf8_output
+
+utf8_output()
 
 
 def stop_running_pets():

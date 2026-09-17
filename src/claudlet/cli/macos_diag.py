@@ -20,6 +20,9 @@ Prints:
 """
 import os
 import sys
+from claudlet.cli import utf8_output
+
+utf8_output()
 
 
 

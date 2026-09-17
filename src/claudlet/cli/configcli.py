@@ -19,11 +19,14 @@ import stat
 import sys
 import zipfile
 
+from claudlet.cli import utf8_output
 from claudlet.core import agents
 from claudlet.core import avatars
 from claudlet.core import dock as dockgeom
 from claudlet.core import petconfig
 from claudlet.core.state_engine import MAPPABLE_STATES, DEFAULT_EVENT_STATES
+
+utf8_output()
 
 
 def diagnose(raw):

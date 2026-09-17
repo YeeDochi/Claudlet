@@ -17,8 +17,10 @@ import os
 import subprocess
 import sys
 
-from claudlet.cli import hook
+from claudlet.cli import hook, utf8_output
 from claudlet.core import agents, hostinfo
+
+utf8_output()
 
 
 def _newest_session_id():

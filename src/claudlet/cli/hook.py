@@ -17,18 +17,13 @@ import json
 import socket
 import subprocess
 
-# Claude Code always sends the hook payload as UTF-8 JSON on stdin, but on
-# non-UTF-8-locale Windows (e.g. Korean cp949), Python's default stdin codec
-# follows the console codepage and mangles any multi-byte payload content.
-# Wrapped because this is module-top-level code (outside main()'s try): a
-# closed/detached stream makes reconfigure raise, and this hook must never
-# fail Claude — swallow it and carry on.
-try:
-    for _stream in (sys.stdin, sys.stdout, sys.stderr):
-        if hasattr(_stream, "reconfigure"):
-            _stream.reconfigure(encoding="utf-8", errors="replace")
-except Exception:
-    pass
+# stdin matters here on top of the usual output fix: Claude Code always sends
+# the hook payload as UTF-8 JSON, and Python's default stdin codec follows the
+# console codepage (cp949 on Korean Windows), which mangles any multi-byte
+# content in it.
+from claudlet.cli import utf8_streams
+
+utf8_streams(sys.stdin, sys.stdout, sys.stderr)
 
 try:
     from claudlet.core import hostinfo

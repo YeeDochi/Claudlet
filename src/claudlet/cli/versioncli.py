@@ -10,6 +10,9 @@ import sys
 import urllib.request
 
 from claudlet import __version__
+from claudlet.cli import utf8_output
+
+utf8_output()
 
 PYPI_JSON = "https://pypi.org/pypi/claudlet/json"
 

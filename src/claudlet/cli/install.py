@@ -13,11 +13,10 @@ import os
 import shutil
 import sys
 
+from claudlet.cli import utf8_output
 from claudlet.core import agents
 
-for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+utf8_output()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL_SRC = os.path.join(os.path.dirname(HERE), "skill")  # packaged skill data (claudlet/skill, not cli/skill)
