@@ -536,7 +536,7 @@ section{background:var(--card);border:1px solid var(--line);border-radius:12px;p
         min-height:0;display:flex;flex-direction:column}
 h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
    text-transform:uppercase;letter-spacing:.6px}
-#settings{flex:1 1 auto;overflow:hidden}
+#settings{flex:1 1 auto;min-height:0;overflow:hidden}
 .worn,.notworn{display:inline-block;padding:1px 8px;
                border-radius:999px;font-size:11px;font-weight:600}
 .worn{background:#1F7A4D;color:#DFF7EA}
@@ -563,8 +563,10 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
               padding:6px 4px;font-weight:500;cursor:pointer;text-align:left}
 .card-trigger img{width:24px;height:24px;image-rendering:pixelated;flex:0 0 auto}
 .card-trigger span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:20;
-            min-width:220px;max-height:45vh;overflow-y:auto;
+/* drops DOWN over the page at the bar's own width -- an overlay, so opening it
+   never reflows the row below and never lengthens the page */
+.card-panel{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
+            max-height:45vh;overflow-y:auto;
             background:var(--card);border:1px solid var(--line);border-radius:10px;
             padding:6px;display:flex;flex-direction:column;gap:4px;
             box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -584,8 +586,11 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 .modal-backdrop[hidden]{display:none}
 .modal{background:var(--card);border:1px solid var(--line);border-radius:12px;
        padding:20px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto}
-#shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
-       flex:1 1 auto;min-height:120px;overflow-y:auto;
+/* the one pane that scrolls at rest. flex-basis 0 + min-height 0 is what keeps
+   a tall preview inside the box instead of stretching the panel (and with it
+   the page) past the window. */
+#shots{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;align-content:flex-start;
+       flex:1 1 0;min-height:0;overflow-y:auto;
        padding:14px;background:var(--sunk);border-radius:9px}
 #shots figure{margin:0;text-align:center}
 #shots img{display:block;image-rendering:pixelated}
