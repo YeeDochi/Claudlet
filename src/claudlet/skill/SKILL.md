@@ -1,6 +1,6 @@
 ---
 name: claudlet
-description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet".
+description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet config" also covers appearance (colour, size, which creature) via "claudlet-config ui"; "/claudlet creature <설명>" writes a NEW creature package for the pet to wear; "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "make a new creature".
 ---
 
 # claudlet — launch the desktop buddy
@@ -35,8 +35,25 @@ Look at the argument the user passed after `/claudlet`:
   do NOT launch a pet.
 - `update` (or `업데이트`) → **Update** (release channel). `update latest`
   (or `edge` / `develop`) → **Update** to the latest `develop` branch.
+- `creature` / `크리처` (usually with a description: `/claudlet creature 검은 고양이`)
+  → **Make a creature**; do NOT launch a pet.
 - `standalone` → **Standalone**.
 - nothing → **Attach** (default).
+
+## Make a creature
+
+The user wants a new creature for the pet to wear. **Read
+`creature-authoring.md` next to this file before writing anything** — it has the
+contract, the motion and prop tools the creature inherits, and the handful of
+rendering mistakes that otherwise cost a day.
+
+Write the package to `~/.config/claudlet/creatures/<name>/__init__.py`, then
+render every state to one sheet and LOOK at it before telling the user it is
+done. Getting this right is iterative: show them the sheet, ask what is wrong,
+fix, show again. Do not claim a creature looks good without having looked.
+
+Switch to it with `claudlet-config ui` (the list renders each creature) or
+`CLAUDLET_AVATAR=<name> claudlet` to try it without changing the config.
 
 ## Attach (default)
 
