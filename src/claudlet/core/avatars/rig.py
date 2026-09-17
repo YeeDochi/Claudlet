@@ -16,9 +16,12 @@ all 28 states without anyone authoring 28 animations for it. Turning a part off
 is allowed and the roles degrade: no legs means the walk bounces instead of
 striding, no arms means the body does the waving.
 
-Transforms are TRANSLATION and vertical squash only, never rotation. At this
-size a limb is two to four pixels; rotating pixel art shreds its edges and buys
-no expression the offsets don't already give.
+Parts move by TRANSLATION and vertical squash. At this size a limb is two to
+four pixels, and rotating it shreds its edges for expression the offsets
+already give. The WHOLE creature is another matter: `error` throws it over at
+-16 degrees and `doze` lets its head loll, and standing bolt upright reads as
+nothing happening. So a big lean rotates everything at once (with antialiasing,
+the way the built-in art handles a tilted frame) while small ones are ignored.
 """
 import math
 
@@ -31,6 +34,11 @@ INK = {"b": "body", "h": "hi", "l": "lo", "e": "eye", "a": "bang"}
 BLANK = "."
 
 ROLES = ("body", "head", "leg", "arm", "eye", "decor")
+
+# Below this the lean is dropped rather than drawn. A couple of degrees is too
+# small to read as a lean and more than enough to staircase every edge; what is
+# worth the damage is the lurch of `error` (-16) or `doze` (10).
+LEAN_DEG = 6.0
 
 
 class Part(object):
@@ -165,8 +173,8 @@ class RigAvatar(object):
         pass                     # no text of its own yet
 
     def draw(self, p, ox, oy, u, state, frame, **kw):
-        from PyQt6.QtCore import QRect
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import QRect, Qt
+        from PyQt6.QtGui import QPainter
         p.setPen(Qt.PenStyle.NoPen)
         body, hi, lo, bang = C.palette_colors(kw.get("palette"))
         eye = C.EYE if hasattr(C, "EYE") else lo
@@ -177,11 +185,51 @@ class RigAvatar(object):
                         kw.get("gaze", (0.0, 0.0)))
         r["frame"] = frame
         r["gaze"] = kw.get("gaze", (0.0, 0.0))
+        lean = r["tilt"] if abs(r["tilt"]) >= LEAN_DEG else 0.0
         shared = r["bob"] + r["baseline_lift"] + legless_bounce(self.rig, r)
         sx, sy = r["sx"], r["sy"]
         bcx, bcy = self.grid[0] / 2.0, self.grid[1] / 2.0
 
+        if lean:
+            # Bake the creature flat, THEN turn the picture. Rotating each cell
+            # on its own puts a seam along every cell edge once antialiasing is
+            # on, and the creature comes out looking like tiling. One raster
+            # has no internal edges to show. Only leaning states pay for it.
+            from PyQt6.QtGui import QImage
+            w, h = int(self.grid[0] * u) + 2 * u, int(self.grid[1] * u) + 2 * u
+            flat = QImage(w, h, QImage.Format.Format_ARGB32)
+            flat.fill(0)
+            q = QPainter(flat)
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            q.setPen(Qt.PenStyle.NoPen)
+            self._paint_parts(q, u, u, u, r, shared, ink, body)
+            q.end()
+            cx, cy = ox + self.grid[0] / 2.0 * u, oy + self.grid[1] / 2.0 * u
+            p.save()
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            p.translate(cx, cy)
+            p.rotate(lean)
+            p.translate(-cx, -cy)
+            p.drawImage(int(ox - u), int(oy - u), flat)
+            p.restore()
+        else:
+            self._paint_parts(p, ox, oy, u, r, shared, ink, body)
+
+        if r["prop"]:
+            C.draw_prop(p, ox, oy, u, r["prop"], frame, state,
+                        r["bob"] + r["baseline_lift"], kw.get("facing", 1),
+                        kw.get("palette"))
+
+    def _paint_parts(self, p, ox, oy, u, r, shared, ink, body):
+        from PyQt6.QtCore import QRect
+        sx, sy = r["sx"], r["sy"]
+        bcx, bcy = self.grid[0] / 2.0, self.grid[1] / 2.0
         for part in self.rig.live():
+            # "none" means the hands are busy elsewhere — resting on the laptop,
+            # say — and the arms are not drawn at all. Ignoring it left the
+            # creature typing with a spare pair of arms out at its sides.
+            if part.role == "arm" and r["arm"] == "none":
+                continue
             pcol, prow = self.rig.origin(part)
             dx, dy = part_offset(part, self.rig, r)
             shape = part.shape(r)
@@ -209,7 +257,4 @@ class RigAvatar(object):
         # most of the creature's character lives in, and a custom avatar
         # inherits the whole vocabulary rather than having to redraw eleven
         # props across every state.
-        if r["prop"]:
-            C.draw_prop(p, ox, oy, u, r["prop"], frame, state,
-                        r["bob"] + r["baseline_lift"], kw.get("facing", 1),
-                        kw.get("palette"))
+

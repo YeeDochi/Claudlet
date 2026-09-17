@@ -33,26 +33,36 @@ _LEG_ROW, _LEG_H = 7, 4
 # Eyes are the face. At three art pixels across they are crude, but a shut eye
 # has to look shut or a sleeping creature reads as a staring one. Keys are the
 # `eyes` values `creature.state_rig` produces.
-# The built-in eye is 1.4 x 1.8 art pixels — a narrow upright slit, not a
-# block. Keeping that proportion matters: at 2x2 the creature reads as
-# googly-eyed rather than as itself. Only the shapes that ARE wide in the
-# built-in (sleep's closed line, wide's stare) spread sideways.
-# The built-in eye is 1.4 x 1.8 art pixels. Neither whole number is it: at one
-# pixel wide it is a scratch, at two a goggle. Two wide but only where the
-# shape needs the width — the open eye keeps a blank column so it reads as a
-# slit rather than a block, and the shapes that ARE wide in the built-in
-# (sleep's closed line, wide's stare, the x) use both columns.
+# Eyes carry the expression, and in the built-in art they are not one shape
+# moved around: each is its own size. The closed eye is wide and one pixel
+# tall, the focused one is short, the surprised one is bigger in both
+# directions. Variants that keep a constant box read as one face pulling the
+# same expression over and over, so these vary like the original does.
+#
+# The squint is MIRRORED — ">" on the left eye and "<" on the right, points
+# toward the nose. Which variants mirror is the avatar's business, not the
+# engine's, so the right eye simply gets its own flipped table.
 _EYES = {
-    "open":   ["ee", "ee", ".."],
-    "blink":  ["..", "..", "ee"],
-    "sleep":  ["..", "..", "ee"],
-    "focus":  ["..", "ee", ".."],
-    "up":     ["ee", "ee", ".."],
-    "wide":   ["ee", "ee", "ee"],
+    "open":   ["ee", "ee", ".."],          # 1.4 x 1.8 -> narrow and upright
+    "blink":  ["..", "..", "ee"],          # 1.4 x 0.6 -> a line, low
+    "sleep":  ["...", "...", "eee"],       # 2.6 x 0.6 -> wider line, low
+    "focus":  ["..", "ee", ".."],          # 1.6 x 0.9 -> short, mid
+    "up":     ["ee", "ee", ".."],          # raised by the gaze, same shape
+    "wide":   ["eee", "eee", "eee"],       # 1.9 x 2.4 -> bigger both ways
     "x":      ["e.e", ".e.", "e.e"],
-    "happy":  ["e.e", ".e.", "..."],
-    "squint": ["e..", ".e.", "e.."],
+    "happy":  ["e.e", ".e.", "..."],       # ^ ^
+    "squint": ["e..", ".e.", "e.."],       # >  (mirrored for the right eye)
 }
+_MIRRORED = ("squint", "x", "happy")
+
+
+def _flip(rows):
+    return [row[::-1] for row in rows]
+
+
+_EYES_R = dict(_EYES)
+for _k in _MIRRORED:
+    _EYES_R[_k] = _flip(_EYES[_k])
 
 CREATURE = Rig(
     name="creature",
@@ -73,7 +83,7 @@ CREATURE = Rig(
         Part("arm1", "arm", at=(15, 3), pixels=_rows(2, 2, "l"), parent="body", index=1),
         Part("eye0", "eye", at=(3, 2), pixels=_EYES["open"], parent="body",
              index=0, variants=_EYES),
-        Part("eye1", "eye", at=(11, 2), pixels=_EYES["open"], parent="body",
-             index=1, variants=_EYES),
+        Part("eye1", "eye", at=(11, 2), pixels=_EYES_R["open"], parent="body",
+             index=1, variants=_EYES_R),
     ],
 )
