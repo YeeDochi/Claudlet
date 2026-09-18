@@ -570,8 +570,9 @@ def render_png(palette, scale, state="idle", frame=None, avatar=None,
     avatar = avatars.get(avatar)
     pad = 2
     gw, gh = avatar.grid
-    u = petconfig.clamp_scale(scale)
-    w, h = (gw + 2 * pad) * u, (gh + 2 * pad) * u
+    u = petconfig.clamp_scale(
+        scale, bool(getattr(avatar, "fractional_scale", False)))
+    w, h = int(round((gw + 2 * pad) * u)), int(round((gh + 2 * pad) * u))
     img = QImage(w, h, QImage.Format.Format_ARGB32)
     img.fill(0)
     p = QPainter(img)
@@ -960,9 +961,11 @@ function redraw() {
 function showCreature(name) {
   editing = name;
   syncRemoveBtn();
-  // half steps for a creature that can take them — whole ones would jump
-  // straight from life size to double
-  $("scale").step = (S.fine_scale || []).indexOf(name) !== -1 ? 0.5 : 1;
+  // A creature that takes a fraction gets the whole range in tenths — whole
+  // steps jump straight from life size to double, and halves still skip past
+  // the size someone actually wants. The stored value is rounded to one
+  // decimal, so the slider and the setting agree exactly.
+  $("scale").step = (S.fine_scale || []).indexOf(name) !== -1 ? 0.1 : 1;
   const look = (S.looks && S.looks[name]) || {};
   const pal = look.palette;
   const isHex = typeof pal === "string" && pal.startsWith("#");

@@ -187,8 +187,14 @@ def clean_visor(value):
 
 
 def clean_scale_opt(value):
-    """A scale, or None when the creature has not been given one."""
-    return None if value is None else clamp_scale(value)
+    """A scale, or None when the creature has not been given one.
+
+    Reading the file does not know which creature the value belongs to, so a
+    fraction is kept here and snapped later, in `for_creature`, where the
+    creature is in hand. Rounding to a whole number at this point threw away
+    the half sizes a sprite creature is allowed before anything could ask
+    whether it was allowed one."""
+    return None if value is None else clamp_scale(value, fractional=True)
 
 
 def clean_palette_opt(value):
