@@ -375,7 +375,15 @@ def _esc(s):
 # ~10-16 KB total. These are generous multiples of that, not a measured limit
 # for "big" art -- an archive anywhere near them is not a creature anymore.
 MAX_CREATURE_ENTRIES = 200
-MAX_CREATURE_TOTAL_SIZE = 512 * 1024  # bytes, declared uncompressed total
+# Sprite creatures carry their frames as data and often the source sheets they
+# were cut from, which runs to megabytes; 512K only ever fitted a creature
+# drawn from code. This is deliberately far above any real creature: the cap is
+# not what makes importing safe -- that is the path and symlink checks, and the
+# listing the user approves. What it stops is a decompression bomb, and it does
+# that at EXTRACTION now, counting the bytes actually written, so an archive
+# that understates its size in its own header gets no further than one that
+# does not.
+MAX_CREATURE_TOTAL_SIZE = 100 * 1024 * 1024  # bytes, uncompressed total
 
 # The top-level directory name becomes a path component under CREATURES_DIR
 # (and, unescaped, part of every message shown about the import). No dot-only
@@ -469,6 +477,7 @@ def import_creature(zip_path, dest_root=None, force=False):
         shutil.rmtree(tmp_target, ignore_errors=True)
     os.makedirs(tmp_target)
     tmp_target_abs = os.path.abspath(tmp_target)
+    written = 0
     try:
         with zipfile.ZipFile(zip_path) as zf:
             for info in zf.infolist():
@@ -481,8 +490,22 @@ def import_creature(zip_path, dest_root=None, force=False):
                 if not out_path.startswith(tmp_target_abs + os.sep):
                     return None, "unsafe path in archive: %s" % info.filename
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                # Stream it, counting what is REALLY written. The size checked
+                # before this point comes out of the archive's own header, and
+                # an archive that means harm is free to understate it -- and
+                # `src.read()` would have handed a zip bomb the whole of it in
+                # one allocation.
                 with zf.open(info) as src, open(out_path, "wb") as dst:
-                    dst.write(src.read())
+                    while True:
+                        chunk = src.read(256 * 1024)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > MAX_CREATURE_TOTAL_SIZE:
+                            raise ValueError(
+                                "archive expands past the %d byte limit for a "
+                                "creature" % MAX_CREATURE_TOTAL_SIZE)
+                        dst.write(chunk)
     except Exception as e:
         shutil.rmtree(tmp_target, ignore_errors=True)
         return None, "failed to extract archive: %s" % e
