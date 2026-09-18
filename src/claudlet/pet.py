@@ -2356,21 +2356,27 @@ class Pet(QWidget):
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
         p.end()
 
+    # 하트 위치/크기의 기본값 (내장 크리처의 22x17 기준, 아트 픽셀 단위).
+    # 그리드가 훨씬 촘촘한 크리처에서는 이 숫자가 그대로면 하트가 얼굴 위에
+    # 좁쌀만 하게 찍힌다 — 크리처가 `hearts`로 자기 기준을 알려줄 수 있다.
+    HEARTS_DEFAULT = (4.5, 3.0, 1.6)      # (좌우 간격, 머리 높이, 크기)
+
     def _draw_hearts(self, p, age):
         # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
         # (창 안)에서 살짝 떠오르며 페이드. age 0..1. 크고 뚜렷하게.
         p.setPen(Qt.PenStyle.NoPen)
+        spread, head, size = getattr(self.avatar, "hearts", None) or self.HEARTS_DEFAULT
         cx = self.w // 2
-        for i, off in enumerate((-4.5 * self.u, 4.5 * self.u, 0)):
+        for i, off in enumerate((-spread * self.u, spread * self.u, 0)):
             phase = age + i * 0.18
             if phase >= 1.0:
                 continue
-            rise = phase * 3.5 * self.u
+            rise = phase * size * 2.2 * self.u
             alpha = max(0, int(235 * (1.0 - phase)))
             col = QColor(233, 70, 96, alpha)
-            s = (1.6 if i < 2 else 1.1) * self.u     # 옆 큰 하트 2 + 중앙 작은 것
+            s = (size if i < 2 else size * 0.7) * self.u   # 옆 큰 하트 2 + 중앙 작은 것
             hx = cx + off
-            hy = (PAD_Y + 3) * self.u - rise              # 머리 옆 높이에서 시작
+            hy = (PAD_Y + head) * self.u - rise            # 머리 옆 높이에서 시작
             self._heart(p, hx, hy, s, col)
 
     @staticmethod

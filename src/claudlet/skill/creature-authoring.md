@@ -16,6 +16,10 @@ class MyCreature:
     palette  = "#33CC66"    # YOUR default colour, until the user picks one
     foot_row = 15.8         # where your feet are, in art rows — the pet stands
                             # you on windows by this line (omit to use 15.8)
+    hearts  = (4.5, 3, 1.6) # where the petting hearts go, in art units:
+                            # (out to each side, head height, size). Omit and
+                            # the built-in's numbers are used — which are cut
+                            # for a 22-wide grid, so a denser one wants its own
 
     def draw(self, p, ox, oy, u, state, frame, **kw): ...
     def set_lang(self, lang): ...
@@ -146,6 +150,22 @@ deciding how a creature looks; it is the `autonomous` flag now, and showing it
   `>` `<` pointing at the nose, not `>` `>`.
 - **Leave room above the head.** Props are drawn in the box too; the built-in
   keeps rows 0–4 mostly clear for bubbles and z's.
+
+## Petting hearts
+
+When the user strokes you, the PET draws three hearts rising past your head —
+you do not draw them, but you can say where they belong:
+
+```python
+hearts = (11.0, 5.0, 4.5)   # out to each side, head height, size (art units)
+```
+
+The defaults are `(4.5, 3, 1.6)`, measured on the built-in's 22-wide grid. A
+creature with a much denser grid gets them in the wrong place for the same
+reason `foot_row` exists: on an 88-wide grid those numbers put three-dot hearts
+on the creature's face. Give your own if your head is not where the built-in's
+is, and check them at the size the pet actually runs — they are drawn in art
+units, so they shrink with everything else.
 
 ## Colour and size
 
