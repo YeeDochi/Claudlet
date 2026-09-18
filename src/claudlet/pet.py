@@ -74,14 +74,23 @@ def _scale(cfg):
                                  or cfg.get("scale", petconfig.DEFAULT_SCALE))
 
 
-def _companion_scale(u):
-    """Companions keep their proportion to the pet (3 when the pet is 5) and
-    never shrink below the smallest size the pet itself can be drawn at.
+def _companion_scale(u, avatar=None):
+    """Companions keep their proportion to the pet (3 when the pet is 5).
 
-    The floor used to be a hard 2, from when that was also the pet's minimum.
-    A creature carrying finer art runs at 1, and the floor then made its
-    companion TWICE the size of the pet it was following."""
-    return max(petconfig.MIN_SCALE, round(u * COMPANION_RATIO))
+    The unit stays WHOLE unless the creature says a fraction is fine: a
+    fractional unit made the built-in's hand-placed art pixels alternate 2px
+    and 3px wide. A creature whose frames are a sprite sheet has no such
+    problem — scaling one is a resample of an image, not a re-rounding of
+    every rectangle — and declares `fractional_scale = True`.
+
+    Whole units alone cannot express this at the small end. A creature
+    carrying fine art runs at 1, where the old floor of 2 drew its companion
+    at TWICE the pet's size, and a floor of 1 draws it at exactly the pet's
+    size. Neither is a sidekick."""
+    raw = u * COMPANION_RATIO
+    if getattr(avatar, "fractional_scale", False):
+        return max(COMPANION_RATIO, round(raw, 1))
+    return max(petconfig.MIN_SCALE, round(raw))
 
 
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
@@ -1019,7 +1028,7 @@ class Pet(QWidget):
         for c in self._companions + self._departing:
             c.avatar = self.avatar
             c.palette = self._palette
-            c.rescale(_companion_scale(self.u))
+            c.rescale(_companion_scale(self.u, self.avatar))
             c.update()
         self.update()
 
@@ -1262,8 +1271,8 @@ class Pet(QWidget):
         comps = [(c.x, c.y, float(c.w)) for c in self._companions]
         # 탑쌓기: 스텝=컴패니언의 그려지는 몸통 높이(창 높이 아님, 패딩 제외),
         # foot/head=발·머리 오프셋(px)이라 발이 정확히 아래 머리에 닿는다.
-        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u)   # 층 간격
-        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u)  # 컴패니언 발(창-top부터)
+        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u, self.avatar)   # 층 간격
+        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u, self.avatar)  # 컴패니언 발(창-top부터)
         head = (PAD_Y + CROWN_ROW) * self.u                  # 펫 머리(창-top부터)
         self._social_targets = social.arrange(
             act, leader, comps, creature_h=body_h, foot=foot, head=head)
@@ -1318,7 +1327,7 @@ class Pet(QWidget):
             self._throw_recording = False
             return
         while len(self._companions) < n:             # a new agent started
-            c = Companion(_companion_scale(self.u), self.avatar, self._palette)
+            c = Companion(_companion_scale(self.u, self.avatar), self.avatar, self._palette)
             prev = self._companions[-1] if self._companions else self
             # spawn just BEHIND the leader (opposite the pet's heading), clear of
             # its body, so it doesn't pop in on top of the pet -- then it eases
@@ -1414,7 +1423,7 @@ class Pet(QWidget):
         # follow_nav.plan_move + physics.advance walk / jump between windows /
         # drop IN to sit with it / climb down / fall. Thrown motion returned
         # above after replaying the main pet's recorded trajectory.
-        ratio = _companion_scale(self.u) / float(self.u)
+        ratio = _companion_scale(self.u, self.avatar) / float(self.u)
         scr = self.screen_rect
         leader = self
         for c in self._companions:
@@ -1522,8 +1531,8 @@ class Pet(QWidget):
         return True
 
     def _drive_pocket_stack(self):
-        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u)
-        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u)
+        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u, self.avatar)
+        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u, self.avatar)
         head = (PAD_Y + CROWN_ROW) * self.u
         targets = social.arrange_pocket(
             (self.x, self.y, float(self.w)),
@@ -1549,7 +1558,7 @@ class Pet(QWidget):
         (self.h - FOOT_Y), while foot_y is the companion's TRUE drawn foot
         (self.foot_y*ratio) so a resolved position lands the DRAWN feet on the
         surface. box.w is the real companion width, for the screen/edge clamps."""
-        foot = self.foot_y * (_companion_scale(self.u) / float(self.u))
+        foot = self.foot_y * (_companion_scale(self.u, self.avatar) / float(self.u))
         return follow_nav.Box(c.w, (self.h - self.foot_y) + foot, foot)
 
     def _companion_bounds(self, c):
@@ -2342,7 +2351,7 @@ class Pet(QWidget):
         ) if pocket or self._follow else (0.0, 0.0)
         # facing handled inside draw_creature (body mirrors, text upright)
         if getattr(self, "_in_notch", False):
-            u = _companion_scale(self.u)   # 노치에서는 축소해 그린다
+            u = _companion_scale(self.u, self.avatar)   # 노치에서는 축소해 그린다
             # centring lands on a half pixel when window and art box differ by
             # an odd amount, shifting the grid and re-splitting every art pixel
             gw, gh = self.avatar.grid

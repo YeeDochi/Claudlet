@@ -18,6 +18,19 @@ def test_companion_unit_is_whole_pixels_at_every_scale():
         assert cu >= petconfig.MIN_SCALE, (u, cu)
 
 
+class _Sprite:
+    fractional_scale = True           # frames are a sheet; resampling is fine
+
+
+def test_a_sprite_creature_may_take_a_fractional_companion_scale():
+    # whole units cannot express "smaller than the pet" once the pet is at 1
+    assert P._companion_scale(1, _Sprite()) < 1
+    for u in range(petconfig.MIN_SCALE, petconfig.MAX_SCALE + 1):
+        cu = P._companion_scale(u, _Sprite())
+        assert 0 < cu <= u, (u, cu)
+        assert round(cu, 1) == cu, (u, cu)      # one decimal, not a long float
+
+
 def test_companion_is_never_bigger_than_the_pet_it_follows():
     # the floor was a hard 2, from when that was also the pet's minimum. A
     # creature carrying finer art runs at 1, and the floor then drew its
