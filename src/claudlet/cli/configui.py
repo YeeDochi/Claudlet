@@ -392,13 +392,22 @@ def state_payload(cfg=None, agent=None):
         # which creatures ship inside claudlet: those cannot be removed, and
         # the page greys the button rather than letting the request fail
         "bundled": list(avatars.bundled()),
+        # and which of them take a fractional size: for a creature whose art is
+        # a sprite sheet the whole-number steps are too coarse, because the
+        # next size up from 1 is twice as big
+        "fine_scale": [n for n in avatars.available()
+                       if getattr(avatars.get(n), "fractional_scale", False)],
         "agents": _agent_rows(cfg, agent),
         "agent": agent,
     }
 
 
-def clean_creature_updates(body):
+def clean_creature_updates(body, fractional=False):
     """The per-creature appearance keys we will write, cleaned.
+
+    `fractional` says the creature being edited takes a fractional size; the
+    slider offers half steps for those, and clamping them as whole numbers
+    here would quietly snap a 1.5 back to 1.
 
     Anything unrecognised is dropped rather than written through: this endpoint
     edits the same file a user hand-writes tools/events into."""
@@ -411,7 +420,7 @@ def clean_creature_updates(body):
         out["palette"] = petconfig.clean_palette_opt(body.get("palette"))
     if "scale" in body:
         v = body.get("scale")
-        out["scale"] = None if v is None else petconfig.clamp_scale(v)
+        out["scale"] = None if v is None else petconfig.clamp_scale(v, fractional)
     if "visor" in body:
         v = body.get("visor")
         out["visor"] = None if v is None else petconfig.clean_visor(v)
@@ -507,7 +516,8 @@ def apply(body, broadcast=None):
         target = top["avatar"][agent]
     else:
         target = petconfig.avatar_for(cfg, agent) or agents.get(agent)["avatar"] or avatars.DEFAULT
-    mine = clean_creature_updates(body)
+    mine = clean_creature_updates(
+        body, bool(getattr(avatars.get(target), "fractional_scale", False)))
     if mine:
         creatures = dict(cfg.get("creatures") or {})
         merged = dict(creatures.get(target) or {})
@@ -950,6 +960,9 @@ function redraw() {
 function showCreature(name) {
   editing = name;
   syncRemoveBtn();
+  // half steps for a creature that can take them — whole ones would jump
+  // straight from life size to double
+  $("scale").step = (S.fine_scale || []).indexOf(name) !== -1 ? 0.5 : 1;
   const look = (S.looks && S.looks[name]) || {};
   const pal = look.palette;
   const isHex = typeof pal === "string" && pal.startsWith("#");

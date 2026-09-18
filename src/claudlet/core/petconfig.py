@@ -239,20 +239,29 @@ def for_creature(cfg, name, avatar=None):
         palette = cfg.get("palette") or "auto"
     if palette is None:
         palette = "auto"
+    fine = bool(getattr(avatar, "fractional_scale", False))
     scale = mine.get("scale")
-    if scale is None and legacy:
-        scale = clamp_scale(cfg.get("scale"))
-    if scale is None:
+    if scale is not None:
+        scale = clamp_scale(scale, fine)
+    elif legacy:
+        scale = clamp_scale(cfg.get("scale"), fine)
+    else:
         want = getattr(avatar, "scale", None)
-        scale = clamp_scale(want) if want is not None else DEFAULT_SCALE
+        scale = clamp_scale(want, fine) if want is not None else DEFAULT_SCALE
     return {"palette": palette, "scale": scale,
             "visor": mine.get("visor") or DEFAULT_VISOR}
 
 
-def clamp_scale(value):
-    """A usable integer scale from whatever the config holds. Pure."""
+def clamp_scale(value, fractional=False):
+    """A usable scale from whatever the config holds. Pure.
+
+    Whole numbers by default: a fractional unit makes the built-in's
+    hand-placed art pixels alternate widths. `fractional` is for a creature
+    whose frames are a sprite sheet, where a size change is a resample of an
+    image — there the whole-number steps are too coarse to be useful, because
+    the next size up from 1 is twice as big."""
     try:
-        n = int(value)
+        n = round(float(value), 1) if fractional else int(value)
     except (TypeError, ValueError):
         return DEFAULT_SCALE
     return max(MIN_SCALE, min(MAX_SCALE, n))

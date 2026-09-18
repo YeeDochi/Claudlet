@@ -976,8 +976,10 @@ class Pet(QWidget):
     def _resize_to_avatar(self):
         """Window size follows the avatar's art box and the current scale."""
         gw, gh = self.avatar.grid
-        self.w = (gw + 2 * PAD_X) * self.u
-        self.h = (gh + 2 * PAD_Y) * self.u
+        # round, not truncate: a creature that takes a fractional scale can
+        # land the box on a half pixel, and int() would shave a row off it
+        self.w = int(round((gw + 2 * PAD_X) * self.u))
+        self.h = int(round((gh + 2 * PAD_Y) * self.u))
         self.setFixedSize(self.w, self.h)
 
     def _autonomous(self):
@@ -999,8 +1001,9 @@ class Pet(QWidget):
         look = petconfig.for_creature(cfg, self.avatar.name, self.avatar)
         pal = os.environ.get("CLAUDLET_PALETTE") or look["palette"]
         self._palette = petconfig.resolve_palette(pal, *self._palette_roll)
-        self.u = petconfig.clamp_scale(os.environ.get("CLAUDLET_SCALE")
-                                       or look["scale"])
+        self.u = petconfig.clamp_scale(
+            os.environ.get("CLAUDLET_SCALE") or look["scale"],
+            bool(getattr(self.avatar, "fractional_scale", False)))
         self._visor_mode = look["visor"]
 
     def _restyle(self):
@@ -2359,7 +2362,8 @@ class Pet(QWidget):
             oy = round((self.h - (gh + 2 * PAD_Y) * u) / 2 + PAD_Y * u)
         else:
             u = self.u
-            ox, oy = PAD_X * self.u, PAD_Y * self.u
+            # a fractional origin puts the whole grid between pixels
+            ox, oy = round(PAD_X * self.u), round(PAD_Y * self.u)
         self.avatar.draw(p, ox, oy, u, state, self.frame,
                          facing=self.facing, autonomous=autonomous,
                          energy=energy,
