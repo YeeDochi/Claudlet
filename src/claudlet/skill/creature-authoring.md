@@ -20,6 +20,12 @@ class MyCreature:
                             # (out to each side, head height, size). Omit and
                             # the built-in's numbers are used — which are cut
                             # for a 22-wide grid, so a denser one wants its own
+    scale   = 5             # the size you OPEN at, until the user picks one.
+                            # 5 suits a 22x17 box; a box declared in finer dots
+                            # wants 1, or it opens five times life size
+    fractional_scale = False  # True if your art survives a fractional size —
+                            # see "Size" below. Sprite sheets do; rectangles
+                            # placed by hand do not
 
     def draw(self, p, ox, oy, u, state, frame, **kw): ...
     def set_lang(self, lang): ...
@@ -150,6 +156,31 @@ deciding how a creature looks; it is the `autonomous` flag now, and showing it
   `>` `<` pointing at the nose, not `>` `>`.
 - **Leave room above the head.** Props are drawn in the box too; the built-in
   keeps rows 0–4 mostly clear for bubbles and z's.
+
+## Size
+
+`scale` is device pixels per art unit, and the user sets it per creature. Yours
+is what they get before they touch anything — the same idea as `palette`. The
+default of 5 assumes the built-in's 22x17 box; if you declare a box in your own
+finer dots, 5 means five pixels per dot and a pet the size of a window. Declare
+what life size is for you.
+
+The scale is a WHOLE number unless you say otherwise:
+
+```python
+fractional_scale = True     # my frames are a sprite sheet
+```
+
+Say it only if it is true of your art. A fractional unit re-rounds every
+rectangle, so a creature drawn with `p.fillRect` gets art pixels that alternate
+2px and 3px wide — which is why whole numbers are the default. Scaling a sprite
+sheet is a resample of an image and has no such problem.
+
+Declaring it buys two things. The user's size slider moves in tenths instead of
+whole steps, which matters at the small end: if life size is 1, the next whole
+step is twice as big. And your companions — the sidekicks that appear while
+subagents run — can be drawn at 0.6 of you instead of being rounded up to your
+own size.
 
 ## Petting hearts
 
