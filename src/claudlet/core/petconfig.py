@@ -221,7 +221,10 @@ def for_creature(cfg, name, avatar=None):
     asks for, then the defaults.
 
     A creature declares its own `palette` because a slime opening in claudlet's
-    orange is wrong before the user has touched anything."""
+    orange is wrong before the user has touched anything — and its own `scale`
+    for the same reason. The default of 5 assumes the built-in's 22x17 box; a
+    creature carrying finer art declares a box in ITS dots, where 5 means five
+    device pixels per dot and a pet the size of a window."""
     mine = (cfg.get("creatures") or {}).get(name) or {}
     palette = mine.get("palette")
     if palette is None:
@@ -237,8 +240,11 @@ def for_creature(cfg, name, avatar=None):
     if palette is None:
         palette = "auto"
     scale = mine.get("scale")
+    if scale is None and legacy:
+        scale = clamp_scale(cfg.get("scale"))
     if scale is None:
-        scale = clamp_scale(cfg.get("scale")) if legacy else DEFAULT_SCALE
+        want = getattr(avatar, "scale", None)
+        scale = clamp_scale(want) if want is not None else DEFAULT_SCALE
     return {"palette": palette, "scale": scale,
             "visor": mine.get("visor") or DEFAULT_VISOR}
 
