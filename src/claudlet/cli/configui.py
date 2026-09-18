@@ -223,9 +223,14 @@ def find_windows_pwa_shortcut(paths, app_name):
     wanted = app_name.casefold()
     for path in paths or ():
         try:
-            if (os.path.splitext(os.path.basename(path))[1].casefold() == ".lnk"
-                    and os.path.splitext(os.path.basename(path))[0].casefold()
-                    == wanted):
+            # These are Windows paths whatever host is reading them, and
+            # os.path.basename only splits on the separator of the host it runs
+            # on — on Linux it hands back the whole `C:\...\name.lnk` string
+            # and nothing ever matches. Normalise first so the rule is about
+            # the paths, not about where the test happens to run.
+            base = os.path.basename(path.replace("\\", "/"))
+            stem, ext = os.path.splitext(base)
+            if ext.casefold() == ".lnk" and stem.casefold() == wanted:
                 return path
         except (AttributeError, TypeError):
             continue
