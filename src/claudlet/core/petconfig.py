@@ -161,7 +161,14 @@ def resolve_lang(value):
 # removed. The range is what stays legible on one end and fits a screen on the
 # other.
 DEFAULT_SCALE = 5
-MIN_SCALE, MAX_SCALE = 2, 12
+# 1 is allowed because a creature may carry art at a finer grid than the
+# built-in's 22x17 — such a creature declares its box in ITS dots and draws one
+# dot per unit, and at a floor of 2 it could never be shown smaller than double
+# size. Halving inside the creature instead is not the same thing: everything
+# the pet places around it (petting hearts, the speech bubble) is measured in
+# box units, so a creature that scales differently from its box drifts out of
+# step with them at every odd size.
+MIN_SCALE, MAX_SCALE = 1, 12
 
 
 # How the "running unattended" signal is shown. Not a visor as such: the pet
