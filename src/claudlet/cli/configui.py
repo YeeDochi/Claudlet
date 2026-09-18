@@ -62,6 +62,22 @@ APP_WINDOW = (1120, 860)
 BYE_GRACE = 4.0
 
 
+# A page that has beaten within this many seconds is taken to be still open.
+# Two heartbeats' worth, so one dropped request does not evict a live tab.
+PAGE_TTL = (HEARTBEAT_MS / 1000.0) * 2 + 5
+
+
+def live_pages(pages, now, ttl=PAGE_TTL, ignore=None):
+    """How many pages are still beating, not counting `ignore`. Pure.
+
+    The server used to know only "a page said goodbye" and shut down on it.
+    With two settings tabs open, closing either one killed the server under
+    the other, which then sat on a dead port — the ERR_FAILED people saw after
+    opening the page a few times."""
+    return sum(1 for pid, seen in (pages or {}).items()
+               if pid != ignore and now - seen < ttl)
+
+
 def bye_last_seen(now, idle_timeout, grace=BYE_GRACE):
     """`last_seen` to record on a `bye` beacon. Pure: leaves `grace` seconds
     before `idle_timeout` fires, rather than expiring the server immediately.
@@ -1237,10 +1253,16 @@ $("importConfirm").addEventListener("click", async () => {
   fill(await (await fetch("/api/state")).json());   // new creature is now selectable
 });
 
-setInterval(() => fetch("/api/alive").catch(() => {}), __HEARTBEAT__);
+// Each tab names itself, so the server can tell ONE tab closing from the LAST
+// tab closing. Without this, closing either of two open settings tabs shut the
+// server down under the other.
+const PAGE_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+setInterval(() => fetch("/api/alive?page=" + PAGE_ID).catch(() => {}),
+            __HEARTBEAT__);
+fetch("/api/alive?page=" + PAGE_ID).catch(() => {});   // count me at once
 window.addEventListener("pagehide", () => {
   // best effort: shuts it down at once instead of after the idle timeout
-  try { navigator.sendBeacon("/api/bye"); } catch (e) {}
+  try { navigator.sendBeacon("/api/bye?page=" + PAGE_ID); } catch (e) {}
 });
 // Installable: Chrome only offers the install if a service worker with a fetch
 // handler is registered. Nothing is cached — this is a local server.
@@ -1274,6 +1296,32 @@ def _handler_class(initial_agent=None, import_token=""):
         def log_message(self, *a):
             pass                        # don't scribble over the user's terminal
 
+        def _note_page(self, query):
+            """Remember that this page is still there. Pages identify
+            themselves so the server can tell one tab closing from the last
+            tab closing."""
+            pid = (parse_qs(query or "").get("page") or [None])[0]
+            if isinstance(pid, str) and 0 < len(pid) <= 64:
+                pages = getattr(self.server, "pages", None)
+                if pages is None:
+                    pages = self.server.pages = {}
+                now = time.monotonic()
+                pages[pid] = now
+                for k in [k for k, t in pages.items() if now - t > PAGE_TTL * 4]:
+                    del pages[k]           # a tab that died without a goodbye
+
+        def _bye(self, query):
+            """One page has gone. Only wind the server down if it was the
+            last one — otherwise the tabs still open are left on a dead port."""
+            pid = (parse_qs(query or "").get("page") or [None])[0]
+            pages = getattr(self.server, "pages", None) or {}
+            if isinstance(pid, str):
+                pages.pop(pid, None)
+            now = time.monotonic()
+            if live_pages(pages, now, ignore=pid):
+                return                      # another tab is still watching
+            self.server.last_seen = bye_last_seen(now, self.server.idle_timeout)
+
         def _send(self, code, body, ctype):
             self.server.last_seen = time.monotonic()
             self.send_response(code)
@@ -1294,6 +1342,7 @@ def _handler_class(initial_agent=None, import_token=""):
                                   "text/html; charset=utf-8")
             if u.path == "/api/alive":
                 # doubles as "is the server on this port ours?" -- see port_plan
+                self._note_page(u.query)
                 return self._json({"ok": True, "app": APP_ID})
             if u.path == "/manifest.webmanifest":
                 return self._send(200, json.dumps(manifest()).encode("utf-8"),
@@ -1311,8 +1360,7 @@ def _handler_class(initial_agent=None, import_token=""):
                 return self._send(200 if png else 500, png or b"", "image/png")
             if u.path == "/api/bye":
                 self._json({"ok": True})
-                self.server.last_seen = bye_last_seen(
-                    time.monotonic(), self.server.idle_timeout)
+                self._bye(u.query)
                 return
             if u.path == "/api/state":
                 q = parse_qs(u.query)
@@ -1332,8 +1380,7 @@ def _handler_class(initial_agent=None, import_token=""):
             path = urlparse(self.path).path
             if path == "/api/bye":
                 self._json({"ok": True})
-                self.server.last_seen = bye_last_seen(
-                    time.monotonic(), self.server.idle_timeout)
+                self._bye(urlparse(self.path).query)
                 return
             if path not in ("/api/config", "/api/export", "/api/import",
                             "/api/remove"):
@@ -1402,6 +1449,7 @@ def serve(open_browser=True, idle_timeout=IDLE_TIMEOUT, agent=None,
     srv.timeout = 5                     # wake up often enough to notice silence
     srv.last_seen = time.monotonic()
     srv.idle_timeout = idle_timeout     # read by the bye handler's grace calc
+    srv.pages = {}                      # page id -> last heartbeat
     url = "http://127.0.0.1:%d/" % srv.server_port
     print(t["serving"] + url)
     if what == "fallback" and port:
