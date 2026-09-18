@@ -373,6 +373,9 @@ def state_payload(cfg=None, agent=None):
                               if st in getattr(avatars.get(n), "states", ())]
                           or list(PREVIEW_STATES[:1])
                           for n in avatars.available()},
+        # which creatures ship inside claudlet: those cannot be removed, and
+        # the page greys the button rather than letting the request fail
+        "bundled": list(avatars.bundled()),
         "agents": _agent_rows(cfg, agent),
         "agent": agent,
     }
@@ -439,6 +442,20 @@ def import_api(body):
     if err:
         return {"error": err}
     return {"name": name}
+
+
+def remove_api(body):
+    """POST /api/remove body: {"creature"}. Thin wrapper over
+    configcli.remove_creature -- the guards (bundled creatures, paths outside
+    CREATURES_DIR) live there, so the CLI and the page share one rule."""
+    from claudlet.cli import configcli
+    creature = body.get("creature")
+    if not isinstance(creature, str) or not creature:
+        return {"error": "no creature given"}
+    removed, err = configcli.remove_creature(creature)
+    if err:
+        return {"error": err}
+    return {"removed": creature, "path": removed}
 
 
 def apply(body, broadcast=None):
@@ -604,6 +621,9 @@ TEXT = {
         "import_check": "확인", "import_confirm": "설치", "force": "덮어쓰기",
         "import_will_install": "'%s' 를 설치합니다",
         "import_installed": "'%s' 설치 완료",
+        "remove": "제거", "remove_bundled": "기본 크리처는 제거할 수 없습니다",
+        "remove_confirm": "'%s' 를 제거합니다. 되돌릴 수 없습니다.",
+        "remove_done": "'%s' 제거 완료",
     },
     "en": {
         "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
@@ -627,6 +647,9 @@ TEXT = {
         "import_check": "Check", "import_confirm": "Install", "force": "Overwrite",
         "import_will_install": "Will install '%s'",
         "import_installed": "Installed '%s'",
+        "remove": "Remove", "remove_bundled": "Bundled creatures cannot be removed",
+        "remove_confirm": "Remove '%s'? This cannot be undone.",
+        "remove_done": "Removed '%s'",
     },
 }
 
@@ -800,6 +823,16 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
               <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
             </svg>
           </button>
+          <button type="button" id="removeBtn" class="icon-btn"
+                  title="__T_remove__" aria-label="__T_remove__">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M4 7h16M10 11v6M14 11v6"/>
+              <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>
+              <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
         </div>
         <div id="pickPanel" class="card-panel" role="listbox" hidden></div>
       </div>
@@ -877,7 +910,7 @@ function shot(state, cacheBust) {
           <figcaption>${state}</figcaption></figure>`;
 }
 const T = __T_JSON__;
-const IMPORT_TOKEN = __IMPORT_TOKEN__;   // gates POST /api/import only
+const IMPORT_TOKEN = __IMPORT_TOKEN__;   // gates POST /api/import and /api/remove
 const VISOR_LABEL = {auto: T.visor_auto, on: T.visor_on, off: T.visor_off};
 function visorNow() {
   const on = document.querySelector("#visor button[aria-pressed=true]");
@@ -900,6 +933,7 @@ function redraw() {
 }
 function showCreature(name) {
   editing = name;
+  syncRemoveBtn();
   const look = (S.looks && S.looks[name]) || {};
   const pal = look.palette;
   const isHex = typeof pal === "string" && pal.startsWith("#");
@@ -1100,6 +1134,33 @@ async function doExport(force) {
 }
 $("exportBtn").addEventListener("click", () => doExport(false));
 
+// Removing a creature deletes its package from disk, so it asks first and
+// sends the page's own token — the same gate as importing, for the same
+// reason: these two are the only things here that write outside the config.
+function syncRemoveBtn() {
+  const btn = $("removeBtn");
+  if (!btn) return;
+  const isBundled = (S.bundled || []).indexOf(editing) !== -1;
+  btn.disabled = isBundled;
+  btn.title = isBundled ? T.remove_bundled : T.remove;
+}
+async function doRemove() {
+  if ((S.bundled || []).indexOf(editing) !== -1) return;
+  if (!window.confirm(T.remove_confirm.replace("%s", editing))) return;
+  const r = await fetch("/api/remove", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({token: IMPORT_TOKEN, creature: editing})});
+  const out = await r.json();
+  const el = $("exportResult");
+  el.innerHTML = "";
+  const span = document.createElement("span");
+  span.textContent = out.error ? out.error          // untrusted text
+                               : T.remove_done.replace("%s", out.removed);
+  el.appendChild(span);
+  if (!out.error) await refresh();
+}
+$("removeBtn").addEventListener("click", doRemove);
+
 function openImportModal() {
   $("importModal").hidden = false;
   document.addEventListener("keydown", onImportModalKeydown, true);
@@ -1274,7 +1335,8 @@ def _handler_class(initial_agent=None, import_token=""):
                 self.server.last_seen = bye_last_seen(
                     time.monotonic(), self.server.idle_timeout)
                 return
-            if path not in ("/api/config", "/api/export", "/api/import"):
+            if path not in ("/api/config", "/api/export", "/api/import",
+                            "/api/remove"):
                 return self._send(404, b"not found", "text/plain")
             try:
                 n = int(self.headers.get("Content-Length") or 0)
@@ -1291,9 +1353,15 @@ def _handler_class(initial_agent=None, import_token=""):
             # code on disk, so it alone requires the per-run token the page
             # was served with -- everything else here is unauthenticated on
             # loopback by design.
+            # /api/import plants (and later runs) new code on disk and
+            # /api/remove deletes a package outright, so those two alone
+            # require the per-run token the page was served with -- everything
+            # else here is unauthenticated on loopback by design.
             given = body.get("token")
             if not isinstance(given, str) or not hmac.compare_digest(given, import_token):
                 return self._json({"error": "missing or bad token"}, 403)
+            if path == "/api/remove":
+                return self._json(remove_api(body))
             return self._json(import_api(body))
 
     return Handler

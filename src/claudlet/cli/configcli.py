@@ -290,6 +290,80 @@ def _find_user_dir_by_declared_name(name):
     return None
 
 
+def remove_creature(name, dest_root=None):
+    """Delete an imported creature's package. Returns (path_removed, None) or
+    (None, error).
+
+    Only creatures that live under CREATURES_DIR can go: the bundled ones ship
+    inside the installed package, and deleting one there would leave claudlet
+    itself missing a piece until the next reinstall. The directory is located
+    by name and then by declared AVATAR.name (the two can differ), and the
+    resolved path is checked to be a direct child of CREATURES_DIR before
+    anything is removed -- this takes a name that may have come from a web page.
+
+    The creature's own settings entry goes with it, and any agent wearing it
+    is unpinned rather than left pointing at a package that is no longer
+    there."""
+    root = os.path.abspath(dest_root if dest_root is not None
+                           else avatars.CREATURES_DIR)
+    if not isinstance(name, str) or not name or not _SAFE_TOP_NAME_RE.match(name):
+        return None, "not a creature name: %s" % _esc(str(name))
+    if name in avatars.bundled():
+        return None, "'%s' ships with claudlet and cannot be removed" % _esc(name)
+
+    target = os.path.join(root, name)
+    if not os.path.isdir(target):
+        found = _find_user_dir_by_declared_name(name)
+        if not found:
+            return None, "no creature named '%s' is installed" % _esc(name)
+        target = found
+    target = os.path.abspath(target)
+    if os.path.dirname(target) != root or not os.path.isdir(target):
+        return None, "refusing to remove a path outside %s" % root
+
+    try:
+        shutil.rmtree(target)
+    except OSError as e:
+        return None, "could not remove %s: %s" % (target, e)
+
+    # forget it in the settings too, so a later creature of the same name does
+    # not inherit the colour and size this one was given
+    _forget_creature(name)
+    return target, None
+
+
+def _forget_creature(name):
+    """Drop a removed creature from the settings file: its own entry, and any
+    agent still wearing it (which falls back to the default creature)."""
+    path = petconfig.config_path()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, dict):
+        return
+    changed = False
+    creatures = raw.get("creatures")
+    if isinstance(creatures, dict) and name in creatures:
+        del creatures[name]
+        changed = True
+    worn = raw.get("avatar")
+    if isinstance(worn, dict):
+        for agent in [a for a, c in worn.items() if c == name]:
+            del worn[agent]
+            changed = True
+    elif worn == name:
+        del raw["avatar"]
+        changed = True
+    if changed:
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(raw, fh, indent=2, ensure_ascii=False)
+        except OSError:
+            pass
+
+
 def export_creature(name, out=None, force=False, base=None):
     """Zip a creature's package so it can be shared. Returns (dest_path, None)
     or (None, error). A user creature under CREATURES_DIR is preferred over a
@@ -610,6 +684,44 @@ def cmd_import(argv):
     return 0
 
 
+def cmd_remove(argv):
+    """`claudlet-config remove <creature> [--yes]` -- delete an imported
+    creature. Prints what is about to go and asks first, because this is the
+    one command here that destroys something."""
+    args = [a for a in argv if not a.startswith("-")]
+    assume_yes = "--yes" in argv or "-y" in argv
+    if not args:
+        print(render_creature_list(petconfig.load_config()))
+        print("\nusage: claudlet-config remove <creature> [--yes]")
+        return 2
+    name = args[0]
+    if name in avatars.bundled():
+        print("'%s' ships with claudlet and cannot be removed" % name)
+        return 1
+    where = os.path.join(avatars.CREATURES_DIR, name)
+    if not os.path.isdir(where):
+        found = _find_user_dir_by_declared_name(name)
+        if not found:
+            print("no creature named '%s' is installed" % name)
+            return 1
+        where = found
+    if not assume_yes:
+        print("this deletes %s and cannot be undone." % where)
+        try:
+            ans = input("remove '%s'? [y/N] " % name).strip().lower()
+        except EOFError:
+            ans = ""
+        if ans not in ("y", "yes"):
+            print("cancelled.")
+            return 1
+    removed, err = remove_creature(name)
+    if err:
+        print(err)
+        return 1
+    print("removed " + removed)
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     arg = argv[0] if argv else ""
@@ -647,6 +759,8 @@ def main(argv=None):
         return cmd_export(argv[1:])
     if arg == "import":
         return cmd_import(argv[1:])
+    if arg in ("remove", "delete"):
+        return cmd_remove(argv[1:])
     print(render(build_report()))
     return 0
 
