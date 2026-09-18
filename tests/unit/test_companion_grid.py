@@ -14,7 +14,16 @@ def test_companion_unit_is_whole_pixels_at_every_scale():
     # so the companion scale must stay whole however the pet is scaled
     for u in range(petconfig.MIN_SCALE, petconfig.MAX_SCALE + 1):
         cu = P._companion_scale(u)
-        assert float(cu).is_integer() and cu >= 2, (u, cu)
+        assert float(cu).is_integer(), (u, cu)
+        assert cu >= petconfig.MIN_SCALE, (u, cu)
+
+
+def test_companion_is_never_bigger_than_the_pet_it_follows():
+    # the floor was a hard 2, from when that was also the pet's minimum. A
+    # creature carrying finer art runs at 1, and the floor then drew its
+    # companion at twice the size of the pet it was trailing.
+    for u in range(petconfig.MIN_SCALE, petconfig.MAX_SCALE + 1):
+        assert P._companion_scale(u) <= u, u
 
 
 def test_companion_window_holds_the_whole_sprite():

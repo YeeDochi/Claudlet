@@ -76,8 +76,12 @@ def _scale(cfg):
 
 def _companion_scale(u):
     """Companions keep their proportion to the pet (3 when the pet is 5) and
-    never shrink below the point where the art stops reading."""
-    return max(2, round(u * COMPANION_RATIO))
+    never shrink below the smallest size the pet itself can be drawn at.
+
+    The floor used to be a hard 2, from when that was also the pet's minimum.
+    A creature carrying finer art runs at 1, and the floor then made its
+    companion TWICE the size of the pet it was following."""
+    return max(petconfig.MIN_SCALE, round(u * COMPANION_RATIO))
 
 
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
