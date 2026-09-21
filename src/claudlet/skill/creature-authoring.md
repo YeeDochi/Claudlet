@@ -232,6 +232,51 @@ instructive —
 - **its own unattended look**: a band across the dome rather than a visor,
   pulled down over the eyes while working and resting on the crown otherwise.
 
+## Creatures made from a sprite sheet
+
+Everything above assumes you draw with `p.fillRect`. You do not have to. The pet
+sends a state and a frame and asks nothing else, so a creature can just as well
+keep its frames as DATA — a character per dot against a palette — and blit them.
+At the size where a face is a dozen dots, hand-placed rectangles cannot put the
+dots where a face needs them, and a sheet can.
+
+Such a creature declares `fractional_scale = True` (see **Size**), because
+resizing it is a resample of an image rather than a re-rounding of every
+rectangle.
+
+The art has to get from the sheet into the file, and that path has a handful of
+traps that each cost a day:
+
+- **Give the sheet a background that is not in the character.** Magenta
+  (`#FF00FF`) works. A cream page looks natural and is the worst choice: pale
+  skin and blonde hair ARE that colour, so cutting by colour distance punches
+  holes straight through the character. A flood fill from the EDGE saves it,
+  but only if the background is reachable — an enclosed loop of hair keeps its
+  hole.
+- **Shrink by the most common value in each block, not the average.** Averaging
+  invents in-between colours along every edge, and each one then snaps to
+  whatever palette entry happens to be nearest. That speckle is what makes
+  downscaled art look broken.
+- **Fit the palette with k-means, not median cut or frequency.** Both of the
+  others dropped the purple lining of a kimono outright — a few hundred dots
+  against thirty thousand. k-means spends a centre on it because it sits far
+  from everything else.
+- **Scale each sheet by its own ruler, and hold it constant within the sheet.**
+  Sheets drawn at different times come back at different sizes; measuring per
+  CELL instead makes a walk cycle bob by a dot between frames.
+- **Cut cells by connected component, not by assuming a grid.** Ask for a 4x2
+  grid and you may get cells of another height, and a fixed grid then slices
+  two of them through the middle.
+- **Ask for each pose by what it is FOR.** A sheet asked for "straining,
+  pulling something heavy" came back leaning forward — correct to the words,
+  useless for the state it was meant for, which is stretching UP for a cursor
+  just out of reach.
+- **Say that animation pairs must differ in one thing only.** "The same pose,
+  breathing" came back with the hands in a different place, and alternating the
+  two read as fidgeting rather than breathing.
+
+![a creature drawn from a sprite sheet](https://raw.githubusercontent.com/YeeDochi/Claudlet/master/docs/sprite-creature.gif)
+
 ## Checking it
 
 ```bash

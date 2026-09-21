@@ -244,6 +244,19 @@ pet, not from the creature — a creature only draws a body. Read either one nex
 to [creature-authoring.md](src/claudlet/skill/creature-authoring.md) if you are
 writing your own.
 
+A creature does not have to be drawn with rectangles at all. The pet sends a
+state and a frame and asks nothing else, so one can keep its frames as DATA — a
+character per dot against a palette — and blit them. At the size where a face is
+a dozen dots that is the difference between a face and a suggestion of one:
+
+![a creature drawn from a sprite sheet](docs/sprite-creature.gif)
+
+That one carries sixty frames cut from sprite sheets: a stride facing each way,
+a run, whole-body expressions, a sleeping pose, and hair that catches fire while
+it works unattended. The steps — and the traps, which are specific and
+expensive — are in **Creatures made from a sprite sheet** in the authoring
+guide.
+
 ### Sharing a creature
 
 ![Importing a creature](docs/settings-import.png)
