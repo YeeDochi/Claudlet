@@ -13,8 +13,28 @@ import sys
 # On Linux, force XWayland (xcb): native Wayland forbids clients positioning
 # their own windows, which a roaming pet needs. On macOS/Windows keep Qt's
 # native platform (cocoa/windows) — forcing xcb there would fail to start.
+def im_module_for(xmodifiers):
+    """XMODIFIERS 가 가리키는 입력기 이름, 없으면 None. 순수.
+
+    xcb 를 강제한 대가다. 네이티브 Wayland 앱은 text-input 프로토콜로 입력기가
+    붙지만, XWayland(xcb) 위의 Qt 는 `QT_IM_MODULE` 이 없으면 compose 플러그인을
+    올리고 끝낸다 — 그러면 알파벳만 들어오고 한글은 한 글자도 안 써진다.
+    플라즈마가 이 변수를 내보내지 않는 세션에서도 XMODIFIERS 는 서 있으므로,
+    거기서 입력기 이름을 읽어 우리가 채운다."""
+    name = (xmodifiers or "").strip()
+    if not name.startswith("@im="):
+        return None
+    name = name[4:].strip()
+    if name in ("fcitx", "fcitx5"):
+        return "fcitx"                 # fcitx5 플러그인도 "fcitx" 로 등록된다
+    return name or None
+
+
 if sys.platform.startswith("linux"):
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+    _im = im_module_for(os.environ.get("XMODIFIERS"))
+    if _im:
+        os.environ.setdefault("QT_IM_MODULE", _im)
     # Silence the harmless "Could not register app ID 'claudlet'" portal warning:
     # Qt tries to register with the XDG desktop portal but there's no .desktop
     # file for our app ID. Cosmetic only — has no effect on the pet.
