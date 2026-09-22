@@ -120,7 +120,7 @@ def focus(ancestor_pids, run):
     return (svc, wpath, sid)
 
 
-def submit_text(text):
+def submit_text(text, submit=True):
     """실제로 제출되는 한 줄로 다듬는다. 빈 메시지면 None. 순수.
 
     sendText 는 받은 문자열을 그대로 키 입력처럼 밀어 넣으므로, 줄바꿈이 든
@@ -131,16 +131,36 @@ def submit_text(text):
     이고, raw 모드로 도는 TUI(Claude Code 가 그렇다)는 CR 만 제출로 읽는다.
     LF 를 보내면 글자는 찍히는데 엔터가 안 쳐진다(실측)."""
     one = " ".join((text or "").split())
-    return one + "\r" if one else None
+    if not one:
+        return None
+    return one + "\r" if submit else one
 
 
-def send_text(ancestor_pids, run, text):
+def send_enter(ancestor_pids, run):
+    """엔터만 따로 보낸다.
+
+    코덱스 TUI 는 빠르게 들어온 입력을 붙여넣기로 판단하고(그래서
+    `disable_paste_burst` 설정이 있다), 그 판단 안에서는 끝의 CR 이 제출이
+    아니라 줄바꿈이 된다 — 글자는 찍히는데 엔터가 안 먹는다. 잠깐 뒤에 CR 만
+    따로 보내면 붙여넣기 뭉치 밖이라 제출로 읽힌다."""
+    got = focus(ancestor_pids, run)
+    if not got:
+        return False
+    svc, _window, sid = got
+    try:
+        run(svc, "/Sessions/%d" % sid, "org.kde.konsole.Session.sendText", "\r")
+    except Exception:
+        return False
+    return True
+
+
+def send_text(ancestor_pids, run, text, submit=True):
     """이 세션의 Konsole 탭 프롬프트에 직접 써 넣고 제출한다.
 
     탭을 고르는 일은 focus() 가 이미 한다 — 여기서 새로 푸는 것은 없다.
     우리 Konsole 이 아니거나 보낼 것이 없으면 False (호출자는 귓속말로
     강등한다)."""
-    payload = submit_text(text)
+    payload = submit_text(text, submit)
     if payload is None:
         return False
     got = focus(ancestor_pids, run)

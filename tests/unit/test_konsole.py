@@ -211,3 +211,31 @@ def test_no_ancestors_means_no_probe():
     def run(*a):
         raise AssertionError("버스를 건드리면 안 된다")
     assert konsole.can_send_text(set(), run) is False
+
+
+# ---------- 붙여넣기로 오해받지 않게 엔터를 떼어 보낸다 ----------
+
+def test_the_text_can_be_sent_without_the_enter():
+    # 코덱스 TUI 는 빠르게 들어온 입력을 붙여넣기로 보고, 그때 끝의 CR 은
+    # 제출이 아니라 줄바꿈이 된다. 글자와 엔터를 떼어 보낼 수 있어야 한다.
+    assert konsole.submit_text("안녕", submit=False) == "안녕"
+    assert konsole.submit_text("안녕") == "안녕\r"
+
+
+def test_send_text_can_leave_the_enter_for_later():
+    sent = []
+    base = _fake_bus(
+        services=[" org.kde.konsole-6931"], paths=["/Sessions/3", "/Windows/1"],
+        session_pid={"/Sessions/3": 22536}, window_sessions={"/Windows/1": [3]},
+        calls=[])
+
+    def run(*args):
+        if len(args) > 2 and args[2] == "org.kde.konsole.Session.sendText":
+            sent.append(args[3])
+            return ""
+        return base(*args)
+
+    assert konsole.send_text({22536, 6931}, run, "안녕", submit=False) is True
+    assert sent == ["안녕"]
+    assert konsole.send_enter({22536, 6931}, run) is True
+    assert sent == ["안녕", "\r"]

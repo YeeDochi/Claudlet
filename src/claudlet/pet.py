@@ -232,6 +232,10 @@ DOCK_REPACK_MS = 2000
 # 않을 만큼.
 SAY_SEC = 12.0
 
+# 글자를 보낸 뒤 엔터를 떼어 보내기까지 기다리는 시간(ms). 코덱스의 붙여넣기
+# 판정에서 벗어날 만큼은 길고, 사람 눈에 띄지 않을 만큼은 짧게.
+ENTER_DELAY_MS = 250
+
 # transient motions offered in the menus: (name, seconds, {lang: label})
 MOTION_MENU = [
     ("jump", 2.5, {"ko": "점프", "en": "Jump"}),
@@ -3314,10 +3318,25 @@ class Pet(QWidget):
                 return winsend.send_text(self._claude_pid, text)
             except Exception:
                 return False
+        # 코덱스 TUI 는 빠르게 들어온 입력을 붙여넣기로 보고, 그 안에서는 끝의
+        # CR 이 제출이 아니라 줄바꿈이 된다(실기에서 엔터가 안 먹었다). 글자를
+        # 먼저 보내고 잠깐 뒤에 엔터만 따로 보낸다 — 붙여넣기 뭉치 밖이라
+        # 제출로 읽힌다. 기다리는 일은 펫의 이벤트 루프가 한다(블록하지 않는다).
+        split = self.agent != agents.DEFAULT
         try:
-            return konsole.send_text(self._ancestor_pids, self._qdbus_run, text)
+            ok = konsole.send_text(self._ancestor_pids, self._qdbus_run, text,
+                                   submit=not split)
         except Exception:
             return False
+        if ok and split:
+            QTimer.singleShot(ENTER_DELAY_MS, self._send_enter)
+        return ok
+
+    def _send_enter(self):
+        try:
+            konsole.send_enter(self._ancestor_pids, self._qdbus_run)
+        except Exception:
+            pass
 
     def _refresh_notes(self):
         """몇 장을 물고 있는지 다시 센다. 훅이 가져가는 것은 이 프로세스 밖에서
