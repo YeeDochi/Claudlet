@@ -194,6 +194,31 @@ three) and trails the pet in a duckling chain, mirroring the subagent's activity
 and leaving with a little celebration when it finishes — so you can see agent work
 happening at a glance.
 
+## Talking to it
+
+The pet no longer only listens. **Right-click → 💬 Ask now** opens a one-line
+prompt and types what you wrote straight into this session, submitted. **📝 Leave
+a note** has the pet **hold the note in its mouth** until the next hook boundary —
+if the agent is working it lands at the next tool call, and if it's idle it rides
+along with your next prompt. You can always see what it's carrying, so nothing
+goes along without you knowing, and the menu drops it if you change your mind.
+
+![talking to the pet](docs/talk.png)
+
+The answer comes back **in the creature's own voice, in a bubble above its head**.
+The work explanation stays in the terminal as usual; only the creature's one line
+floats over the pet — they are different things. Small talk gets the one line, not
+a second work answer.
+
+Each creature can have its own **name and voice** (settings page). Call it by name
+and it knows you mean it; the voice decides how it answers. Creatures ship with
+defaults — the slime drawls, the astronaut sounds like radio comms — and anything
+you write wins.
+
+Works with both Claude Code and Codex. **Ask now** types into a real prompt, so it
+needs a terminal — on KDE it shows up only when Konsole's *Enable the security
+sensitive parts of the DBus API* is on — and elsewhere you get notes only.
+
 ## Make it yours
 
 ![The settings page](docs/settings-ui.png)
