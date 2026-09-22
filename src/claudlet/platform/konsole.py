@@ -125,9 +125,13 @@ def submit_text(text):
 
     sendText 는 받은 문자열을 그대로 키 입력처럼 밀어 넣으므로, 줄바꿈이 든
     문장을 그대로 보내면 줄마다 프롬프트가 하나씩 제출된다. 줄바꿈은 공백으로
-    접고 끝에 하나만 붙인다 — 그 하나가 "엔터"다."""
+    접고 끝에 하나만 붙인다 — 그 하나가 "엔터"다.
+
+    그 하나는 LF 가 아니라 **CR** 이다. 터미널에서 Enter 키가 보내는 것이 CR
+    이고, raw 모드로 도는 TUI(Claude Code 가 그렇다)는 CR 만 제출로 읽는다.
+    LF 를 보내면 글자는 찍히는데 엔터가 안 쳐진다(실측)."""
     one = " ".join((text or "").split())
-    return one + "\n" if one else None
+    return one + "\r" if one else None
 
 
 def send_text(ancestor_pids, run, text):

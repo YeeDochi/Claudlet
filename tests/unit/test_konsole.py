@@ -123,15 +123,16 @@ def test_focus_survives_a_bus_error():
 
 # ---------- 펫이 이 세션의 프롬프트에 직접 써 넣는다 ----------
 
-def test_submit_text_ends_with_one_newline():
-    # 줄바꿈이 있어야 실제로 제출된다.
-    assert konsole.submit_text("이거 왜 느려?") == "이거 왜 느려?\n"
+def test_submit_text_ends_with_a_carriage_return():
+    # Enter 키가 터미널에 보내는 것은 CR 이다. LF 를 보내면 raw 모드로 도는
+    # TUI(Claude Code)에서는 글자만 찍히고 제출되지 않는다.
+    assert konsole.submit_text("이거 왜 느려?") == "이거 왜 느려?\r"
 
 
 def test_submit_text_never_submits_more_than_one_prompt():
     # 여러 줄을 그대로 보내면 줄마다 프롬프트가 하나씩 제출된다.
-    assert konsole.submit_text("첫 줄\n둘째 줄").count("\n") == 1
-    assert konsole.submit_text("첫 줄\r\n둘째 줄") == "첫 줄 둘째 줄\n"
+    assert konsole.submit_text("첫 줄\n둘째 줄").count("\r") == 1
+    assert konsole.submit_text("첫 줄\r\n둘째 줄") == "첫 줄 둘째 줄\r"
 
 
 def test_submit_text_refuses_to_submit_nothing():
@@ -156,7 +157,7 @@ def test_send_text_types_into_our_own_tab():
         return base(*args)
 
     assert konsole.send_text({23001, 22536, 6931}, run, "안녕?") is True
-    assert sent == [("/Sessions/6", "안녕?\n")]        # 남의 탭이 아니라 우리 탭
+    assert sent == [("/Sessions/6", "안녕?\r")]        # 남의 탭이 아니라 우리 탭
 
 
 def test_send_text_is_false_when_this_is_not_our_konsole():
