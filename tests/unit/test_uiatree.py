@@ -76,3 +76,25 @@ def test_trusted_matches_available(monkeypatch):
 def test_no_hint_is_offered_off_windows(monkeypatch):
     monkeypatch.setattr(uiatree, "available", lambda: False)
     assert uiatree.install_hint() is None
+
+
+def test_powershell_runs_without_popping_a_console(monkeypatch):
+    # GUI 인 펫이 python.exe 없이 도는 자리라도, PowerShell 을 그냥 띄우면
+    # 커맨드 창이 하나 뜬다. 사용자가 그 창을 닫으면 읽기가 죽고, 그동안 펫은
+    # 멈춘 것처럼 보인다(실기 보고).
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+
+        class R:
+            stdout = b""
+        return R()
+
+    monkeypatch.setattr(uiatree.subprocess, "run", fake_run)
+    uiatree._run("Write-Output 1")
+    # 리눅스에는 그 상수가 없어 0 이 된다 — 여기서 볼 수 있는 것은 "플래그를
+    # 넘기기는 하는가" 이고, 값이 실제로 창을 막는지는 윈도우에서 확인한다.
+    assert "creationflags" in seen
+    assert seen["creationflags"] == getattr(
+        uiatree.subprocess, "CREATE_NO_WINDOW", 0)

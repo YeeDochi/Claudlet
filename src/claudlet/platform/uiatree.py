@@ -112,6 +112,14 @@ def _run(script, timeout=TIMEOUT):
     proc = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True, timeout=timeout,
+        # 창을 띄우지 않는다. GUI 인 펫에서 그냥 띄우면 커맨드 창이 하나 뜨고,
+        # 사용자가 그 창을 닫으면 읽기가 죽는다(실기 보고). 같은 이유로
+        # winterm/winsend 도 이 플래그를 단다.
+        #
+        # ponytail: 이 호출은 최대 8초간 펫의 이벤트 루프를 막는다. 읽은 다음에
+        # 미리보기를 띄워야 하니 사용자 눈에는 동기 동작이 맞지만, 오래 걸리는
+        # 창에서는 펫이 굳어 보인다. 느리다는 보고가 오면 스레드로 뺀다.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return proc.stdout.decode("utf-8", "replace")
 
