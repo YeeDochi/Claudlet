@@ -1,5 +1,6 @@
 import sys, os, io, json
 from claudlet.cli import hook as mod
+from claudlet.core import outbox
 
 
 def test_pretooluse_forwards_tool_name():
@@ -323,3 +324,76 @@ def test_build_message_uses_session_of_for_a_codex_payload_with_no_session_id():
         ["claudlet-hook", "PreToolUse", "--agent", "codex"], data))
     assert msg["session"] == uuid
     assert msg["session"] == mod.session_of(data)
+
+
+# ---------- 아웃박스: 펫이 쌓아둔 쪽지가 에이전트에게 실려 간다 ----------
+
+def _run_event(monkeypatch, event, session_id="s1", data=None):
+    """훅을 이벤트 하나로 돌리고 stdout 을 돌려준다 — 에이전트가 보는 전부."""
+    monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: True)
+    monkeypatch.setattr(mod, "_launch_pet", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_send", lambda port, payload: None)
+    payload = {"session_id": session_id, "hook_event_name": event}
+    payload.update(data or {})
+    monkeypatch.setattr(mod.sys, "argv", ["claudlet-hook", event])
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(payload)))
+    out = io.StringIO()
+    monkeypatch.setattr(mod.sys, "stdout", out)
+    mod.main()
+    return out.getvalue()
+
+
+def test_a_waiting_note_is_delivered_on_the_next_prompt(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "이거 왜 느려?")
+    out = json.loads(_run_event(monkeypatch, "UserPromptSubmit"))
+    assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "이거 왜 느려?" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_a_waiting_note_also_lands_mid_turn_at_the_next_tool_call(tmp_path, monkeypatch):
+    # 에이전트가 일하는 중이면 다음 프롬프트까지 기다릴 이유가 없다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "아 잠깐, 그거 말고")
+    out = json.loads(_run_event(monkeypatch, "PostToolUse", data={"tool_name": "Edit"}))
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    assert "그거 말고" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_a_note_is_delivered_once_not_at_every_boundary(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "한 번만")
+    _run_event(monkeypatch, "PostToolUse", data={"tool_name": "Edit"})
+    assert _run_event(monkeypatch, "UserPromptSubmit") == ""
+
+
+def test_an_empty_outbox_writes_nothing_at_all(tmp_path, monkeypatch):
+    # 훅의 stdout 은 에이전트가 파싱한다. 전할 것이 없으면 한 글자도 쓰지 않는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert _run_event(monkeypatch, "UserPromptSubmit") == ""
+    assert _run_event(monkeypatch, "PostToolUse", data={"tool_name": "Edit"}) == ""
+
+
+def test_other_events_never_carry_the_outbox(tmp_path, monkeypatch):
+    # Stop/PreToolUse 는 additionalContext 를 이런 식으로 받지 않는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "기다리는 쪽지")
+    assert _run_event(monkeypatch, "Stop") == ""
+    assert outbox.pending("s1") == 1       # 그리고 버려지지도 않는다
+
+
+def test_another_session_s_notes_are_not_delivered_here(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("other", "남의 쪽지")
+    assert _run_event(monkeypatch, "UserPromptSubmit", session_id="s1") == ""
+
+
+def test_a_broken_outbox_never_fails_the_hook(tmp_path, monkeypatch):
+    # 훅은 무슨 일이 있어도 조용히 성공한다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+    def boom(*a, **k):
+        raise RuntimeError("아웃박스가 터졌다")
+
+    monkeypatch.setattr(mod.outbox, "take", boom)
+    assert _run_event(monkeypatch, "UserPromptSubmit") == ""

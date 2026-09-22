@@ -119,3 +119,55 @@ def test_focus_survives_a_bus_error():
     def run(*args):
         raise RuntimeError("dbus down")
     assert konsole.focus({6931}, run) is None
+
+
+# ---------- 펫이 이 세션의 프롬프트에 직접 써 넣는다 ----------
+
+def test_submit_text_ends_with_one_newline():
+    # 줄바꿈이 있어야 실제로 제출된다.
+    assert konsole.submit_text("이거 왜 느려?") == "이거 왜 느려?\n"
+
+
+def test_submit_text_never_submits_more_than_one_prompt():
+    # 여러 줄을 그대로 보내면 줄마다 프롬프트가 하나씩 제출된다.
+    assert konsole.submit_text("첫 줄\n둘째 줄").count("\n") == 1
+    assert konsole.submit_text("첫 줄\r\n둘째 줄") == "첫 줄 둘째 줄\n"
+
+
+def test_submit_text_refuses_to_submit_nothing():
+    assert konsole.submit_text("   ") is None
+    assert konsole.submit_text("") is None
+
+
+def test_send_text_types_into_our_own_tab():
+    calls, sent = [], []
+    base = _fake_bus(
+        services=[" org.kde.konsole-6931"],
+        paths=["/Sessions/3", "/Sessions/6", "/Windows/2"],
+        session_pid={"/Sessions/3": 19137, "/Sessions/6": 22536},
+        window_sessions={"/Windows/2": [3, 6]},
+        calls=calls,
+    )
+
+    def run(*args):
+        if len(args) > 2 and args[2] == "org.kde.konsole.Session.sendText":
+            sent.append((args[1], args[3]))
+            return ""
+        return base(*args)
+
+    assert konsole.send_text({23001, 22536, 6931}, run, "안녕?") is True
+    assert sent == [("/Sessions/6", "안녕?\n")]        # 남의 탭이 아니라 우리 탭
+
+
+def test_send_text_is_false_when_this_is_not_our_konsole():
+    def run(*args):
+        return "" if not args else "org.kde.konsole-1\n"
+
+    assert konsole.send_text({999}, run, "안녕?") is False
+
+
+def test_send_text_sends_nothing_for_an_empty_message():
+    def run(*args):
+        raise AssertionError("빈 메시지로 버스를 건드리면 안 된다")
+
+    assert konsole.send_text({1}, run, "  ") is False

@@ -117,3 +117,33 @@ def focus(ancestor_pids, run):
     except Exception:
         return None
     return (svc, wpath, sid)
+
+
+def submit_text(text):
+    """실제로 제출되는 한 줄로 다듬는다. 빈 메시지면 None. 순수.
+
+    sendText 는 받은 문자열을 그대로 키 입력처럼 밀어 넣으므로, 줄바꿈이 든
+    문장을 그대로 보내면 줄마다 프롬프트가 하나씩 제출된다. 줄바꿈은 공백으로
+    접고 끝에 하나만 붙인다 — 그 하나가 "엔터"다."""
+    one = " ".join((text or "").split())
+    return one + "\n" if one else None
+
+
+def send_text(ancestor_pids, run, text):
+    """이 세션의 Konsole 탭 프롬프트에 직접 써 넣고 제출한다.
+
+    탭을 고르는 일은 focus() 가 이미 한다 — 여기서 새로 푸는 것은 없다.
+    우리 Konsole 이 아니거나 보낼 것이 없으면 False (호출자는 귓속말로
+    강등한다)."""
+    payload = submit_text(text)
+    if payload is None:
+        return False
+    got = focus(ancestor_pids, run)
+    if not got:
+        return False
+    svc, _window, sid = got
+    try:
+        run(svc, "/Sessions/%d" % sid, "org.kde.konsole.Session.sendText", payload)
+    except Exception:
+        return False
+    return True
