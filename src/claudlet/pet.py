@@ -769,6 +769,7 @@ class Pet(QWidget):
         self._click_times = []
 
         self._persona = getattr(self, "_persona", "")
+        self._nickname = getattr(self, "_nickname", "")
         self._notes = 0                    # 물고 있는 쪽지 수
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
         self._say = ""                     # 크리처가 지금 하는 말
@@ -1081,6 +1082,7 @@ class Pet(QWidget):
             bool(getattr(self.avatar, "fractional_scale", False)))
         self._visor_mode = look["visor"]
         self._persona = look.get("persona", "")
+        self._nickname = look.get("nickname", "")
 
     def _restyle(self):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -3147,13 +3149,14 @@ class Pet(QWidget):
             return
         # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
         # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
-        if immediate and self._persona:
-            outbox.append_voice(self.session_id, self._persona)
+        if immediate and (self._persona or self._nickname):
+            outbox.append_voice(self.session_id, self._persona, self._nickname)
         if immediate and self._konsole_send(
                 outbox.typed_line(text, self._persona)):
             self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
-        outbox.append(self.session_id, text, persona=self._persona)
+        outbox.append(self.session_id, text, persona=self._persona,
+                      nickname=self._nickname)
         self._refresh_notes()
         self._play_motion("jump", 1.5)              # 받았다
 

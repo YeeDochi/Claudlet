@@ -220,7 +220,9 @@ def _clean_creatures(raw):
                      "scale": clean_scale_opt(v.get("scale")),
                      "visor": clean_visor(v.get("visor")),
                      # 말투도 크리처의 것이다 — 슬라임과 claudlet 은 다르게 말한다
-                     "persona": clean_persona(v.get("persona"))}
+                     "persona": clean_persona(v.get("persona")),
+                     # 이름도 마찬가지다. 슬라임은 "라임", claudlet 은 다른 이름.
+                     "nickname": clean_nickname(v.get("nickname"))}
     return out
 
 
@@ -261,9 +263,22 @@ def for_creature(cfg, name, avatar=None):
     persona = mine.get("persona")
     if persona is None:
         persona = getattr(avatar, "persona", None)
+    nickname = mine.get("nickname")
+    if nickname is None:
+        nickname = getattr(avatar, "nickname", None)
     return {"palette": palette, "scale": scale,
             "visor": mine.get("visor") or DEFAULT_VISOR,
-            "persona": str(persona or "").strip()}
+            "persona": str(persona or "").strip(),
+            "nickname": str(nickname or "").strip()}
+
+
+NICKNAME_MAX = 24          # 부르는 이름이다. 문장이 아니라.
+
+
+def clean_nickname(raw):
+    """저장할 펫 이름, 또는 지우라는 뜻의 None. 순수."""
+    one = " ".join(str(raw or "").split())
+    return one[:NICKNAME_MAX] if one else None
 
 
 PERSONA_MAX = 200          # 한 줄 지시면 충분하다. 주입되는 컨텍스트이기도 하고.

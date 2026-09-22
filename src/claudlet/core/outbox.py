@@ -24,7 +24,7 @@ def outbox_file(session_id):
     return os.path.join(hostinfo.runtime_dir(), "claudlet-{}.outbox".format(sid))
 
 
-def append(session_id, text, persona=None):
+def append(session_id, text, persona=None, nickname=None):
     """쪽지 하나를 쌓는다(펫 쪽). 실패는 조용히 삼킨다 — 말을 못 전한 것이
     펫을 죽일 일은 아니다."""
     if not text:
@@ -32,6 +32,8 @@ def append(session_id, text, persona=None):
     note = {"text": text}
     if persona:
         note["persona"] = persona
+    if nickname:
+        note["name"] = nickname
     try:
         with open(outbox_file(session_id), "a", encoding="utf-8") as f:
             f.write(json.dumps(note, ensure_ascii=False) + "\n")
@@ -40,18 +42,21 @@ def append(session_id, text, persona=None):
         return False
 
 
-def append_voice(session_id, persona):
+def append_voice(session_id, persona, nickname=None):
     """"이번 턴은 펫을 통해 들어온 것이다"를 쌓는다 — 말투만 싣고 사용자가 한
     말은 싣지 않는다.
 
     즉시 전송은 프롬프트에 질문을 그대로 타이핑하므로, 말투 지시까지 거기
     끼워 넣으면 사용자 눈에 계속 밟힌다(실사용에서 바로 걸렸다). 타이핑이
     제출되면 UserPromptSubmit 이 돌고, 훅이 이 쪽지를 같은 턴에 실어 보낸다."""
-    if not persona:
+    if not (persona or nickname):
         return False
+    note = {"voice": persona or ""}
+    if nickname:
+        note["name"] = nickname
     try:
         with open(outbox_file(session_id), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"voice": persona}, ensure_ascii=False) + "\n")
+            f.write(json.dumps(note, ensure_ascii=False) + "\n")
         return True
     except OSError:
         return False
@@ -72,7 +77,8 @@ def _read(path):
             note = json.loads(line)
         except ValueError:
             continue                  # 깨진 한 줄이 나머지를 가리지 않는다
-        if isinstance(note, dict) and (note.get("text") or note.get("voice")):
+        if isinstance(note, dict) and (note.get("text") or note.get("voice")
+                                       or note.get("name")):
             notes.append(note)
     return notes
 
@@ -141,6 +147,13 @@ def render(notes):
     said = [n for n in notes if n.get("text")]
     lines = [HEADER] if said else []
     lines.append(ASK_LINE)
+    for note in notes:
+        name = note.get("name")
+        if name:
+            # 조사를 붙이지 않는 문장으로 둔다 — 받침에 따라 이/가가 갈린다
+            lines.append("이 펫은 '%s' 라고 불린다. 그렇게 부르면 너를 부르는 "
+                         "것이니 자기 얘기로 받아라." % name)
+            break
     seen = []
     for note in notes:
         persona = note.get("persona") or note.get("voice")

@@ -207,3 +207,23 @@ def test_the_pet_does_not_hold_up_its_own_plumbing_as_a_note():
     assert outbox.pending("s1") == 0
     outbox.append("s1", "이거 왜 느려?")
     assert outbox.pending("s1") == 1
+
+
+# ---------- 이름: 펫이 제 이름을 안다 ----------
+
+def test_the_agent_is_told_what_the_pet_is_called():
+    outbox.append("s1", "안녕 라임아", persona="물컹하게", nickname="라임")
+    text = outbox.render(outbox.take("s1"))
+    assert "라임" in text
+
+
+def test_the_name_rides_with_a_voice_note_too():
+    outbox.append_voice("s1", "물컹하게", nickname="라임")
+    text = outbox.render(outbox.take("s1"))
+    assert "라임" in text and "물컹하게" in text
+
+
+def test_a_nameless_pet_says_nothing_about_a_name():
+    outbox.append("s1", "안녕", persona="물컹하게")
+    text = outbox.render(outbox.take("s1"))
+    assert "이름" not in text

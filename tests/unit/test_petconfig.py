@@ -304,3 +304,24 @@ def test_a_saved_persona_survives_a_reload_per_creature():
         "claudlet": {"persona": "퉁명스럽게"}}})
     assert petconfig.for_creature(cfg, "slime", object())["persona"] == "느릿하게"
     assert petconfig.for_creature(cfg, "claudlet", object())["persona"] == "퉁명스럽게"
+
+
+# ---------- 이름: 크리처마다 따로 붙인다 ----------
+
+def test_a_nickname_is_stored_per_creature():
+    cfg = petconfig._clean({"creatures": {
+        "slime": {"nickname": "라임"}, "claudlet": {"nickname": "클로"}}})
+    assert petconfig.for_creature(cfg, "slime", object())["nickname"] == "라임"
+    assert petconfig.for_creature(cfg, "claudlet", object())["nickname"] == "클로"
+    assert petconfig.for_creature(cfg, "codex", object())["nickname"] == ""
+
+
+def test_an_empty_nickname_clears_it():
+    assert petconfig.clean_nickname("  ") is None
+    assert petconfig.clean_nickname(None) is None
+
+
+def test_a_nickname_is_one_short_line():
+    assert petconfig.clean_nickname(" 라임 ") == "라임"
+    assert petconfig.clean_nickname("라 임\n이") == "라 임 이"
+    assert len(petconfig.clean_nickname("가" * 100)) == petconfig.NICKNAME_MAX
