@@ -234,3 +234,14 @@ def test_a_nameless_pet_says_nothing_about_a_name():
     outbox.append("s1", "안녕", persona="물컹하게")
     text = outbox.render(outbox.take("s1"))
     assert "이름" not in text
+
+
+def test_small_talk_to_the_pet_is_not_a_task_for_the_agent():
+    # 펫에게 건 잡담에 에이전트가 업무 답변까지 얹으면 두 번 답하는 꼴이 된다.
+    text = outbox.render([{"text": "안녕", "persona": "물컹하게"}])
+    assert "잡담" in text and "그 한 줄만" in text
+
+
+def test_a_real_request_through_the_pet_still_gets_done():
+    text = outbox.render([{"text": "이거 고쳐줘"}])
+    assert "작업" in text
