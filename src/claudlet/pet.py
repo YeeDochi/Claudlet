@@ -850,6 +850,10 @@ class Pet(QWidget):
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
         self._bubble = None                # 말풍선은 자기 창이다 (Bubble)
+        self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
+        self._reply_path = ""
+        self._reply_left = 0
+        self._said_last = ""               # 직전에 띄운 대사 (같은 줄 = 아직 안 써짐)
         self._note_timer = QTimer(self)
         self._note_timer.timeout.connect(self._refresh_notes)
         self._refresh_notes()              # 재시작 전에 남긴 쪽지를 이어받는다
@@ -1038,6 +1042,15 @@ class Pet(QWidget):
             return
         # 형제 펫이 드래그로 대열을 옮겼다는 통지. 같은 offset을 공유해야 간격이
         # 유지되므로 받은 값을 그대로 반영한다(config는 옮긴 쪽이 이미 저장했다).
+        if ev.get("cmd") == "turn_end":
+            # 턴이 끝났다. 이번 턴의 대사가 transcript 에 나타날 때까지 잠깐
+            # 지켜본다 — 훅이 읽던 시절에는 아직 flush 되기 전이라 지난 턴
+            # 대사를 물어왔다. 기다리는 일은 블록하면 안 되는 훅이 아니라
+            # 이벤트 루프를 가진 펫이 한다.
+            path = ev.get("transcript")
+            if isinstance(path, str) and path:
+                self._await_reply(path)
+            return
         if ev.get("cmd") == "say":
             # 크리처가 한 줄 말한다. 에이전트의 설명은 터미널에 그대로 있고,
             # 여기 뜨는 것은 펫의 목소리뿐이다.
@@ -2580,6 +2593,38 @@ class Pet(QWidget):
         if self._bubble is None:
             self._bubble = Bubble()
         self._bubble.say(self._say, self.frameGeometry())
+
+    # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
+    REPLY_POLL_MS = 200
+    REPLY_TRIES = 25
+
+    def _await_reply(self, path):
+        """transcript 에 **새** 대사가 나타나면 말풍선을 띄운다.
+
+        직전에 띄운 것과 같은 줄은 아직 이번 턴이 안 써졌다는 뜻이므로 넘긴다.
+        시간 안에 안 나타나면 그냥 포기한다 — 말풍선은 없어도 되는 것이다."""
+        self._reply_path = path
+        self._reply_left = self.REPLY_TRIES
+        if self._reply_timer is None:
+            self._reply_timer = QTimer(self)
+            self._reply_timer.timeout.connect(self._poll_reply)
+        self._reply_timer.start(self.REPLY_POLL_MS)
+        self._poll_reply()
+
+    def _poll_reply(self):
+        line = None
+        try:
+            line = outbox.reply_from_transcript(self._reply_path)
+        except Exception:
+            line = None
+        self._reply_left -= 1
+        if line and line != self._said_last:
+            self._said_last = line
+            self._reply_timer.stop()
+            self._handle_event({"cmd": "say", "text": line})
+            return
+        if self._reply_left <= 0:
+            self._reply_timer.stop()
 
     def _hush(self):
         """하던 말을 즉시 거둔다."""

@@ -2289,3 +2289,23 @@ def test_the_last_line_is_cleared_when_a_new_turn_starts(pet):
     assert pet.snapshot()["saying"] == "또 왔나~"
     send_hook(pet, "UserPromptSubmit", session="a")
     assert pet.snapshot()["saying"] == ""
+
+
+def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet, tmp_path):
+    # 턴이 끝난 순간 transcript 에는 아직 지난 턴 대사밖에 없을 수 있다.
+    # 그것을 그대로 띄우면 말풍선이 한 턴씩 늦는다.
+    import json as _json
+    tr = tmp_path / "t.jsonl"
+
+    def write(line):
+        tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "설명\n🗨 " + line}]}}), encoding="utf-8")
+
+    write("지난 턴 대사")
+    send_hook(pet, "say", cmd="say", text="지난 턴 대사")   # 이미 띄운 적 있다
+    pet._said_last = "지난 턴 대사"
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    assert pet.snapshot()["saying"] == "지난 턴 대사"        # 새 대사는 아직 없다
+    write("이번 턴 대사")                                    # 이제 써졌다
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "이번 턴 대사"

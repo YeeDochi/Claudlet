@@ -380,19 +380,19 @@ OUTBOX_EVENTS = ("UserPromptSubmit", "PostToolUse")
 
 
 def say_reply(event, session_id, data):
-    """턴이 끝났을 때, 에이전트의 답에 실린 크리처의 한 줄을 펫에 보낸다.
+    """턴이 끝났다고 펫에게 알린다. 읽는 일은 펫이 한다.
 
-    에이전트의 답(작업 설명)은 터미널에 그대로 남고, 크리처의 목소리만 말풍선에
-    뜬다 — 그 분리가 여기서 일어난다. transcript 는 비공식 포맷이라 언젠가
-    모양이 바뀐다. 그때는 말풍선만 안 뜨고 나머지는 멀쩡해야 한다."""
+    여기서 transcript 를 읽었더니 이번 턴 답이 아직 파일에 없어서 지난 턴
+    대사를 물어왔다(말풍선이 한 턴씩 늦었다). 훅은 기다릴 수 없고 — 기다리면
+    턴 종료가 그만큼 늦어진다 — 펫은 기다릴 수 있다. 그래서 경로만 넘긴다."""
     if outbox is None or event not in ("Stop", "SubagentStop"):
         return
+    path = data.get("transcript_path")
+    if not path:
+        return
     try:
-        line = outbox.reply_from_transcript(data.get("transcript_path"))
-        if not line:
-            return
         _send(hostinfo.read_session_port(session_id),
-              (json.dumps({"cmd": "say", "text": line,
+              (json.dumps({"cmd": "turn_end", "transcript": str(path),
                            "session": session_id}) + "\n").encode())
     except Exception:
         pass

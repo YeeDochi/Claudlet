@@ -435,12 +435,11 @@ def test_the_creature_line_is_sent_to_the_pet_when_the_turn_ends(tmp_path, monke
         {"session_id": "s1", "hook_event_name": "Stop",
          "transcript_path": str(tr)})))
     mod.main()
-    says = [json.loads(p.decode()) for p in sent
-            if b'"say"' in p]
-    assert says and says[0]["text"] == "느려터졌더라구우…"
+    ends = [json.loads(p.decode()) for p in sent if b'turn_end' in p]
+    assert ends and ends[0]["transcript"] == str(tr)
 
 
-def test_an_ordinary_turn_says_nothing_to_the_pet(tmp_path, monkeypatch):
+def test_a_turn_without_a_transcript_tells_the_pet_nothing(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     tr = tmp_path / "t.jsonl"
     tr.write_text(json.dumps({"type": "assistant", "message": {"content": [
@@ -451,7 +450,6 @@ def test_an_ordinary_turn_says_nothing_to_the_pet(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_send", lambda port, payload: sent.append(payload))
     monkeypatch.setattr(mod.sys, "argv", ["claudlet-hook", "Stop"])
     monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
-        {"session_id": "s1", "hook_event_name": "Stop",
-         "transcript_path": str(tr)})))
+        {"session_id": "s1", "hook_event_name": "Stop"})))
     mod.main()
-    assert not [p for p in sent if b'"say"' in p]
+    assert not [p for p in sent if b'turn_end' in p]
