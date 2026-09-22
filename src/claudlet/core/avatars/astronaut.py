@@ -52,6 +52,7 @@ class Astronaut:
     states = STATES
     hats = C.HAT_KINDS      # companions wear one; drawn by C.draw_hat
     palette = "#C9D2E0"          # suit white-blue, until the user picks
+    persona = "무전 교신하듯 담담하고 침착한 말투. 짧게."
     # boots end well above the built-in's 15.8, so say so or the pet stands it
     # sunk into whatever window it perches on
     foot_row = FLOOR

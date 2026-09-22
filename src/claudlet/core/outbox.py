@@ -101,6 +101,16 @@ def drop(session_id):
 
 HEADER = "[claudlet] 사용자가 데스크톱 펫을 통해 전한 말이다. 프롬프트가 아니라 곁다리 메시지이므로, 하던 일이 있으면 그것을 이어가면서 아래에 답해라."
 
+# 에이전트의 답과 크리처의 답은 다른 것이어야 한다. 일은 평소처럼 터미널에서
+# 하고, 크리처의 목소리는 이 마커로 감싼 한 줄로만 낸다 — 훅이 그것만 집어
+# 펫의 말풍선에 띄운다. 마커가 없으면 말풍선도 없다(평소와 똑같이 동작한다).
+MARK_OPEN = "<claudlet>"
+MARK_CLOSE = "</claudlet>"
+SAY_MAX = 120                # 말풍선에 들어갈 만큼. 긴 설명은 터미널의 몫이다.
+ASK_LINE = ("답할 때 마지막에 펫의 목소리로 딱 한 줄을 %s 와 %s 로 감싸 덧붙여라"
+            " (말풍선에 뜬다). 작업에 대한 설명은 평소대로 따로 쓴다."
+            % (MARK_OPEN, MARK_CLOSE))
+
 
 def render(notes):
     """쪽지들을 에이전트에게 들어갈 한 덩어리로 만든다. 순수.
@@ -108,7 +118,7 @@ def render(notes):
     출처를 밝히는 머리말이 붙는다 — 이것이 사용자가 직접 친 프롬프트로
     보이면 에이전트가 하던 일을 통째로 갈아탄다. 같은 말투 지시가 여러 장에
     반복되면 한 번만 싣는다."""
-    lines = [HEADER]
+    lines = [HEADER, ASK_LINE]
     seen = []
     for note in notes:
         persona = note.get("persona")
@@ -118,6 +128,64 @@ def render(notes):
     for note in notes:
         lines.append("- " + note["text"])
     return "\n".join(lines)
+
+
+def extract_reply(text):
+    """에이전트의 답에서 크리처가 말할 한 줄, 없으면 None. 순수.
+
+    마커가 없으면 None 이다 — 그러면 말풍선이 안 뜰 뿐 아무것도 깨지지 않는다."""
+    body = text or ""
+    end = body.rfind(MARK_CLOSE)
+    if end < 0:
+        return None
+    start = body.rfind(MARK_OPEN, 0, end)
+    if start < 0:
+        return None
+    one = " ".join(body[start + len(MARK_OPEN):end].split())
+    return one[:SAY_MAX] if one else None
+
+
+def last_assistant_text(lines):
+    """transcript JSONL 줄들에서 마지막 assistant 발화의 텍스트, 없으면 None.
+
+    포맷이 비공식이라는 것이 이 함수의 전제다 — 모르는 모양은 조용히 건너뛴다.
+    2026-07-14 에 사용량 대시보드를 접은 이유가 이 포맷 의존이었으므로, 여기서
+    나오는 것은 "있으면 좋은 것"이지 기능의 뼈대가 아니다."""
+    for line in reversed(list(lines or ())):
+        try:
+            rec = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(rec, dict) or rec.get("type") != "assistant":
+            continue
+        content = (rec.get("message") or {}).get("content")
+        if isinstance(content, str):
+            return content or None
+        if isinstance(content, list):
+            parts = [b.get("text") for b in content
+                     if isinstance(b, dict) and b.get("type") == "text"
+                     and isinstance(b.get("text"), str)]
+            if parts:
+                return "\n".join(parts)
+    return None
+
+
+def reply_from_transcript(path, tail_bytes=65536):
+    """transcript 파일 끝에서 크리처가 말할 한 줄을 뽑는다. 얇은 껍데기.
+
+    전부 읽지 않는다 — 긴 대화의 JSONL 은 수십 MB 가 되고, 훅은 빨라야 한다."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - tail_bytes))
+            raw = f.read().decode("utf-8", "replace")
+    except (OSError, TypeError):
+        return None
+    lines = raw.splitlines()
+    if size > tail_bytes and lines:
+        lines = lines[1:]              # 잘린 첫 줄은 JSON 이 아니다
+    return extract_reply(last_assistant_text(lines) or "")
 
 
 def typed_line(text, persona):

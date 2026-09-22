@@ -126,3 +126,61 @@ def test_typed_line_carries_the_persona_where_the_user_can_see_it():
 def test_typed_line_is_just_the_question_without_a_persona():
     assert outbox.typed_line("이거 왜 느려?", "") == "이거 왜 느려?"
     assert outbox.typed_line("이거 왜 느려?", None) == "이거 왜 느려?"
+
+
+# ---------- 크리처의 답: 에이전트의 답과 분리된다 ----------
+
+def test_the_agent_is_told_to_answer_in_the_creature_s_own_voice():
+    text = outbox.render([{"text": "안녕?", "persona": "물컹하게"}])
+    assert outbox.MARK_OPEN in text and outbox.MARK_CLOSE in text
+
+
+def test_the_creature_line_is_pulled_out_of_a_reply():
+    out = outbox.extract_reply(
+        "고치는 중이야. 저기는 인덱스가 없어서 느렸어.\n"
+        "<claudlet>느려터졌더라구우…</claudlet>")
+    assert out == "느려터졌더라구우…"
+
+
+def test_an_ordinary_reply_has_nothing_for_the_creature_to_say():
+    assert outbox.extract_reply("그냥 평범한 답변이다") is None
+    assert outbox.extract_reply("") is None
+    assert outbox.extract_reply(None) is None
+
+
+def test_only_the_last_creature_line_is_spoken():
+    out = outbox.extract_reply("<claudlet>먼저</claudlet> 어쩌고 "
+                               "<claudlet>나중</claudlet>")
+    assert out == "나중"
+
+
+def test_a_creature_line_is_kept_to_one_line_and_a_sane_length():
+    out = outbox.extract_reply("<claudlet>%s</claudlet>" % ("가" * 300))
+    assert len(out) <= outbox.SAY_MAX
+    assert outbox.extract_reply("<claudlet>첫 줄\n둘째 줄</claudlet>") == "첫 줄 둘째 줄"
+
+
+# ---------- transcript 에서 마지막 답을 찾는다 (포맷은 비공식이다) ----------
+
+def test_the_last_assistant_line_is_what_the_creature_answers_to():
+    lines = [
+        json.dumps({"type": "user", "message": {"content": "안녕?"}}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "먼저 한 말"}]}}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "나중 한 말 <claudlet>물컹</claudlet>"}]}}),
+    ]
+    assert outbox.last_assistant_text(lines).endswith("</claudlet>")
+
+
+def test_plain_string_content_is_read_too():
+    lines = [json.dumps({"type": "assistant", "message": {"content": "문자열 답"}})]
+    assert outbox.last_assistant_text(lines) == "문자열 답"
+
+
+def test_a_transcript_we_cannot_read_says_nothing_rather_than_failing():
+    # 비공식 JSONL 이라 언젠가 모양이 바뀐다. 그때는 말풍선만 안 뜨면 된다.
+    assert outbox.last_assistant_text(["{깨진 줄", ""]) is None
+    assert outbox.last_assistant_text([]) is None
+    assert outbox.last_assistant_text(
+        [json.dumps({"type": "user", "message": {"content": "나뿐"}})]) is None

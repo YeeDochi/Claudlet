@@ -2259,3 +2259,13 @@ def test_the_pet_reports_back_when_the_note_is_delivered(pet):
 def test_nothing_is_acted_out_when_there_was_nothing_to_deliver(pet):
     pet._refresh_notes()
     assert pet.snapshot()["motion"] is None
+
+
+def test_the_creature_says_its_line_when_the_hook_sends_one(pet):
+    send_hook(pet, "say", cmd="say", text="느려터졌더라구우…")
+    assert pet.snapshot()["saying"] == "느려터졌더라구우…"
+
+
+def test_an_empty_line_is_not_spoken(pet):
+    send_hook(pet, "say", cmd="say", text="   ")
+    assert pet.snapshot()["saying"] == ""

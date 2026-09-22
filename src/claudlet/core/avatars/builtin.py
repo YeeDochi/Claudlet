@@ -9,6 +9,7 @@ from claudlet.core import creature as C
 
 class Claudlet:
     name = "claudlet"
+    persona = "짧고 명랑하게, 한 줄로."
     grid = (C.GRID_W, C.GRID_H)
     states = C.STATES
     hats = C.HAT_KINDS

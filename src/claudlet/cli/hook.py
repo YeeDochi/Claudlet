@@ -368,6 +368,7 @@ def main():
         except Exception:
             pass  # pet not running / not ready — ignore silently
 
+    say_reply(event, session_id, data)
     deliver_outbox(event, session_id, agent)
 
 
@@ -376,6 +377,25 @@ def main():
 # additionalContext 를 이런 형태로 받는다 (Claude Code 2.1.278 의 훅 출력
 # 스키마를 바이너리에서 직접 확인했다).
 OUTBOX_EVENTS = ("UserPromptSubmit", "PostToolUse")
+
+
+def say_reply(event, session_id, data):
+    """턴이 끝났을 때, 에이전트의 답에 실린 크리처의 한 줄을 펫에 보낸다.
+
+    에이전트의 답(작업 설명)은 터미널에 그대로 남고, 크리처의 목소리만 말풍선에
+    뜬다 — 그 분리가 여기서 일어난다. transcript 는 비공식 포맷이라 언젠가
+    모양이 바뀐다. 그때는 말풍선만 안 뜨고 나머지는 멀쩡해야 한다."""
+    if outbox is None or event not in ("Stop", "SubagentStop"):
+        return
+    try:
+        line = outbox.reply_from_transcript(data.get("transcript_path"))
+        if not line:
+            return
+        _send(hostinfo.read_session_port(session_id),
+              (json.dumps({"cmd": "say", "text": line,
+                           "session": session_id}) + "\n").encode())
+    except Exception:
+        pass
 
 
 def deliver_outbox(event, session_id, agent=None):

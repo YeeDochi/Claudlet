@@ -228,6 +228,10 @@ UI = {
 # 새 펫이 뜨자마자 자리를 빼앗는 것처럼 보이지 않을 만큼은 느긋하게.
 DOCK_REPACK_MS = 2000
 
+# 크리처가 한 말이 말풍선에 머무는 시간(초). 읽을 만큼은 있고, 화면에 눌러앉지는
+# 않을 만큼.
+SAY_SEC = 12.0
+
 # transient motions offered in the menus: (name, seconds, {lang: label})
 MOTION_MENU = [
     ("jump", 2.5, {"ko": "점프", "en": "Jump"}),
@@ -767,6 +771,8 @@ class Pet(QWidget):
         self._persona = getattr(self, "_persona", "")
         self._notes = 0                    # 물고 있는 쪽지 수
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
+        self._say = ""                     # 크리처가 지금 하는 말
+        self._say_until = 0.0
         self._note_timer = QTimer(self)
         self._note_timer.timeout.connect(self._refresh_notes)
         self._refresh_notes()              # 재시작 전에 남긴 쪽지를 이어받는다
@@ -950,6 +956,15 @@ class Pet(QWidget):
             return
         # 형제 펫이 드래그로 대열을 옮겼다는 통지. 같은 offset을 공유해야 간격이
         # 유지되므로 받은 값을 그대로 반영한다(config는 옮긴 쪽이 이미 저장했다).
+        if ev.get("cmd") == "say":
+            # 크리처가 한 줄 말한다. 에이전트의 설명은 터미널에 그대로 있고,
+            # 여기 뜨는 것은 펫의 목소리뿐이다.
+            text = ev.get("text")
+            if isinstance(text, str) and text.strip():
+                self._say = text.strip()[:outbox.SAY_MAX]
+                self._say_until = time.monotonic() + SAY_SEC
+                self.update()
+            return
         if ev.get("cmd") == "restyle":
             # 설정이 바뀌었다 (claudlet-config ui). 재시작 없이 다시 입는다.
             self._restyle()
@@ -1131,6 +1146,7 @@ class Pet(QWidget):
             "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
             "notes": self._notes,                # 에이전트에게 전하려고 물고 있는 쪽지 수
+            "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
             "tab_title": self._tab_title,        # terminal tab we click-focus
@@ -2435,6 +2451,10 @@ class Pet(QWidget):
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
         if self._notes:
             self._draw_note(p)
+        if self._say and now < self._say_until:
+            self._draw_say(p)
+        elif self._say:
+            self._say = ""
         p.end()
 
     # 하트 위치/크기의 기본값 (내장 크리처의 22x17 기준, 아트 픽셀 단위).
@@ -2456,6 +2476,44 @@ class Pet(QWidget):
         gw, gh = self.avatar.grid
         fs, fh, fz = self.NOTE_FRAC
         return (gw * fs, gh * fh, gw * fz)
+
+    def _draw_say(self, p):
+        """크리처가 한 말을 머리 위 말풍선으로. 크리처 패키지의 말풍선(SPEECH)은
+        상태마다 정해진 문구라 임의의 문장을 못 싣는다 — 하트·쪽지와 같은 이유로
+        여기서 위에 얹는다. 창 밖으로는 못 나가므로 폭에 맞춰 줄을 나눈다."""
+        from PyQt6.QtGui import QFont, QPainterPath, QPen
+        f = QFont("Sans")
+        f.setPointSizeF(max(6.0, 1.3 * self.u))
+        f.setBold(True)
+        p.setFont(f)
+        fm = p.fontMetrics()
+        pad = max(3.0, 0.6 * self.u)
+        maxw = max(60.0, self.w - 2 * pad)
+        words, lines, cur = self._say.split(" "), [], ""
+        for word in words:
+            trial = (cur + " " + word).strip()
+            if cur and fm.horizontalAdvance(trial) > maxw:
+                lines.append(cur)
+                cur = word
+            else:
+                cur = trial
+        if cur:
+            lines.append(cur)
+        lines = lines[:2]        # 얼굴을 다 덮지 않을 만큼만
+        tw = max(fm.horizontalAdvance(x) for x in lines)
+        th = fm.height() * len(lines)
+        bx = (self.w - tw) / 2.0
+        by = max(0.0, (PAD_Y * self.u) - th - 2 * pad)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(bx - pad, by, tw + 2 * pad, th + pad), 5, 5)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.fillPath(path, QColor(255, 255, 255, 240))
+        p.fillRect(QRectF(self.w / 2.0 - 0.5 * self.u, by + th + pad - 1,
+                          1.1 * self.u, 0.9 * self.u), QColor(255, 255, 255, 240))
+        p.setPen(QPen(QColor("#2A2A30")))
+        p.drawText(QRectF(bx - pad, by, tw + 2 * pad, th + pad),
+                   int(Qt.AlignmentFlag.AlignCenter), "\n".join(lines))
+        p.setPen(Qt.PenStyle.NoPen)
 
     def _draw_note(self, p):
         """아웃박스에 쌓인 것이 있으면 크리처가 쪽지를 물고 있다.

@@ -55,6 +55,9 @@ class Slime:
     states = STATES
     hats = C.HAT_KINDS      # companions wear one; drawn by C.draw_hat
     palette = "#3FBF6F"        # its own default green, until the user picks
+    # 크리처는 자기 말투를 들고 온다 — 슬라임으로 갈아입으면 말투도 같이
+    # 바뀐다. 사용자가 설정에서 적으면 그것이 이긴다.
+    persona = "느릿느릿하고 말끝을 늘이는, 물컹한 말투. 짧게."
     # the dome ends at FLOOR, well above the built-in's 15.8 — say so or the pet
     # stands it sunk into whatever window it perches on
     foot_row = FLOOR
