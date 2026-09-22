@@ -2205,3 +2205,32 @@ def test_the_tray_zone_clear_entry_appears_with_the_zones():
         assert p._act_zone_clear.isVisible() is True
     finally:
         p._cleanup()
+
+
+# ---------- 펫에게 말 걸기: 물고 있는 쪽지가 보인다 ----------
+
+def test_a_note_left_for_the_agent_is_something_the_pet_holds(pet):
+    from claudlet.core import outbox
+    assert pet.snapshot()["notes"] == 0
+    outbox.append(pet.session_id, "이거 왜 느려?")
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 1
+
+
+def test_the_pet_stops_holding_what_the_hook_delivered(pet):
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "배달될 쪽지")
+    pet._refresh_notes()
+    outbox.take(pet.session_id)              # 훅이 가져갔다 (다른 프로세스에서)
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 0
+
+
+def test_dropping_a_note_stops_it_from_ever_being_delivered(pet):
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "실수")
+    pet._refresh_notes()
+    outbox.drop(pet.session_id)
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 0
+    assert outbox.take(pet.session_id) == []

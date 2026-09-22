@@ -253,3 +253,28 @@ def test_avatar_map_entries_must_be_strings():
     assert cleaned == {"claude": "claudlet"}
     assert petconfig.clean_avatar("slime") == "slime"
     assert petconfig.clean_avatar(17) is None
+
+
+# ---------- 성격: 크리처가 기본 말투를 들고 오고 사용자가 덮어쓴다 ----------
+
+class _PersonaSlime:
+    persona = "느릿하고 물컹하게"
+
+
+def test_a_creature_brings_its_own_persona():
+    got = petconfig.for_creature({}, "slime", _PersonaSlime())
+    assert got["persona"] == "느릿하고 물컹하게"
+
+
+def test_the_user_overrides_the_creature_s_persona():
+    cfg = {"creatures": {"slime": {"persona": "아주 퉁명스럽게"}}}
+    assert petconfig.for_creature(cfg, "slime", _PersonaSlime())["persona"] == "아주 퉁명스럽게"
+
+
+def test_a_creature_without_a_persona_has_none():
+    assert petconfig.for_creature({}, "plain", object())["persona"] == ""
+
+
+def test_a_persona_is_not_borrowed_from_another_creature():
+    cfg = {"creatures": {"slime": {"persona": "물컹"}}}
+    assert petconfig.for_creature(cfg, "claudlet", object())["persona"] == ""

@@ -254,8 +254,14 @@ def for_creature(cfg, name, avatar=None):
     else:
         want = getattr(avatar, "scale", None)
         scale = clamp_scale(want, fine) if want is not None else DEFAULT_SCALE
+    # 말투는 크리처가 들고 온다 — 슬라임을 내보내면 슬라임 말투도 따라간다.
+    # 사용자가 적어둔 것이 있으면 그것이 이긴다(색·크기와 같은 규칙).
+    persona = mine.get("persona")
+    if persona is None:
+        persona = getattr(avatar, "persona", None)
     return {"palette": palette, "scale": scale,
-            "visor": mine.get("visor") or DEFAULT_VISOR}
+            "visor": mine.get("visor") or DEFAULT_VISOR,
+            "persona": str(persona or "").strip()}
 
 
 def clamp_scale(value, fractional=False):

@@ -186,7 +186,7 @@ def test_page_carries_every_creatures_settings(tmp_path, monkeypatch):
     s = U.state_payload()
     assert set(s["looks"]) == set(a["name"] for a in s["avatars"])
     for look in s["looks"].values():
-        assert set(look) == {"palette", "scale", "visor"}
+        assert set(look) == {"palette", "scale", "visor", "persona"}
 
 
 def test_the_server_stops_once_the_page_stops_saying_it_is_open():

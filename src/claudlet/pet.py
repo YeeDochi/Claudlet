@@ -44,6 +44,7 @@ from claudlet.platform import konsole
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
 from claudlet.core import hostinfo
+from claudlet.core import outbox
 from claudlet.core import petconfig
 from claudlet.core import dock as dockgeom
 from claudlet.core import dockslot
@@ -155,6 +156,9 @@ UI = {
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
+           "talk_now": "💬 지금 물어보기…", "talk_note": "📝 쪽지 남기기…",
+           "talk_drop": "물고 있는 쪽지 버리기 (%d장)",
+           "talk_prompt": "펫에게 전할 말", "talk_sent": "전달했다",
            "settings": "🎨 크리처 설정…",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
@@ -164,6 +168,9 @@ UI = {
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
+           "talk_now": "💬 Ask now…", "talk_note": "📝 Leave a note…",
+           "talk_drop": "Drop the note it holds (%d)",
+           "talk_prompt": "What to tell the pet", "talk_sent": "delivered",
            "settings": "🎨 Creature settings…",
            "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
            "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
@@ -710,6 +717,11 @@ class Pet(QWidget):
         self._vel_samples = []
         self._click_times = []
 
+        self._persona = getattr(self, "_persona", "")
+        self._notes = 0                    # 물고 있는 쪽지 수
+        self._note_timer = QTimer(self)
+        self._note_timer.timeout.connect(self._refresh_notes)
+        self._refresh_notes()              # 재시작 전에 남긴 쪽지를 이어받는다
         self._init_socket()
         self._init_tray()
 
@@ -1005,6 +1017,7 @@ class Pet(QWidget):
             os.environ.get("CLAUDLET_SCALE") or look["scale"],
             bool(getattr(self.avatar, "fractional_scale", False)))
         self._visor_mode = look["visor"]
+        self._persona = look.get("persona", "")
 
     def _restyle(self):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -1069,6 +1082,7 @@ class Pet(QWidget):
             "floating": self._floating,
             "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
+            "notes": self._notes,                # 에이전트에게 전하려고 물고 있는 쪽지 수
 
             "following": self._follow,
             "tab_title": self._tab_title,        # terminal tab we click-focus
@@ -2371,12 +2385,49 @@ class Pet(QWidget):
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
+        if self._notes:
+            self._draw_note(p)
         p.end()
 
     # 하트 위치/크기의 기본값 (내장 크리처의 22x17 기준, 아트 픽셀 단위).
     # 그리드가 훨씬 촘촘한 크리처에서는 이 숫자가 그대로면 하트가 얼굴 위에
     # 좁쌀만 하게 찍힌다 — 크리처가 `hearts`로 자기 기준을 알려줄 수 있다.
     HEARTS_DEFAULT = (4.5, 3.0, 1.6)      # (좌우 간격, 머리 높이, 크기)
+
+    # 물고 있는 쪽지의 자리/크기. 하트는 내장 크리처의 22x17 을 기준으로 숫자를
+    # 박아두는 바람에 그리드가 촘촘한 크리처에서 좁쌀이 됐다(그래서 `hearts`
+    # 탈출구가 생겼다). 여기서는 처음부터 **그리드 비율**로 둔다 — 176x128 짜리
+    # 스프라이트든 22x17 내장이든 같은 비율로 커진다. 크리처가 `note` 로
+    # (옆, 높이, 크기)를 아트 픽셀로 직접 줄 수도 있다.
+    NOTE_FRAC = (0.23, 0.53, 0.18)        # (gw 대비 옆, gh 대비 높이, gw 대비 크기)
+
+    def _note_anchor(self):
+        override = getattr(self.avatar, "note", None)
+        if override:
+            return override
+        gw, gh = self.avatar.grid
+        fs, fh, fz = self.NOTE_FRAC
+        return (gw * fs, gh * fh, gw * fz)
+
+    def _draw_note(self, p):
+        """아웃박스에 쌓인 것이 있으면 크리처가 쪽지를 물고 있다.
+
+        무엇이 언제 에이전트에 들어가는지 늘 보여야 한다 — 30분 전에 넣어둔
+        말이 조용히 딸려 가는 일이 없도록. 크리처마다 그리는 법이 다르므로
+        패키지의 그림이 아니라 여기서 위에 얹는다(하트와 같은 방식)."""
+        side, high, size = self._note_anchor()
+        u = self.u
+        w = size * u
+        h = w * 0.78
+        x = self.w / 2 + side * u * self.facing - w / 2
+        y = (PAD_Y + high) * u
+        p.setPen(Qt.PenStyle.NoPen)
+        p.fillRect(QRectF(x, y, w, h), QColor(250, 248, 235))
+        p.fillRect(QRectF(x, y, w, max(1.0, h * 0.18)), QColor(212, 205, 180))
+        line = QColor(120, 115, 100)
+        for i in (1, 2):                   # 글씨 두 줄 — 내용은 읽히지 않아도 된다
+            ly = y + h * (0.3 + 0.25 * i)
+            p.fillRect(QRectF(x + w * 0.18, ly, w * 0.64, max(1.0, h * 0.1)), line)
 
     def _draw_hearts(self, p, age):
         # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
@@ -2606,6 +2657,17 @@ class Pet(QWidget):
             a_comp_del = QAction(self.ui["comp_del"], m)
             m.addAction(a_comp_del)
         m.addSeparator()
+        a_talk_now = None
+        if self._can_talk_now():
+            a_talk_now = QAction(self.ui["talk_now"], m)
+            m.addAction(a_talk_now)
+        a_talk_note = QAction(self.ui["talk_note"], m)
+        m.addAction(a_talk_note)
+        a_talk_drop = None
+        if self._notes:
+            a_talk_drop = QAction(self.ui["talk_drop"] % self._notes, m)
+            m.addAction(a_talk_drop)
+        m.addSeparator()
         a_settings = QAction(self.ui["settings"], m)
         m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
@@ -2620,7 +2682,14 @@ class Pet(QWidget):
         chosen = m.exec(gpos)
         if chosen is None:
             return
-        if chosen == a_follow:
+        if chosen == a_talk_now:
+            self._talk(immediate=True)
+        elif chosen == a_talk_note:
+            self._talk(immediate=False)
+        elif chosen == a_talk_drop:
+            outbox.drop(self.session_id)
+            self._refresh_notes()
+        elif chosen == a_follow:
             self._toggle_follow()
         elif chosen == a_roam:
             self._toggle_dock()
@@ -2908,6 +2977,64 @@ class Pet(QWidget):
                     os.unlink(path)
                 except OSError:
                     pass
+
+    # ---------- 펫에게 말 걸기 ----------
+    # 펫이 에이전트에게 말할 수 있는 통로는 두 가지다. "지금 물어보기"는 이
+    # 세션의 프롬프트에 직접 써 넣어 실제로 제출하고(호스트가 그럴 수 있을
+    # 때만), "쪽지 남기기"는 아웃박스에 쌓아 다음 훅 경계에서 배달한다.
+    #
+    # ponytail: 입력은 일단 QInputDialog 다. 펫 옆에 붙는 한 줄 입력이 더
+    # 어울리지만, 프레임리스 always-on-top 창에 포커스 가능한 위젯을 얹는 일은
+    # XWayland 에서 만져보기 전까지 글로 정해봐야 모른다. 여기가 갈아끼울 자리.
+    def _can_talk_now(self):
+        """이 호스트에서 프롬프트에 직접 써 넣을 수 있나. 지금은 KDE/Konsole 뿐 —
+        다른 호스트는 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        return bool(sys.platform.startswith("linux") and self._ancestor_pids
+                    and "konsole" in [c.lower() for c in (self.host_classes or [])])
+
+    def _ask_text(self):
+        from PyQt6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(self, "claudlet", self.ui["talk_prompt"])
+        return text.strip() if ok else ""
+
+    def _talk(self, immediate):
+        text = self._ask_text()
+        if not text:
+            return
+        if immediate and self._konsole_send(text):
+            return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
+        outbox.append(self.session_id, text, persona=self._persona)
+        self._refresh_notes()
+
+    def _konsole_send(self, text):
+        """이 세션의 Konsole 탭에 직접 써 넣는다. 실패는 False — 호출자가
+        쪽지로 강등한다."""
+        if not self._can_talk_now():
+            return False
+        qdbus = qdbus_bin()
+
+        def run(*args):
+            return subprocess.check_output(
+                [qdbus, *args], text=True, timeout=3, stderr=subprocess.DEVNULL)
+
+        try:
+            return konsole.send_text(self._ancestor_pids, run, text)
+        except Exception:
+            return False
+
+    def _refresh_notes(self):
+        """몇 장을 물고 있는지 다시 센다. 훅이 가져가는 것은 이 프로세스 밖에서
+        일어나므로, 물고 있는 동안에만 느긋하게 되묻는다 — 빈 아웃박스에는
+        파일이 없어 평소엔 디스크를 건드리지도 않는다."""
+        try:
+            self._notes = outbox.pending(self.session_id)
+        except Exception:
+            self._notes = 0
+        if self._notes and not self._note_timer.isActive():
+            self._note_timer.start(1000)
+        elif not self._notes:
+            self._note_timer.stop()
+        self.update()
 
     # ---------- bring the Claude Code terminal forward ----------
     def _konsole_focus_tab(self):
