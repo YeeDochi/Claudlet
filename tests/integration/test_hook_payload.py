@@ -423,7 +423,7 @@ def test_the_creature_line_is_sent_to_the_pet_when_the_turn_ends(tmp_path, monke
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     tr = tmp_path / "t.jsonl"
     tr.write_text(json.dumps({"type": "assistant", "message": {"content": [
-        {"type": "text", "text": "고쳤다. <claudlet>느려터졌더라구우…</claudlet>"}]}}),
+        {"type": "text", "text": "고쳤다.\n🗨 느려터졌더라구우…"}]}}),
         encoding="utf-8")
     sent = []
     monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: True)

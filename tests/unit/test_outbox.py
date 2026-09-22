@@ -126,7 +126,7 @@ def test_a_voice_note_carries_the_persona_without_repeating_a_message():
     outbox.append_voice("s1", "물컹하게")
     text = outbox.render(outbox.take("s1"))
     assert "물컹하게" in text
-    assert outbox.MARK_OPEN in text          # 크리처 목소리로 답하라는 요청은 그대로
+    assert outbox.MARK in text               # 크리처 목소리로 답하라는 요청은 그대로
     assert "- " not in text                  # 사용자가 한 말을 지어내지는 않는다
 
 
@@ -147,14 +147,24 @@ def test_a_voice_note_and_a_whisper_together_read_as_one_message():
 
 def test_the_agent_is_told_to_answer_in_the_creature_s_own_voice():
     text = outbox.render([{"text": "안녕?", "persona": "물컹하게"}])
-    assert outbox.MARK_OPEN in text and outbox.MARK_CLOSE in text
+    assert outbox.MARK in text
 
 
 def test_the_creature_line_is_pulled_out_of_a_reply():
     out = outbox.extract_reply(
         "고치는 중이야. 저기는 인덱스가 없어서 느렸어.\n"
-        "<claudlet>느려터졌더라구우…</claudlet>")
+        "🗨 느려터졌더라구우…")
     assert out == "느려터졌더라구우…"
+
+
+def test_the_marker_reads_as_a_line_a_human_wrote_not_as_markup():
+    # 이 줄은 터미널에 그대로 보인다. XML 태그가 보이면 사용자는 마크업을 읽는다.
+    assert "<" not in outbox.MARK and ">" not in outbox.MARK
+
+
+def test_the_pet_name_prefix_is_not_spoken_twice():
+    # 터미널에서는 "🗨 라임: ..." 가 자연스럽지만 말풍선에 이름까지 넣을 이유는 없다
+    assert outbox.extract_reply("🗨 라임: 물컹하다아") == "물컹하다아"
 
 
 def test_an_ordinary_reply_has_nothing_for_the_creature_to_say():
@@ -164,15 +174,12 @@ def test_an_ordinary_reply_has_nothing_for_the_creature_to_say():
 
 
 def test_only_the_last_creature_line_is_spoken():
-    out = outbox.extract_reply("<claudlet>먼저</claudlet> 어쩌고 "
-                               "<claudlet>나중</claudlet>")
+    out = outbox.extract_reply("🗨 먼저\n어쩌고\n🗨 나중")
     assert out == "나중"
 
 
-def test_a_creature_line_is_kept_to_one_line_and_a_sane_length():
-    out = outbox.extract_reply("<claudlet>%s</claudlet>" % ("가" * 300))
-    assert len(out) <= outbox.SAY_MAX
-    assert outbox.extract_reply("<claudlet>첫 줄\n둘째 줄</claudlet>") == "첫 줄 둘째 줄"
+def test_a_creature_line_is_kept_to_a_sane_length():
+    assert len(outbox.extract_reply("🗨 " + "가" * 300)) <= outbox.SAY_MAX
 
 
 # ---------- transcript 에서 마지막 답을 찾는다 (포맷은 비공식이다) ----------

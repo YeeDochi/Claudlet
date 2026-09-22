@@ -130,12 +130,13 @@ HEADER = "[claudlet] 사용자가 데스크톱 펫을 통해 전한 말이다. �
 # 에이전트의 답과 크리처의 답은 다른 것이어야 한다. 일은 평소처럼 터미널에서
 # 하고, 크리처의 목소리는 이 마커로 감싼 한 줄로만 낸다 — 훅이 그것만 집어
 # 펫의 말풍선에 띄운다. 마커가 없으면 말풍선도 없다(평소와 똑같이 동작한다).
-MARK_OPEN = "<claudlet>"
-MARK_CLOSE = "</claudlet>"
+# 이 줄은 터미널에도 그대로 보인다. XML 태그로 감싸면 사용자가 마크업을 읽게
+# 되므로(실사용에서 바로 걸렸다), 사람이 쓴 것처럼 읽히는 표시를 쓴다.
+MARK = "🗨"
 SAY_MAX = 120                # 말풍선에 들어갈 만큼. 긴 설명은 터미널의 몫이다.
-ASK_LINE = ("답할 때 마지막에 펫의 목소리로 딱 한 줄을 %s 와 %s 로 감싸 덧붙여라"
-            " (말풍선에 뜬다). 작업에 대한 설명은 평소대로 따로 쓴다."
-            % (MARK_OPEN, MARK_CLOSE))
+ASK_LINE = ("답의 맨 마지막에 펫의 목소리로 딱 한 줄을 '%s ' 로 시작하는 줄로"
+            " 덧붙여라 (그 줄이 말풍선에 뜬다). 작업 설명은 평소대로 따로 쓴다."
+            % MARK)
 
 
 def render(notes):
@@ -169,15 +170,18 @@ def extract_reply(text):
     """에이전트의 답에서 크리처가 말할 한 줄, 없으면 None. 순수.
 
     마커가 없으면 None 이다 — 그러면 말풍선이 안 뜰 뿐 아무것도 깨지지 않는다."""
-    body = text or ""
-    end = body.rfind(MARK_CLOSE)
-    if end < 0:
-        return None
-    start = body.rfind(MARK_OPEN, 0, end)
-    if start < 0:
-        return None
-    one = " ".join(body[start + len(MARK_OPEN):end].split())
-    return one[:SAY_MAX] if one else None
+    for line in reversed((text or "").splitlines()):
+        line = line.strip()
+        if not line.startswith(MARK):
+            continue
+        one = " ".join(line[len(MARK):].split())
+        # "🗨 라임: 물컹하다아" 처럼 이름을 붙여 쓰는 편이 터미널에서 자연스럽다.
+        # 말풍선은 크리처 위에 뜨므로 이름까지 되풀이할 이유가 없다.
+        head, sep, rest = one.partition(":")
+        if sep and len(head) <= 24 and rest.strip():
+            one = rest.strip()
+        return one[:SAY_MAX] if one else None
+    return None
 
 
 def last_assistant_text(lines):
