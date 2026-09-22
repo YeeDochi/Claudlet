@@ -722,6 +722,112 @@ def cmd_remove(argv):
     return 0
 
 
+POINTER_USAGE = """usage: claudlet-config pointer [show]
+       claudlet-config pointer config-dir <path|->
+       claudlet-config pointer cursor <%s>
+       claudlet-config pointer image <path|->  [--hotspot X,Y]
+
+  config-dir  CLAUDE_CONFIG_DIR for sessions the pointer starts ("-" clears)
+  cursor      built-in cursor shape for pointer mode
+  image       a custom cursor image ("-" clears; falls back to `cursor`)
+""" % "|".join(petconfig.POINTER_CURSORS)
+
+
+def _pointer_show(cfg=None):
+    p = (cfg or petconfig.load_config()).get("pointer") or {}
+    print("config-dir: %s" % (p.get("claude_config_dir") or "(inherit)"))
+    print("cursor    : %s" % p.get("cursor"))
+    img = p.get("image")
+    print("image     : %s" % (img or "(none)"))
+    if img and not os.path.exists(img):
+        print("            ⚠ not found — pointer falls back to `%s`"
+              % p.get("cursor"))
+    hot = p.get("hotspot")
+    print("hotspot   : %s" % ("%d,%d" % tuple(hot) if hot else "(centre)"))
+    return 0
+
+
+def _save_pointer(updates):
+    """Merge into the pointer section without disturbing the other keys."""
+    current = dict((petconfig.load_config().get("pointer")
+                    or petconfig.DEFAULT_POINTER))
+    current.update(updates)
+    # Drop keys back to absent rather than writing nulls, so the file stays
+    # the minimal record of what the user actually chose.
+    section = {k: v for k, v in current.items() if v is not None}
+    petconfig.save_keys({"pointer": section})
+    return section
+
+
+def cmd_pointer(argv):
+    """`claudlet-config pointer ...` — the 🎯 pointer's own settings."""
+    if not argv or argv[0] in ("show", "-h", "--help"):
+        if argv and argv[0] in ("-h", "--help"):
+            print(POINTER_USAGE, end="")
+            return 0
+        return _pointer_show()
+
+    sub, rest = argv[0], argv[1:]
+
+    if sub == "config-dir":
+        if not rest:
+            print(POINTER_USAGE, end="")
+            return 2
+        if rest[0] == "-":
+            _save_pointer({"claude_config_dir": None})
+            print("config-dir cleared — sessions inherit the environment")
+            return 0
+        path = os.path.expanduser(rest[0])
+        saved = _save_pointer({"claude_config_dir": path})
+        print("config-dir: %s" % saved.get("claude_config_dir"))
+        if not os.path.isdir(path):
+            print("⚠ that directory does not exist yet")
+        return 0
+
+    if sub == "cursor":
+        if not rest or rest[0] not in petconfig.POINTER_CURSORS:
+            print(POINTER_USAGE, end="")
+            return 2
+        _save_pointer({"cursor": rest[0]})
+        print("cursor: %s" % rest[0])
+        return 0
+
+    if sub == "image":
+        if not rest:
+            print(POINTER_USAGE, end="")
+            return 2
+        if rest[0] == "-":
+            _save_pointer({"image": None, "hotspot": None})
+            print("image cleared — using the built-in cursor")
+            return 0
+        path = os.path.expanduser(rest[0])
+        if not os.path.exists(path):
+            print("no such file: %s" % path)
+            return 2
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in petconfig.POINTER_IMAGE_SUFFIXES:
+            print("unsupported image type %s (want %s)"
+                  % (ext or "(none)", ", ".join(petconfig.POINTER_IMAGE_SUFFIXES)))
+            return 2
+        updates = {"image": os.path.abspath(path)}
+        for i, a in enumerate(rest):
+            if a == "--hotspot" and i + 1 < len(rest):
+                try:
+                    x, y = (int(v) for v in rest[i + 1].split(",", 1))
+                    updates["hotspot"] = [x, y]
+                except ValueError:
+                    print("--hotspot wants X,Y")
+                    return 2
+        saved = _save_pointer(updates)
+        print("image: %s" % saved.get("image"))
+        print("hotspot: %s" % ("%d,%d" % tuple(saved["hotspot"])
+                               if saved.get("hotspot") else "(centre)"))
+        return 0
+
+    print(POINTER_USAGE, end="")
+    return 2
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     arg = argv[0] if argv else ""
@@ -753,6 +859,8 @@ def main(argv=None):
     if arg == "open":
         print("opening " + open_config())
         return 0
+    if arg == "pointer":
+        return cmd_pointer(argv[1:])
     if arg == "wear":
         return cmd_wear(argv[1:])
     if arg == "export":

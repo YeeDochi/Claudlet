@@ -257,6 +257,16 @@ def _enum_windows(exclude_hwnd=None, include_iconic=False):
     return out
 
 
+def available():
+    """True when this backend can actually enumerate windows.
+
+    Mirrors dump()'s own guard rather than testing sys.platform: a Windows
+    Python without windll (or a non-Windows host) reaches the same dead end,
+    and callers want one question answered, not two.
+    """
+    return user32 is not None
+
+
 def dump(exclude_hwnd=None):
     """Current windows as a KWin-feed-format string (bottom-to-top stacking)."""
     if user32 is None:
