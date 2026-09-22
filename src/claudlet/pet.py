@@ -43,6 +43,10 @@ def ask_command(prompt, which=None):
     시스템 Qt/GTK 로 빌드돼 있어 한글이 그냥 된다."""
     if which is None:
         which = shutil.which
+    if not sys.platform.startswith("linux"):
+        # 윈도우/맥의 Qt 는 입력기를 플랫폼 플러그인 안에서 직접 다룬다 —
+        # 빌려올 것이 없고, brew 로 깔린 zenity 가 가로채서도 안 된다.
+        return None
     exe = which("kdialog")
     if exe:
         return [exe, "--title", "claudlet", "--inputbox", prompt]
@@ -679,6 +683,7 @@ class Pet(QWidget):
         # 0을 그대로 넘기면 빈 집합이 나오고, 그러면 _konsole_focus_tab도
         # _update_host_wid도 조기 반환해 클릭이 "창은 올라오는데 탭은 그대로"가
         # 된다. 펫을 띄운 셸이 곧 그 탭의 셸이므로 자기 조상이 정확히 맞다.
+        self._claude_pid = claude_pid or 0   # 콘솔 입력 버퍼에 붙을 때 쓴다
         self._ancestor_pids = self._proc_ancestors(claude_pid or os.getpid())
         self._host_wid = None                # internalId of our host window (focus)
         # Terminal tab title, refreshed by every hook event. On Windows this is
@@ -3034,6 +3039,11 @@ class Pet(QWidget):
         # 메서드가 있다고 되는 게 아니다: Konsole 은 sendText 를 기본으로 막아둔다
         # (AccessDenied). 막혀 있으면 이 항목을 아예 띄우지 않는다 — 눌렀더니
         # 조용히 쪽지가 되는 것보다 없는 편이 정직하다.
+        if os.name == "nt":
+            # 콘솔 입력 버퍼에 붙어 쓴다 — 전역 스위치가 필요 없다. 미리
+            # 확인할 방법이 없으므로(확인 = 실제로 써보기) 띄워두고, 실패하면
+            # 쪽지로 강등한다.
+            return bool(self._claude_pid)
         return bool(sys.platform.startswith("linux") and self._ancestor_pids
                     and "konsole" in [c.lower() for c in (self.host_classes or [])]
                     and konsole.can_send_text())
@@ -3078,10 +3088,16 @@ class Pet(QWidget):
         self._play_motion("jump", 1.5)              # 받았다
 
     def _konsole_send(self, text):
-        """이 세션의 Konsole 탭에 직접 써 넣는다. 실패는 False — 호출자가
-        쪽지로 강등한다."""
+        """이 세션의 프롬프트에 직접 써 넣는다. 실패는 False — 호출자가
+        쪽지로 강등한다. 윈도우는 콘솔 입력 버퍼, KDE 는 Konsole 의 D-Bus."""
         if not self._can_talk_now():
             return False
+        if os.name == "nt":
+            from claudlet.platform import winsend
+            try:
+                return winsend.send_text(self._claude_pid, text)
+            except Exception:
+                return False
         qdbus = qdbus_bin()
 
         def run(*args):

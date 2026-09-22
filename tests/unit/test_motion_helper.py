@@ -137,3 +137,13 @@ def test_zenity_is_the_fallback_off_kde():
 def test_no_system_dialog_means_we_ask_qt_ourselves():
     from claudlet import pet
     assert pet.ask_command("무슨 말?", which=lambda n: None) is None
+
+
+def test_windows_and_mac_ask_qt_rather_than_a_stray_helper(monkeypatch):
+    # brew 로 깔린 zenity 가 macOS 입력을 가로채면 안 된다. 두 OS 의 Qt 는
+    # 입력기를 플랫폼 플러그인 안에서 직접 다루므로 빌려올 것이 없다.
+    from claudlet import pet
+    monkeypatch.setattr(pet.sys, "platform", "darwin")
+    assert pet.ask_command("무슨 말?", which=lambda n: "/opt/homebrew/bin/" + n) is None
+    monkeypatch.setattr(pet.sys, "platform", "win32")
+    assert pet.ask_command("무슨 말?", which=lambda n: "C:/tools/" + n) is None
