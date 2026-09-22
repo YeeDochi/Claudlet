@@ -8,12 +8,12 @@
 Claude Code ──hook──▶ claudlet-hook ──loopback TCP──▶ pet (PyQt6 window)
 ```
 
-- **`src/claudlet/pet.py`** — the pet: a frameless, translucent, always-on-top
+- **`app/src/claudlet/pet.py`** — the pet: a frameless, translucent, always-on-top
   window. On Linux it runs under XWayland (`QT_QPA_PLATFORM=xcb`) so it can
   position itself, which native Wayland forbids; on macOS/Windows it uses the
   native Qt platform.
-- **`src/claudlet/creature.py`** — the creature renderer (pure `QPainter`, state-driven).
-- **`bin/claudlet-hook`** — forwards each Claude Code hook event to the pet over
+- **`app/src/claudlet/core/creature.py`** — the creature renderer (pure `QPainter`, state-driven).
+- **`app/bin/claudlet-hook`** — forwards each Claude Code hook event to the pet over
   a per-session loopback TCP socket (port published in
   `$XDG_RUNTIME_DIR/claudlet-<session>.port`; stock Windows Python builds have
   no unix domain sockets, so TCP is used everywhere for one code path) and
@@ -38,7 +38,7 @@ All `bin/*` tools are Python, so they run wherever Python does.
   in the screen and peeks its head out, staying put and not covering your work) ·
   *quiet (mute)* · *quit*.
 - **Motions from the CLI/skill** — `/claudlet <motion>` (or
-  `bin/claudlet-motion <motion>`): `jump`, `wave`, `sing`, `juggle`, `float`, plus
+  `app/bin/claudlet-motion <motion>`): `jump`, `wave`, `sing`, `juggle`, `float`, plus
   `celebrate` / `thinking` / `sleeping` / `error` / `attention`; `list`, `stop`.
 
 ## The `/claudlet` skill
@@ -59,7 +59,7 @@ ln -s ~/claudlet/skills/claudlet ~/.claude/skills/claudlet
 Copy the desktop entry so a standalone pet launches at login:
 
 ```bash
-cp ~/claudlet/packaging/claudlet.desktop ~/.config/autostart/
+cp ~/claudlet/app/packaging/claudlet.desktop ~/.config/autostart/
 ```
 
 Remove that file to disable.

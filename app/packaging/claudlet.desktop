@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=claudlet
+Comment=Desktop buddy that reacts to Claude Code
+Exec=sh -c '"$HOME/claudlet/app/bin/claudlet"'
+Icon=applications-development
+Terminal=false
+X-KDE-autostart-after=panel
+Categories=Utility;

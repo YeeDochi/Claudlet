@@ -8,11 +8,11 @@
 Claude Code ──훅──▶ claudlet-hook ──루프백 TCP──▶ 펫 (PyQt6 창)
 ```
 
-- **`src/claudlet/pet.py`** — 펫: 테두리 없고 반투명한 항상-위 창. Linux에선 네이티브
+- **`app/src/claudlet/pet.py`** — 펫: 테두리 없고 반투명한 항상-위 창. Linux에선 네이티브
   Wayland가 클라이언트의 자기 창 위치 지정을 막아서 XWayland(`QT_QPA_PLATFORM=xcb`)로
   실행하고, macOS/Windows에선 네이티브 Qt 플랫폼을 써요.
-- **`src/claudlet/creature.py`** — 크리처 렌더러 (순수 `QPainter`, 상태 기반).
-- **`bin/claudlet-hook`** — Claude Code 훅 이벤트를 세션별 루프백 TCP 소켓
+- **`app/src/claudlet/core/creature.py`** — 크리처 렌더러 (순수 `QPainter`, 상태 기반).
+- **`app/bin/claudlet-hook`** — Claude Code 훅 이벤트를 세션별 루프백 TCP 소켓
   (포트는 `$XDG_RUNTIME_DIR/claudlet-<세션>.port`에 기록 — 기본 Windows Python
   빌드엔 유닉스 도메인 소켓이 없어서, 코드 경로를 하나로 유지하려고 전부 TCP를 써요)으로
   펫에 전달하고, `SessionStart` 때 펫을 띄워요. Claude를 절대 막지 않아요.
@@ -33,7 +33,7 @@ Claude Code ──훅──▶ claudlet-hook ──루프백 TCP──▶ 펫 (P
 - **우클릭 / 트레이** — 메뉴: *커서 따라오기* · *모션* 서브메뉴(점프·손흔들기·노래·저글링·축하) ·
   *주머니 쏙*(화면에 틈을 내고 고개만 빼꼼 — 제자리에 머물며 작업 영역을 안 가려요) ·
   *조용히(음소거)* · *종료*.
-- **CLI/스킬 모션** — `/claudlet <모션>` (또는 `bin/claudlet-motion <모션>`):
+- **CLI/스킬 모션** — `/claudlet <모션>` (또는 `app/bin/claudlet-motion <모션>`):
   `jump`, `wave`, `sing`, `juggle`, `float`, 그리고
   `celebrate` / `thinking` / `sleeping` / `error` / `attention`; `list`, `stop`.
 
@@ -54,7 +54,7 @@ ln -s ~/claudlet/skills/claudlet ~/.claude/skills/claudlet
 로그인 시 독립 펫이 실행되도록 데스크톱 엔트리 복사:
 
 ```bash
-cp ~/claudlet/packaging/claudlet.desktop ~/.config/autostart/
+cp ~/claudlet/app/packaging/claudlet.desktop ~/.config/autostart/
 ```
 
 끄려면 그 파일 삭제.

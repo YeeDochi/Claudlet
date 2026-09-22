@@ -241,7 +241,7 @@ there as **worked examples**, and neither is shaped like the built-in:
 
 Both still think, type and sleep, because the motion and the props come from the
 pet, not from the creature — a creature only draws a body. Read either one next
-to [creature-authoring.md](src/claudlet/skill/creature-authoring.md) if you are
+to [creature-authoring.md](app/src/claudlet/skill/creature-authoring.md) if you are
 writing your own.
 
 A creature does not have to be drawn with rectangles at all. The pet sends a
@@ -311,7 +311,7 @@ can drive the pet straight from a prompt — in Claude Code or in Codex:
 
 - **[Usage & interaction](docs/usage.md)** — drag & throw, click-to-focus, tray menu, motions, autostart, uninstall
 - **[Configuration](docs/configuration.md)** — remap which animation shows for which Claude Code activity (run `claudlet-config` or `/claudlet config` to locate & inspect it)
-- **[Writing a creature](src/claudlet/skill/creature-authoring.md)** — the contract, the motion/prop tools a creature inherits, and the rendering mistakes worth skipping
+- **[Writing a creature](app/src/claudlet/skill/creature-authoring.md)** — the contract, the motion/prop tools a creature inherits, and the rendering mistakes worth skipping
 - **[Platform support](docs/platform.md)** — support matrix + how to test on your OS
 - **[Contributing](CONTRIBUTING.md)** — dev setup, running tests, code style, branch model
 - **[Changelog](https://github.com/YeeDochi/Claudlet/releases/latest)** — what changed in each release (English + Korean)

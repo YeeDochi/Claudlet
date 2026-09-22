@@ -32,7 +32,7 @@ claudlet-install     # register hooks + the /claudlet skill, so a real session d
 ```bash
 pytest
 ```
-`tests/conftest.py` puts `src/` on `sys.path`, so this works straight from a
+`app/tests/conftest.py` puts `src/` on `sys.path`, so this works straight from a
 checkout, no install needed. There's no CI test workflow yet — the only
 GitHub Action (`publish.yml`) builds and uploads to PyPI on a version tag — so
 please run the suite locally before opening a PR.
@@ -52,18 +52,18 @@ please run the suite locally before opening a PR.
 ## Branches & commits
 
 - `develop` is the working branch — PRs target `develop`, not `master`.
-- `master` only ever holds released tags (`scripts/release.sh` fast-forwards
+- `master` only ever holds released tags (`app/scripts/release.sh` fast-forwards
   it on release) — don't commit to it directly.
 - Commit messages follow Conventional Commits: `type(scope): summary`
   (`feat`, `fix`, `docs`, `chore`, …) — see `git log` for real examples.
 - Cutting a release (version bump, tag, publish) is maintainer-only, via
-  `scripts/release.sh` — contributors don't need to touch versioning.
+  `app/scripts/release.sh` — contributors don't need to touch versioning.
 
 ## What's most needed right now
 
 **Ongoing macOS testing.** All three platforms are hardware-verified as of
 v1.0.0, but the maintainer has no Mac — so the macOS window-integration path
-(`src/claudlet/platform/geom/macos.py`, wired into `pet.py`) is only checked on real
+(`app/src/claudlet/platform/geom/macos.py`, wired into `pet.py`) is only checked on real
 hardware by contributors, which means macOS-specific regressions tend to surface
 after a release. Retesting on new macOS versions and reporting anything off
 (perch offsets, occlusion, click-to-focus) stays especially valuable. See

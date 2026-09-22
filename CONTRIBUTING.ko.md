@@ -31,7 +31,7 @@ claudlet-install     # 훅 + /claudlet 스킬 등록 — 실제 세션이 이 �
 ```bash
 pytest
 ```
-`tests/conftest.py`가 `src/`를 `sys.path`에 넣어줘서, 설치 없이 체크아웃에서 바로
+`app/tests/conftest.py`가 `src/`를 `sys.path`에 넣어줘서, 설치 없이 체크아웃에서 바로
 돌아가요. 아직 테스트용 CI는 없어요 — 유일한 GitHub Action(`publish.yml`)은 버전
 태그가 붙을 때 PyPI에 빌드/배포만 해요 — 그러니 PR 올리기 전에 로컬에서 테스트
 스위트를 꼭 돌려주세요.
@@ -51,17 +51,17 @@ pytest
 ## 브랜치 & 커밋
 
 - `develop`이 작업 브랜치예요 — PR은 `master`가 아니라 `develop`으로 보내주세요.
-- `master`엔 릴리즈된 태그만 올라가요(`scripts/release.sh`가 릴리즈할 때
+- `master`엔 릴리즈된 태그만 올라가요(`app/scripts/release.sh`가 릴리즈할 때
   fast-forward 함) — 직접 커밋하지 마세요.
 - 커밋 메시지는 Conventional Commits 형식이에요: `type(scope): summary`
   (`feat`, `fix`, `docs`, `chore`, …) — 실제 예시는 `git log` 참고.
-- 릴리즈(버전 업, 태그, 배포)는 메인테이너 전용이고 `scripts/release.sh`로 해요 —
+- 릴리즈(버전 업, 태그, 배포)는 메인테이너 전용이고 `app/scripts/release.sh`로 해요 —
   컨트리뷰터가 버전 관리를 신경 쓸 필요는 없어요.
 
 ## 지금 제일 필요한 것
 
 **꾸준한 macOS 테스트.** v1.0.0 기준 세 플랫폼 모두 실기 검증됐지만, 유지관리자에게
-Mac이 없어요 — 그래서 macOS 창 통합 경로(`src/claudlet/platform/geom/macos.py`, `pet.py`에
+Mac이 없어요 — 그래서 macOS 창 통합 경로(`app/src/claudlet/platform/geom/macos.py`, `pet.py`에
 연결됨)는 협력자만 실기로 확인하고, macOS 전용 회귀는 릴리스 후에 드러나는 경향이 있어요.
 새 macOS 버전에서 재검증하고 이상한 점(perch 어긋남, occlusion, click-to-focus)을
 리포트해 주는 게 특히 값져요. 화면 기록 권한 이슈와 `claudlet-macos-diag` 진단은

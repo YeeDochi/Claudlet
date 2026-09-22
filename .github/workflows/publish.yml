@@ -28,9 +28,9 @@ jobs:
       - name: Verify the tag matches the package version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          VER=$(python -c "import re, pathlib; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('src/claudlet/__init__.py').read_text()).group(1))")
+          VER=$(python -c "import re, pathlib; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('app/src/claudlet/__init__.py').read_text()).group(1))")
           echo "tag=$TAG  package __version__=$VER"
-          test "$TAG" = "$VER" || { echo "::error::tag v$TAG does not match __version__ $VER — bump src/claudlet/__init__.py"; exit 1; }
+          test "$TAG" = "$VER" || { echo "::error::tag v$TAG does not match __version__ $VER — bump app/src/claudlet/__init__.py"; exit 1; }
 
       - name: Build sdist and wheel
         run: |
@@ -40,7 +40,7 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-      # Notes come from the annotated tag message, which scripts/release.sh fills
+      # Notes come from the annotated tag message, which app/scripts/release.sh fills
       # (hand-written bilingual, or the auto English draft from the commit log).
       # Read the annotation explicitly with for-each-ref and pass it via --notes:
       # gh's --notes-from-tag silently fell back to the *commit* message when the

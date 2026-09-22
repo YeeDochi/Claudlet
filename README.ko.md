@@ -226,7 +226,7 @@ Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니�
 
 둘 다 고민하고 타이핑하고 잠들어요 — 모션과 프롭은 크리처가 아니라 **펫이 주는**
 거라서, 크리처는 몸만 그리면 돼요. 직접 만들 거면 둘 중 아무거나
-[creature-authoring.md](src/claudlet/skill/creature-authoring.md) 와 같이 읽어보세요.
+[creature-authoring.md](app/src/claudlet/skill/creature-authoring.md) 와 같이 읽어보세요.
 
 크리처를 꼭 사각형으로 그려야 하는 건 아니에요. 펫은 상태와 프레임만 알려주고 그
 외에는 아무것도 묻지 않으니, 프레임을 **데이터로** — 점 하나에 문자 하나, 팔레트와
@@ -253,7 +253,7 @@ from a sprite sheet** 절에 있어요.
 네가 "설치" 를 누르기 전에는 아무것도 쓰지 않아요. 대상 폴더 밖으로 나가려 하거나,
 심볼릭 링크를 숨겼거나, 파일명에 제어문자가 있거나, 크리처치고 말이 안 되게 큰
 아카이브는 그냥 거부하고, 설치가 도중에 실패해도 **원래 있던 크리처는 그대로** 남아요.
-계약과 함정은 [creature-authoring.md](src/claudlet/skill/creature-authoring.md) 에 있어요.
+계약과 함정은 [creature-authoring.md](app/src/claudlet/skill/creature-authoring.md) 에 있어요.
 
 ## 명령어
 
@@ -294,7 +294,7 @@ Claude Code 에서도 Codex 에서도 프롬프트로 바로 펫을 조종할 �
 
 - **[사용법 & 인터랙션](docs/usage.ko.md)** — 드래그/던지기, 클릭-포커스, 트레이 메뉴, 모션, 자동시작, 제거
 - **[설정](docs/configuration.ko.md)** — 어떤 활동에 어떤 애니를 보일지 재매핑 (`claudlet-config` 또는 `/claudlet config`로 위치 확인·점검)
-- **[크리처 만들기](src/claudlet/skill/creature-authoring.md)** — 계약, 크리처가 물려받는 모션·프롭 도구, 안 겪어도 되는 렌더링 함정들
+- **[크리처 만들기](app/src/claudlet/skill/creature-authoring.md)** — 계약, 크리처가 물려받는 모션·프롭 도구, 안 겪어도 되는 렌더링 함정들
 - **[플랫폼 지원](docs/platform.ko.md)** — 지원 매트릭스 + 각 OS 테스트 방법
 - **[기여 가이드](CONTRIBUTING.ko.md)** — 개발 환경 설정, 테스트 실행, 코드 스타일, 브랜치 모델
 - **[변경 이력](https://github.com/YeeDochi/Claudlet/releases/latest)** — 릴리즈마다 뭐가 바뀌었는지 (한/영 병기)
