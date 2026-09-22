@@ -556,6 +556,23 @@ class Companion(QWidget):
         p.end()
 
 
+def _bubble_measure():
+    """말풍선에 쓰는 폰트로 문자열 폭을 재는 함수, 못 재면 None.
+
+    core/bubble.py 의 기본 추정(글자 수 x 고정 폭)은 라틴 기준이라 한글에서
+    절반쯤으로 잡고, 그러면 긴 줄이 말풍선 밖으로 나간다(실측). 평균 폭을
+    곱하는 것도 같은 이유로 빗나가므로 줄을 통째로 잰다. 재는 일만 여기서 하고
+    나누는 규칙은 그대로 순수 모듈에 남는다."""
+    try:
+        from PyQt6.QtGui import QFont, QFontMetricsF
+        f = QFont()
+        f.setPixelSize(12)                 # paintEvent 가 쓰는 크기와 같아야 한다
+        fm = QFontMetricsF(f)
+        return fm.horizontalAdvance
+    except Exception:
+        return None
+
+
 class SpeechBubble(QWidget):
     """A frameless bubble showing one answer next to the creature.
 
@@ -581,7 +598,7 @@ class SpeechBubble(QWidget):
         self._on_reply = on_reply
         self._reply_label = reply_label if on_reply else ""
         self._lines, w, h, self._truncated = bubblegeom.layout(
-            text, footer=self._reply_label)
+            text, footer=self._reply_label, measure=_bubble_measure())
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint
                             | Qt.WindowType.WindowStaysOnTopHint
                             | Qt.WindowType.Tool
@@ -3535,8 +3552,11 @@ class Pet(QWidget):
             self._dismiss_bubble()
             return None
         self._dismiss_bubble()
-        q, ok = QInputDialog.getText(None, "claudlet", self.ui["ask_prompt"],
-                                     QLineEdit.EchoMode.Normal, "")
+        # 우리 입력 경로를 쓴다: pip/pipx 로 깔린 PyQt6 는 자기 Qt 를 안고 오고
+        # 그 안에 fcitx 입력컨텍스트가 없어서, Qt 대화상자에는 한글이 한 글자도
+        # 안 써진다(실측). _ask_text 는 입력기가 붙어 있는 kdialog/zenity 에 묻고
+        # 그것이 없을 때만 Qt 로 떨어진다.
+        q, ok = self._ask_text(self.ui["ask_prompt"]), True
         if not ok or not q.strip():
             return None
         return self.ask_window(win, q.strip(), region=self._ask_region)
@@ -3672,9 +3692,7 @@ class Pet(QWidget):
         label = self.ui["ask_prompt"]
         if target:
             label = "%s\n%s" % (target, label)
-        q, ok = QInputDialog.getText(None, "claudlet", label,
-                                     QLineEdit.EchoMode.Normal, "")
-        return q.strip() if ok and q.strip() else ""
+        return self._ask_text(label)
 
     def enter_pointer(self):
         """Arm pointer mode: crosshair cursor, drag to select a region."""
@@ -4060,14 +4078,15 @@ class Pet(QWidget):
                                                   self._qdbus_run)
         return self._send_ok
 
-    def _ask_text(self):
+    def _ask_text(self, label=None):
         """말할 내용을 묻는다.
 
         부모를 펫으로 두면 안 된다. 펫 창은 Tool + WA_ShowWithoutActivating 이라
         절대 활성화되지 않고, 그 밑에 달린 대화상자는 입력기(IME)를 못 잡는다 —
         알파벳은 들어오는데 한글이 한 글자도 안 써지는 게 그 증상이다.
         독립 창으로 띄우고 직접 활성화한다."""
-        argv = ask_command(self.ui["talk_prompt"])
+        label = label or self.ui["talk_prompt"]
+        argv = ask_command(label)
         if argv:
             try:
                 out = subprocess.run(argv, capture_output=True, text=True,
@@ -4080,7 +4099,7 @@ class Pet(QWidget):
         d.setWindowFlags(Qt.WindowType.Dialog
                          | Qt.WindowType.WindowStaysOnTopHint)
         d.setWindowTitle("claudlet")
-        d.setLabelText(self.ui["talk_prompt"])
+        d.setLabelText(label)
         d.setInputMode(QInputDialog.InputMode.TextInput)
         d.show()
         d.raise_()
@@ -4099,10 +4118,20 @@ class Pet(QWidget):
         # 프롬프트에는 질문만 찍는다. 말투·이름은 위에서 아웃박스에 넣었고,
         # 이 제출이 부르는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다.
         if immediate and self._konsole_send(text):
+            try:
+                askhistory.record_question(self.session_id, text)
+            except Exception:
+                pass
             self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona,
                       nickname=self._nickname)
+        # 내역에도 남긴다. 포인터로 시작한 대화만 쌓이면 "아까 뭘 물었더라" 가
+        # 절반만 답해진다 — 메뉴로 건 말도 같은 대화다.
+        try:
+            askhistory.record_question(self.session_id, text)
+        except Exception:
+            pass          # 내역이 실패해도 말은 전해져야 한다
         self._refresh_notes()
         self._play_motion("jump", 1.5)              # 받았다
 

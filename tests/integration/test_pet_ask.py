@@ -197,8 +197,8 @@ def test_clicking_the_footer_re_asks_about_the_same_window(pet, monkeypatch):  #
     pet.ask_window(_win(title="Ledger"), "first")
     _posted(pet)
     bubble = _answer(pet)
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("second", True)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: 'second')
     _click(bubble, bubble.height() - 6)
     posted = _posted(pet)
     assert posted is not None
@@ -213,8 +213,8 @@ def test_the_follow_up_does_not_re_enumerate_windows(pet, monkeypatch):  # noqa:
     bubble = _answer(pet)
     called = []
     monkeypatch.setattr(pet, "_ask_windows", lambda: called.append(1) or [])
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("second", True)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: 'second')
     _click(bubble, bubble.height() - 6)
     assert called == []
 
@@ -224,8 +224,8 @@ def test_cancelling_the_follow_up_posts_nothing(pet, monkeypatch):  # noqa: F811
     pet.ask_window(_win(), "first")
     _posted(pet)
     bubble = _answer(pet)
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("", False)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: '')
     _click(bubble, bubble.height() - 6)
     assert _posted(pet) is None
 
@@ -235,8 +235,8 @@ def test_an_empty_follow_up_posts_nothing(pet, monkeypatch):  # noqa: F811
     pet.ask_window(_win(), "first")
     _posted(pet)
     bubble = _answer(pet)
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("   ", True)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: '   ')
     _click(bubble, bubble.height() - 6)
     assert _posted(pet) is None
 
@@ -256,8 +256,8 @@ def test_follow_up_answers_also_offer_a_follow_up(pet, monkeypatch):  # noqa: F8
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "first")
     _posted(pet)
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("second", True)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: 'second')
     _click(_answer(pet), 9999)
     _posted(pet)
     assert _answer(pet, "still here").has_reply()
@@ -271,8 +271,8 @@ def test_secrets_stay_masked_on_the_follow_up(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: Backend)
     pet.ask_window(_win(), "first")
     _posted(pet)
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("second", True)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: 'second')
     _click(_answer(pet), 9999)
     posted = _posted(pet)
     assert "hunter2" not in posted["prompt"]
@@ -413,8 +413,8 @@ def test_the_follow_up_reuses_the_same_region(pet, monkeypatch):  # noqa: F811
     pet.ask_region(_rect(), "first")
     _posted(pet)
     backend.calls.clear()
-    monkeypatch.setattr(P.QInputDialog, "getText",
-                        staticmethod(lambda *a, **k: ("second", True)))
+    monkeypatch.setattr(P.Pet, "_ask_text",
+                        lambda self, label=None: 'second')
     bubble = _answer(pet)
     _click(bubble, bubble.height() - 6)
     assert backend.calls == [("region", (150.0, 150.0, 100.0, 80.0))]
@@ -444,12 +444,17 @@ def test_cancelling_pointer_mode_posts_nothing(pet):  # noqa: F811
 # ---------- order: select first, then ask ----------
 
 def _dialog(monkeypatch, answer="what is this?", ok=True, seen=None):
-    """Stub the modal, recording the label it was shown with."""
-    def fake(_parent, _title, label, *a, **k):
+    """Stub the question input, recording the label it was shown with.
+
+    가로채는 자리가 QInputDialog 가 아니라 `_ask_text` 다 — pip 로 깔린 Qt 에는
+    한글이 안 써져서, 입력은 입력기가 붙어 있는 kdialog/zenity 로 나간다.
+    테스트에서 그 프로세스를 실제로 띄우면 안 되므로 이 한 곳만 막는다."""
+    def fake(_self, label=None):
         if seen is not None:
             seen.append(label)
-        return answer, ok
-    monkeypatch.setattr(P.QInputDialog, "getText", staticmethod(fake))
+        # `_ask_text` 의 계약은 "다듬은 문자열, 아니면 빈 문자열" 이다
+        return (answer or "").strip() if ok else ""
+    monkeypatch.setattr(P.Pet, "_ask_text", fake)
 
 
 def test_the_pointer_arms_before_anything_is_typed(pet, monkeypatch):  # noqa: F811

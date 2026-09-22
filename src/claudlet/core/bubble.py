@@ -58,25 +58,60 @@ def wrap(text, max_chars):
     return out or [""]
 
 
-def layout(text, max_w=MAX_W, footer=""):
+def wrap_measured(text, max_w, measure):
+    """`measure(str) -> px` 로 재가며 줄을 나눈다. 순수.
+
+    글자 수로 나누면 안 된다 — 한글은 라틴의 두 배 폭이라 같은 글자 수가 두 배
+    넓이가 되고, 그대로 말풍선 밖으로 나간다(실측). 평균 폭을 곱하는 것도 같은
+    이유로 빗나가므로, 후보 줄을 그때그때 잰다."""
+    lines, cur = [], ""
+    for word in (text or "").split():
+        trial = (cur + " " + word).strip()
+        if cur and measure(trial) > max_w:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = trial
+        while measure(cur) > max_w and len(cur) > 1:   # 한 낱말이 통째로 길 때
+            cut = len(cur) - 1
+            while cut > 1 and measure(cur[:cut]) > max_w:
+                cut -= 1
+            lines.append(cur[:cut])
+            cur = cur[cut:]
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def layout(text, max_w=MAX_W, footer="", char_w=CHAR_W, measure=None):
     """(lines, width, height, truncated) for `text`.
 
     `footer` is an optional trailing affordance ("되묻기"). It is appended as a
     real line, separated by a blank one, so it participates in width and height
     like any other text -- the alternative, reserving a strip and painting into
     it, puts the same number in two places and they drift.
+
+    `char_w` 는 글자 하나의 평균 폭이다. 기본값은 라틴 기준 추정치인데, 한글은
+    그 두 배라 그대로 두면 74자가 한 줄로 들어가고 말풍선이 잘린다(실측).
+    화면이 있는 쪽(`pet.py`)은 이 글에 실제로 쓰는 폰트로 재서 넘긴다 — 이
+    모듈은 여전히 Qt 를 모른다.
     """
-    max_chars = max(1, int((max_w - 2 * PAD_X) / CHAR_W))
-    lines = wrap(text, max_chars)
+    char_w = char_w or CHAR_W
+    inner = max_w - 2 * PAD_X
+    if measure is None:
+        lines = wrap(text, max(1, int(inner / char_w)))
+        measure = lambda s: len(s) * char_w            # noqa: E731
+    else:
+        lines = wrap_measured(text, inner, measure)
     truncated = False
     if len(lines) > MAX_LINES:
         lines = lines[:MAX_LINES]
-        lines[-1] = (lines[-1][:max(0, max_chars - 1)] + "…") if lines[-1] else "…"
+        lines[-1] = (lines[-1] + "…") if lines[-1] else "…"
         truncated = True
     if footer:
         lines = lines + ["", footer]
-    longest = max((len(l) for l in lines), default=0)
-    w = int(min(max_w, max(MIN_W, longest * CHAR_W + 2 * PAD_X)))
+    widest = max((measure(l) for l in lines), default=0)
+    w = int(min(max_w, max(MIN_W, widest + 2 * PAD_X)))
     h = int(len(lines) * LINE_H + 2 * PAD_Y)
     return lines, w, h, truncated
 
