@@ -3637,6 +3637,12 @@ class Pet(QWidget):
         # thing the user pointed at, not on the whole window.
         self._ask_target = win
         self._ask_region = region
+        # 창 텍스트는 프롬프트에 타이핑하기엔 크니 아웃박스로 보냈다. 그런데
+        # 세션이 놀고 있으면 훅 경계가 생기지 않아 그것이 영영 안 실린다 —
+        # 사용자는 "물어봤는데 아무 일도 안 일어난다" 로 겪는다. 그래서 짧은
+        # 질문만 프롬프트에 쳐서 그 턴을 만든다. 방금 쌓은 창 정보는 그 제출이
+        # 부르는 UserPromptSubmit 에 보이지 않게 딸려 간다.
+        self._konsole_send(question)
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
         return ctx

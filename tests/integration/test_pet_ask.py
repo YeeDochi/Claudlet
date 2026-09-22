@@ -1331,3 +1331,25 @@ def test_the_pointer_uses_the_windows_the_pet_already_tracks(pet, monkeypatch): 
     wins = pet._ask_windows()
     assert [w.title for w in wins] == ["konsole"]
     assert P.geom.window_at(200, 200, wins) is not None
+
+
+def test_a_pointer_question_starts_the_turn_when_it_can(pet, monkeypatch):  # noqa: F811
+    # 창 텍스트는 프롬프트에 타이핑하기엔 크므로 아웃박스로 간다. 그런데 세션이
+    # 놀고 있으면 훅 경계가 생기지 않아 영영 안 실린다 — 짧은 질문만 프롬프트에
+    # 쳐서 그 턴을 만든다. 나머지는 같은 턴에 보이지 않게 딸려 간다.
+    sent = []
+    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
+    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: sent.append(t) or True)
+    pet.ask_about((200, 200), "이 창 뭐야?")
+    assert sent == ["이 창 뭐야?"]           # 프롬프트에는 질문만
+    posted = _posted(pet)
+    assert "Notepad" in posted["prompt"]     # 창 정보는 아웃박스로
+
+
+def test_it_stays_a_note_where_nothing_can_be_typed(pet, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
+    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: False)
+    pet.ask_about((200, 200), "이 창 뭐야?")
+    assert _posted(pet) is not None          # 그래도 쪽지는 남는다
