@@ -2234,3 +2234,28 @@ def test_dropping_a_note_stops_it_from_ever_being_delivered(pet):
     pet._refresh_notes()
     assert pet.snapshot()["notes"] == 0
     assert outbox.take(pet.session_id) == []
+
+
+def test_the_pet_moves_when_it_takes_a_note(pet):
+    # 받아든 것이 그림만 바뀌고 끝나면 펫이 아니라 표시등이다.
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "이거 왜 느려?")
+    pet._refresh_notes()
+    pet._play_motion("jump", 1.5)
+    assert pet.snapshot()["motion"] == "jump"
+
+
+def test_the_pet_reports_back_when_the_note_is_delivered(pet):
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "전할 말")
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 1
+    outbox.take(pet.session_id)               # 훅이 가져갔다
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 0
+    assert pet.snapshot()["motion"] == "wave"  # 전하고 왔다는 몸짓
+
+
+def test_nothing_is_acted_out_when_there_was_nothing_to_deliver(pet):
+    pet._refresh_notes()
+    assert pet.snapshot()["motion"] is None

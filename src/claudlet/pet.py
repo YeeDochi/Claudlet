@@ -3071,9 +3071,11 @@ class Pet(QWidget):
         if not text:
             return
         if immediate and self._konsole_send(text):
+            self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona)
         self._refresh_notes()
+        self._play_motion("jump", 1.5)              # 받았다
 
     def _konsole_send(self, text):
         """이 세션의 Konsole 탭에 직접 써 넣는다. 실패는 False — 호출자가
@@ -3094,7 +3096,12 @@ class Pet(QWidget):
     def _refresh_notes(self):
         """몇 장을 물고 있는지 다시 센다. 훅이 가져가는 것은 이 프로세스 밖에서
         일어나므로, 물고 있는 동안에만 느긋하게 되묻는다 — 빈 아웃박스에는
-        파일이 없어 평소엔 디스크를 건드리지도 않는다."""
+        파일이 없어 평소엔 디스크를 건드리지도 않는다.
+
+        쪽지가 사라진 순간이 곧 "에이전트가 방금 그 말을 들었다"는 유일한 신호다.
+        그것이 그냥 그림이 지워지는 것으로 끝나면 펫이 아니라 표시등이다 —
+        전하고 왔다는 몸짓을 한 번 한다."""
+        before = self._notes
         try:
             self._notes = outbox.pending(self.session_id)
         except Exception:
@@ -3103,6 +3110,8 @@ class Pet(QWidget):
             self._note_timer.start(1000)
         elif not self._notes:
             self._note_timer.stop()
+            if before:
+                self._play_motion("wave", 2.0)      # 전하고 왔다
         self.update()
 
     # ---------- bring the Claude Code terminal forward ----------
