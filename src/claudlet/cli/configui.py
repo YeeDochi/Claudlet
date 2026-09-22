@@ -424,6 +424,8 @@ def clean_creature_updates(body, fractional=False):
     if "visor" in body:
         v = body.get("visor")
         out["visor"] = None if v is None else petconfig.clean_visor(v)
+    if "persona" in body:
+        out["persona"] = petconfig.clean_persona(body.get("persona"))
     return out
 
 
@@ -635,6 +637,8 @@ TEXT = {
         "stale_page": "이 페이지는 예전 설정 서버의 것입니다 — 새로고침한 뒤 다시 시도하세요",
         "settings_of": "%s 설정",
         "visor_auto": "오토모드일 때", "visor_on": "항상", "visor_off": "안 함",
+        "persona": "말투", "persona_ph": "예: 짧고 퉁명스럽게, 반말로",
+        "persona_help": "펫에게 말을 걸면 이 말투로 답한다",
         "named": "지금은 %s — 색을 고르면 바뀝니다",
         "saved": "%s 설정을 저장했습니다", "switched": "%s 로 갈아입혔습니다",
         "reverted": "%s 를 기본으로 되돌렸습니다",
@@ -661,6 +665,8 @@ TEXT = {
         "stale_page": "This page came from an earlier settings server — refresh and try again",
         "settings_of": "%s settings",
         "visor_auto": "When unattended", "visor_on": "Always", "visor_off": "Never",
+        "persona": "Voice", "persona_ph": "e.g. short and blunt",
+        "persona_help": "how it answers when you talk to the pet",
         "named": "currently %s — pick a colour to change it",
         "saved": "Saved %s", "switched": "Now wearing %s",
         "reverted": "%s back to defaults",
@@ -895,6 +901,11 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <div id="visor" class="seg"></div>
         <span id="isnamed" class="sr-only"></span>
       </div>
+      <div class="row" id="personaRow">
+        <label for="persona">__T_persona__</label>
+        <input type="text" id="persona" maxlength="200"
+               placeholder="__T_persona_ph__" title="__T_persona_help__">
+      </div>
       <div id="shots"></div>
     </section>
   </div>
@@ -971,6 +982,7 @@ function showCreature(name) {
   const isHex = typeof pal === "string" && pal.startsWith("#");
   $("col").value = isHex ? pal : "#D97757";
   $("scale").value = look.scale || S.scale;
+  $("persona").value = look.persona || "";
   $("visor").innerHTML = S.visor_modes.map((v) =>
     `<button data-v="${v}" aria-pressed="${v === (look.visor || "auto")}">` +
     `${VISOR_LABEL[v] || v}</button>`).join("");
@@ -1108,7 +1120,8 @@ async function post(body, note) {
 }
 $("save").addEventListener("click", async () =>
   fill(await post({agent: S.agent, creature: editing, palette: $("col").value,
-                   scale: +$("scale").value, visor: visorNow()},
+                   scale: +$("scale").value, visor: visorNow(),
+                   persona: $("persona").value},
                   T.saved.replace("%s", editing))));
 async function doWear() {
   return fill(await post({agent: S.agent, avatar: editing},

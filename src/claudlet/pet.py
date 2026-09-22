@@ -3087,7 +3087,8 @@ class Pet(QWidget):
         text = self._ask_text()
         if not text:
             return
-        if immediate and self._konsole_send(text):
+        if immediate and self._konsole_send(
+                outbox.typed_line(text, self._persona)):
             self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona)

@@ -278,3 +278,20 @@ def test_a_creature_without_a_persona_has_none():
 def test_a_persona_is_not_borrowed_from_another_creature():
     cfg = {"creatures": {"slime": {"persona": "물컹"}}}
     assert petconfig.for_creature(cfg, "claudlet", object())["persona"] == ""
+
+
+def test_a_persona_is_trimmed_and_capped():
+    assert petconfig.clean_persona("  짧게  ") == "짧게"
+    assert len(petconfig.clean_persona("가" * 500)) == petconfig.PERSONA_MAX
+
+
+def test_an_empty_persona_clears_the_setting():
+    # 빈 값은 "빈 문자열을 저장"이 아니라 "지운다" — 그래야 크리처 기본값이 산다
+    assert petconfig.clean_persona("") is None
+    assert petconfig.clean_persona("   ") is None
+    assert petconfig.clean_persona(None) is None
+
+
+def test_a_persona_is_one_line():
+    # 여러 줄이 그대로 들어가면 주입되는 컨텍스트의 모양이 망가진다
+    assert petconfig.clean_persona("짧게\n반말로") == "짧게 반말로"

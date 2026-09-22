@@ -120,6 +120,14 @@ def render(notes):
     return "\n".join(lines)
 
 
+def typed_line(text, persona):
+    """즉시 전송일 때 프롬프트에 그대로 찍힐 한 줄. 순수.
+
+    쪽지와 달리 이건 사용자 눈앞에 찍히므로 말투 지시를 숨길 수가 없다 —
+    숨기지 않는 편이 정직하고, 무엇이 제출됐는지 그대로 보인다."""
+    return "[펫: %s] %s" % (persona, text) if persona else text
+
+
 def payload(event, notes):
     """훅이 stdout 으로 뱉을 dict, 또는 전할 것이 없으면 None. 순수."""
     if not notes:

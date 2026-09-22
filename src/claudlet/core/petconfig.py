@@ -264,6 +264,18 @@ def for_creature(cfg, name, avatar=None):
             "persona": str(persona or "").strip()}
 
 
+PERSONA_MAX = 200          # 한 줄 지시면 충분하다. 주입되는 컨텍스트이기도 하고.
+
+
+def clean_persona(raw):
+    """저장할 말투 한 줄, 또는 지우라는 뜻의 None. 순수.
+
+    빈 값은 빈 문자열로 저장하지 않고 지운다 — 그래야 크리처가 들고 온 기본
+    말투가 다시 산다(색·크기의 reset 과 같은 규칙)."""
+    one = " ".join(str(raw or "").split())
+    return one[:PERSONA_MAX] if one else None
+
+
 def clamp_scale(value, fractional=False):
     """A usable scale from whatever the config holds. Pure.
 

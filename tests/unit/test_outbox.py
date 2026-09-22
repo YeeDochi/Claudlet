@@ -111,3 +111,18 @@ def test_a_note_is_stored_as_one_json_line():
         lines = f.read().splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["text"] == "확인"
+
+
+# ---------- 즉시 전송: 프롬프트에 그대로 찍히는 한 줄 ----------
+
+def test_typed_line_carries_the_persona_where_the_user_can_see_it():
+    # 터미널에 찍히는 문장이므로 숨길 수가 없다. 숨기지 않는 편이 정직하다.
+    line = outbox.typed_line("이거 왜 느려?", "짧고 퉁명스럽게")
+    assert "이거 왜 느려?" in line
+    assert "짧고 퉁명스럽게" in line
+    assert "\n" not in line
+
+
+def test_typed_line_is_just_the_question_without_a_persona():
+    assert outbox.typed_line("이거 왜 느려?", "") == "이거 왜 느려?"
+    assert outbox.typed_line("이거 왜 느려?", None) == "이거 왜 느려?"
