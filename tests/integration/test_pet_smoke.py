@@ -2280,3 +2280,12 @@ def test_a_long_line_is_not_cut_off_by_the_pet_window(pet):
     assert b is not None and b.isVisible()
     # 창보다 커질 수 있어야 하고, 글자가 다 들어갈 만큼 높이가 늘어야 한다
     assert b.height() > pet.height() / 3
+
+
+def test_the_last_line_is_cleared_when_a_new_turn_starts(pet):
+    # 12초 동안 떠 있는 말풍선이 다음 대화까지 남아 있으면 "이전 말이 나오고
+    # 다음 말이 나오는" 것처럼 보인다.
+    send_hook(pet, "say", cmd="say", text="또 왔나~")
+    assert pet.snapshot()["saying"] == "또 왔나~"
+    send_hook(pet, "UserPromptSubmit", session="a")
+    assert pet.snapshot()["saying"] == ""

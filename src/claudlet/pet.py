@@ -1026,6 +1026,11 @@ class Pet(QWidget):
             self._handle_event(ev)
 
     def _handle_event(self, ev):
+        # 새 턴이 시작되면 지난 대사는 치운다. 말풍선은 12초 떠 있는데, 그 사이
+        # 사용자가 다음 말을 걸면 옛 대사가 남아 있다가 새 대사로 바뀌어
+        # "이전 말이 나오고 다음 말이 나오는" 것처럼 보인다.
+        if ev.get("event") == "UserPromptSubmit":
+            self._hush()
         # A quit command (claudlet-uninstall teardown) is a shutdown request,
         # not a Claude event: shut down cleanly and stop processing.
         if ev.get("cmd") == "quit":
@@ -2575,6 +2580,13 @@ class Pet(QWidget):
         if self._bubble is None:
             self._bubble = Bubble()
         self._bubble.say(self._say, self.frameGeometry())
+
+    def _hush(self):
+        """하던 말을 즉시 거둔다."""
+        self._say = ""
+        self._say_until = 0.0
+        if self._bubble is not None:
+            self._bubble.hide()
 
     def _tick_say(self):
         """말풍선은 펫을 따라다니고, 시간이 지나면 사라진다. `_tick` 에서 부른다."""
