@@ -3331,17 +3331,23 @@ class Pet(QWidget):
         쪽지로 강등한다. 윈도우는 콘솔 입력 버퍼, KDE 는 Konsole 의 D-Bus."""
         if not self._can_talk_now():
             return False
+        split = self.agent != agents.DEFAULT
         if os.name == "nt":
             from claudlet.platform import winsend
             try:
-                return winsend.send_text(self._claude_pid, text)
+                ok = winsend.send_text(self._claude_pid, text,
+                                       submit=not split)
             except Exception:
                 return False
+            if ok and split:
+                QTimer.singleShot(
+                    ENTER_DELAY_MS,
+                    lambda: winsend.send_enter(self._claude_pid))
+            return ok
         # 코덱스 TUI 는 빠르게 들어온 입력을 붙여넣기로 보고, 그 안에서는 끝의
         # CR 이 제출이 아니라 줄바꿈이 된다(실기에서 엔터가 안 먹었다). 글자를
         # 먼저 보내고 잠깐 뒤에 엔터만 따로 보낸다 — 붙여넣기 뭉치 밖이라
         # 제출로 읽힌다. 기다리는 일은 펫의 이벤트 루프가 한다(블록하지 않는다).
-        split = self.agent != agents.DEFAULT
         try:
             ok = konsole.send_text(self._ancestor_pids, self._qdbus_run, text,
                                    submit=not split)

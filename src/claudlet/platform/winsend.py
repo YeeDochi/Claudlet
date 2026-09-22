@@ -28,18 +28,22 @@ import sys
 from claudlet.platform.konsole import submit_text
 
 KEY_EVENT = 0x0001
+VK_RETURN = 0x0D           # 엔터의 가상 키코드
+SCAN_RETURN = 0x1C         # 그 스캔코드 (일부 TUI 가 같이 본다)
 
 
-def send_text(pid, text, timeout=5):
+def send_text(pid, text, timeout=5, submit=True):
     """자식 프로세스를 띄워 거기서 붙여 쓴다. 성공하면 True.
 
-    펫은 콘솔에 손대지 않는다 — 붙는 일은 곧 죽을 프로세스가 대신 한다."""
+    펫은 콘솔에 손대지 않는다 — 붙는 일은 곧 죽을 프로세스가 대신 한다.
+    `submit=False` 면 엔터를 붙이지 않는다(코덱스처럼 빠른 입력을 붙여넣기로
+    보는 TUI 는 뭉치 끝의 CR 을 제출로 읽지 않는다 — send_enter 로 따로 보낸다)."""
     if submit_text(text) is None or os.name != "nt" or not pid:
         return False
     try:
         r = subprocess.run(
             [sys.executable, "-m", "claudlet.platform.winsend",
-             str(int(pid)), text],
+             str(int(pid)), text, "1" if submit else "0"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -48,12 +52,28 @@ def send_text(pid, text, timeout=5):
         return False
 
 
-def _write_here(pid, text):
+def send_enter(pid, timeout=5):
+    """엔터만 따로 보낸다. 붙여넣기 뭉치 밖이라 제출로 읽힌다."""
+    if os.name != "nt" or not pid:
+        return False
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "claudlet.platform.winsend",
+             str(int(pid)), "", "enter"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _write_here(pid, text, submit=True):
     """`pid` 가 쓰는 콘솔의 입력 버퍼에 `text` 를 넣고 제출한다.
 
     성공하면 True. 콘솔이 없거나(GUI 로 뜬 세션) 권한이 없거나 무엇이든
     어긋나면 False — 호출자는 쪽지로 강등한다."""
-    payload = submit_text(text)
+    payload = "\r" if submit == "enter" else submit_text(text, bool(submit))
     if payload is None or os.name != "nt" or not pid:
         return False
     try:
@@ -97,10 +117,16 @@ def _write_here(pid, text):
                 r.EventType = KEY_EVENT
                 r.Event.KeyEvent.bKeyDown = down
                 r.Event.KeyEvent.wRepeatCount = 1
-                # 문자만 넣는다: 가상 키코드 없이 UnicodeChar 만으로도 콘솔은
-                # 그 글자를 읽는다. 한글처럼 키 하나에 대응하지 않는 글자를
-                # 보내려면 이 길밖에 없다.
+                # 글자는 UnicodeChar 만으로 충분하다 — 한글처럼 키 하나에
+                # 대응하지 않는 문자를 보내려면 이 길밖에 없다.
+                #
+                # 엔터는 다르다. 윈도우 콘솔을 읽는 TUI(crossterm 계열, 코덱스가
+                # 그렇다)는 키를 **가상 키코드**로 식별하므로, VK 없이 '\r' 만
+                # 실어 보내면 글자는 들어가도 Enter 로 인식되지 않는다.
                 r.Event.KeyEvent.uChar.UnicodeChar = ch
+                if ch == "\r":
+                    r.Event.KeyEvent.wVirtualKeyCode = VK_RETURN
+                    r.Event.KeyEvent.wVirtualScanCode = SCAN_RETURN
         written = wintypes.DWORD(0)
         ok = k.WriteConsoleInputW(handle, records, len(records),
                                   ctypes.byref(written))
@@ -114,7 +140,9 @@ def _write_here(pid, text):
 
 if __name__ == "__main__":       # 자식 프로세스로만 쓰인다 (send_text 가 띄운다)
     try:
-        ok = _write_here(int(sys.argv[1]), sys.argv[2])
+        mode = sys.argv[3] if len(sys.argv) > 3 else "1"
+        ok = _write_here(int(sys.argv[1]), sys.argv[2],
+                         "enter" if mode == "enter" else mode == "1")
     except Exception:
         ok = False
     raise SystemExit(0 if ok else 1)
