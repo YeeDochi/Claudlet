@@ -1,4 +1,5 @@
 """Backend selection and the consent gate."""
+import io
 from claudlet.cli import askcli
 from claudlet.platform.geom import win32
 
@@ -170,3 +171,35 @@ def test_the_cli_touches_neither_real_store(_cfg, monkeypatch):
     _run("--answer", "isolated")
     assert str(_cfg) in ask.answer_path("default")
     assert str(_cfg) in history.history_path()
+
+
+def test_pull_takes_what_the_pet_left_in_the_outbox(tmp_path, monkeypatch, capsys):
+    # 질문은 한 곳(아웃박스)에만 쌓이고, 가져가는 길이 둘이다: 훅이 다음 경계에서
+    # 자동으로, 또는 세션이 --pull 로 지금 당장. take() 가 한 번만 주므로
+    # 어느 쪽이 먼저 가져가든 같은 질문이 두 번 가지 않는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    outbox.append("s1", "이 창 뭐 하는 앱이야?")
+    out = io.StringIO()
+    assert askcli.main(["--pull", "--session", "s1"], out=out) == 0
+    assert "이 창 뭐 하는 앱이야?" in out.getvalue()
+    # 가져갔으면 훅에게는 남지 않는다
+    assert outbox.take("s1") == []
+
+
+def test_pull_says_so_when_nothing_is_waiting(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    out = io.StringIO()
+    assert askcli.main(["--pull", "--session", "s1"], out=out) == 1
+    assert "없음" in out.getvalue()
+
+
+def test_pull_hands_over_every_waiting_note_at_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    outbox.append("s1", "첫 질문")
+    outbox.append("s1", "둘째 질문")
+    out = io.StringIO()
+    assert askcli.main(["--pull", "--session", "s1"], out=out) == 0
+    text = out.getvalue()
+    assert "첫 질문" in text and "둘째 질문" in text

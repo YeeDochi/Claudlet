@@ -15,7 +15,7 @@ import argparse
 import sys
 
 from claudlet.cli import utf8_output
-from claudlet.core import ask, history, inspect as inspect_mod
+from claudlet.core import ask, history, inspect as inspect_mod, outbox
 from claudlet.core import hostinfo
 from claudlet.platform.geom import parse_dump, window_at
 
@@ -100,11 +100,22 @@ def main(argv=None, out=None):
 
     # --- session side -------------------------------------------------
     if args.pull:
-        q = ask.take_question(sid)
-        if not q:
+        # 질문은 한 곳(아웃박스)에만 쌓인다. 가져가는 길이 둘일 뿐이다 — 훅이
+        # 다음 경계에서 자동으로, 또는 세션이 여기서 지금 당장. 저장소를 둘로
+        # 두면 같은 질문이 두 번 갈 수 있는데, take() 가 한 번만 주므로 어느
+        # 쪽이 먼저 가져가든 그런 일이 없다.
+        #
+        # CLI 가 남아야 하는 이유: 훅이 돌지 않는 자리(데스크톱 앱)와 "다음
+        # 경계까지 기다리지 않고 지금 받아본다" 가 이 길로만 된다.
+        notes = outbox.take(sid)
+        if not notes:
+            q = ask.take_question(sid)          # 옛 우편함에 남은 것이 있으면
+            if q:
+                out.write(q.get("prompt", "") + "\n")
+                return 0
             out.write("대기 중인 질문 없음\n")
             return 1
-        out.write(q.get("prompt", "") + "\n")
+        out.write(outbox.render(notes) + "\n")
         return 0
     if args.answer is not None:
         ask.post_answer(sid, args.answer)
