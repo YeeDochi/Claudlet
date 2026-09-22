@@ -405,12 +405,10 @@ def deliver_outbox(event, session_id, agent=None):
     나가면 안 된다 — 늦게 배달되는 쪽지가 깨진 훅보다 싸다."""
     if outbox is None or event not in OUTBOX_EVENTS:
         return
-    # 이 stdout 형식은 Claude Code 의 훅 출력 스키마다. 다른 에이전트가 같은
-    # 모양을 읽는다는 근거가 아직 없으므로(코덱스 어휘는 실측해서 정정한 적이
-    # 있다), 확인되기 전에는 아무것도 쓰지 않는다. 쪽지는 아웃박스에 그대로
-    # 남아 있다 — 버려지지 않는다.
-    if agent is not None and agent != agents.DEFAULT:
-        return
+    # Claude Code 와 Codex 는 이 부분의 와이어 포맷이 같다. 둘 다 바이너리에
+    # 박힌 스키마로 확인했다 (Codex 0.1xx 의 UserPromptSubmitHookSpecificOutputWire
+    # / PostToolUseHookSpecificOutputWire 가 {hookEventName, additionalContext}
+    # 를 hookSpecificOutput 아래에 그대로 받는다). 그래서 에이전트를 가르지 않는다.
     try:
         payload = outbox.payload(event, outbox.take(session_id))
         if payload:

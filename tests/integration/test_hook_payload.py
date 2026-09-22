@@ -399,9 +399,9 @@ def test_a_broken_outbox_never_fails_the_hook(tmp_path, monkeypatch):
     assert _run_event(monkeypatch, "UserPromptSubmit") == ""
 
 
-def test_an_unmeasured_agent_gets_no_hook_output_and_keeps_its_note(tmp_path, monkeypatch):
-    # 이 stdout 형식은 Claude Code 의 스키마다. 코덱스가 같은 모양을 읽는다는
-    # 근거는 아직 없으므로 쓰지 않고, 쪽지는 버리지도 않는다.
+def test_codex_gets_the_same_payload(tmp_path, monkeypatch):
+    # 와이어 포맷이 같다는 것을 Codex 바이너리의 스키마로 확인했다:
+    # UserPromptSubmitHookSpecificOutputWire {hookEventName, additionalContext}.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     outbox.append("s1", "기다리는 쪽지")
     monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: True)
@@ -414,8 +414,9 @@ def test_an_unmeasured_agent_gets_no_hook_output_and_keeps_its_note(tmp_path, mo
     out = io.StringIO()
     monkeypatch.setattr(mod.sys, "stdout", out)
     mod.main()
-    assert out.getvalue() == ""
-    assert outbox.pending("s1") == 1
+    got = json.loads(out.getvalue())
+    assert got["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert "기다리는 쪽지" in got["hookSpecificOutput"]["additionalContext"]
 
 
 def test_the_creature_line_is_sent_to_the_pet_when_the_turn_ends(tmp_path, monkeypatch):

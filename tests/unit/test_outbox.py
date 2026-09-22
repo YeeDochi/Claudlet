@@ -245,3 +245,18 @@ def test_small_talk_to_the_pet_is_not_a_task_for_the_agent():
 def test_a_real_request_through_the_pet_still_gets_done():
     text = outbox.render([{"text": "이거 고쳐줘"}])
     assert "작업" in text
+
+
+def test_a_codex_rollout_is_read_too():
+    # Codex 는 다른 모양으로 적는다: payload.type=="message", content[].output_text
+    lines = [json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "assistant",
+        "content": [{"type": "output_text", "text": "확인했습니다.\n🗨 됐다 아이가"}]}})]
+    assert outbox.extract_reply(outbox.last_assistant_text(lines)) == "됐다 아이가"
+
+
+def test_a_codex_user_turn_is_not_mistaken_for_an_answer():
+    lines = [json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "user",
+        "content": [{"type": "input_text", "text": "안녕"}]}})]
+    assert outbox.last_assistant_text(lines) is None

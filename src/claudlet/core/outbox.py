@@ -197,14 +197,24 @@ def last_assistant_text(lines):
             rec = json.loads(line)
         except (ValueError, TypeError):
             continue
-        if not isinstance(rec, dict) or rec.get("type") != "assistant":
+        if not isinstance(rec, dict):
             continue
-        content = (rec.get("message") or {}).get("content")
+        # Claude Code: {"type":"assistant","message":{"content":…}}
+        # Codex rollout: {"type":"response_item","payload":{"type":"message",
+        #                 "role":"assistant","content":[{"output_text"…}]}}
+        if rec.get("type") == "assistant":
+            content = (rec.get("message") or {}).get("content")
+        else:
+            pay = rec.get("payload") or {}
+            if (pay.get("type") != "message" or pay.get("role") != "assistant"):
+                continue
+            content = pay.get("content")
         if isinstance(content, str):
             return content or None
         if isinstance(content, list):
             parts = [b.get("text") for b in content
-                     if isinstance(b, dict) and b.get("type") == "text"
+                     if isinstance(b, dict)
+                     and b.get("type") in ("text", "output_text")
                      and isinstance(b.get("text"), str)]
             if parts:
                 return "\n".join(parts)
