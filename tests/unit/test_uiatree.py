@@ -98,3 +98,18 @@ def test_powershell_runs_without_popping_a_console(monkeypatch):
     assert "creationflags" in seen
     assert seen["creationflags"] == getattr(
         uiatree.subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def test_the_script_forces_utf8_output():
+    # 한국어 윈도우의 PowerShell 은 UTF-8 로 뱉지 않는다. 그대로 utf-8 로
+    # 디코딩하면 창에서 읽은 글자가 전부 U+FFFD 로 바뀐다 — 실기에서 내역에
+    # "����" 만 실려 갔다. 스크립트가 먼저 출력 인코딩을 UTF-8 로 맞춘다.
+    s = uiatree.build_script(1234)
+    head = s[:200]
+    assert "OutputEncoding" in head and "UTF8" in head
+
+
+def test_mojibake_is_not_mistaken_for_text():
+    # 디코딩이 깨진 결과(치환문자 덩어리)는 읽은 것이 아니다 — 그것을 질문에
+    # 실으면 에이전트에게 쓰레기를 보내는 꼴이다.
+    assert uiatree.parse_output("T:\ufffd\ufffd\ufffd\ufffd\nT:정상") == ["정상"]

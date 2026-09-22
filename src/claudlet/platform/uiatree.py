@@ -29,6 +29,11 @@ TIMEOUT = 8.0
 # guessed at.
 _PREFIX = "T:"
 
+# PowerShell 이 UTF-8 로 말하게 한다. 둘 다 필요하다: [Console]::OutputEncoding 은
+# 리디렉션된 stdout 에, $OutputEncoding 은 파이프로 넘기는 문자열에 걸린다.
+UTF8_PREAMBLE = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+                 "$OutputEncoding=[Text.Encoding]::UTF8; ")
+
 READ_PS = """
 $ErrorActionPreference = 'Stop'
 try {
@@ -70,8 +75,22 @@ def build_script(hwnd, max_depth=MAX_DEPTH, max_nodes=MAX_NODES):
     window title can't reach the script body (winterm.py passes its title via
     the environment for the same reason).
     """
-    return READ_PS % {"hwnd": int(hwnd), "max_depth": int(max_depth),
-                      "max_nodes": int(max_nodes), "pfx": _PREFIX}
+    # 출력 인코딩을 먼저 못 박는다. 한국어 윈도우의 PowerShell 은 콘솔
+    # 코드페이지(cp949)로 뱉고, 그것을 utf-8 로 읽으면 창에서 읽은 글자가 전부
+    # U+FFFD 가 된다 — 실기에서 질문에 "����" 만 실려 갔다.
+    return UTF8_PREAMBLE + (READ_PS % {"hwnd": int(hwnd),
+                                       "max_depth": int(max_depth),
+                                       "max_nodes": int(max_nodes),
+                                       "pfx": _PREFIX})
+
+
+def _is_mojibake(line):
+    """디코딩이 깨져 치환문자만 남은 줄인가. 순수.
+
+    깨진 글자를 질문에 실으면 에이전트에게 쓰레기를 보내는 꼴이고, 사용자는
+    자기 화면이 그렇게 읽혔다고 믿게 된다. 차라리 그 줄을 버린다."""
+    body = line.replace(" ", "")
+    return bool(body) and all(ch == "\ufffd" for ch in body)
 
 
 def parse_output(text):
@@ -85,7 +104,7 @@ def parse_output(text):
         line = line.rstrip()
         if line.startswith(_PREFIX):
             val = line[len(_PREFIX):].strip()
-            if val:
+            if val and not _is_mojibake(val):
                 out.append(val)
     return out
 
