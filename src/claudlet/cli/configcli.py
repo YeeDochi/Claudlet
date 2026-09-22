@@ -253,6 +253,21 @@ def cmd_wear(argv):
     return 0
 
 
+def cmd_reload(argv):
+    """claudlet-config reload -- tell running pets to re-read the creature they
+    are already wearing.
+
+    For the case the settings page's own button covers: the package on disk was
+    rebuilt under the same name, so nothing in the config changed and an
+    ordinary restyle is skipped. Switching to another creature and back was the
+    workaround, and it is what this replaces."""
+    from claudlet.cli import configui
+
+    out = configui.apply({"reload": True})
+    print("re-read from disk (%d pet(s) updated)" % out.get("pets", 0))
+    return 0
+
+
 # ---------- export / import: share a creature ----------
 
 def _bundled_module_path(name):
@@ -755,6 +770,8 @@ def main(argv=None):
         return 0
     if arg == "wear":
         return cmd_wear(argv[1:])
+    if arg == "reload":
+        return cmd_reload(argv[1:])
     if arg == "export":
         return cmd_export(argv[1:])
     if arg == "import":

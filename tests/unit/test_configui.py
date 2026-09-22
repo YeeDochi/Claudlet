@@ -1211,3 +1211,16 @@ def test_the_installed_pwa_is_skipped_when_we_are_not_on_its_origin(monkeypatch)
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
     U.launch_browser("http://127.0.0.1:41234/", app_window=False)
     assert opened == ["http://127.0.0.1:41234/"]
+
+
+def test_reload_tells_pets_to_re_read_without_saving(tmp_path, monkeypatch):
+    # rebuilding a creature changes no setting, so there is nothing to save —
+    # but the pets still have to be told, and told it is not the ordinary
+    # restyle they skip when the creature's name has not changed
+    path = _cfg(tmp_path, monkeypatch)
+    before = path.read_text(encoding="utf-8")
+    sent = []
+    out = U.apply({"reload": True}, broadcast=lambda line: sent.append(line) or 2)
+    assert json.loads(sent[0]) == {"cmd": "restyle", "reload": True}
+    assert out["pets"] == 2 and out["applied"] == []
+    assert path.read_text(encoding="utf-8") == before      # nothing written

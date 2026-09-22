@@ -968,7 +968,9 @@ class Pet(QWidget):
             return
         if ev.get("cmd") == "restyle":
             # 설정이 바뀌었다 (claudlet-config ui). 재시작 없이 다시 입는다.
-            self._restyle()
+            # reload: 같은 크리처를 다시 구웠다. 이름이 그대로라 평소의
+            # 비교로는 새 그림이 안 들어오므로 무조건 다시 읽는다.
+            self._restyle(reload=bool(ev.get("reload")))
             return
         if ev.get("cmd") == "dock":
             off = ev.get("offset")
@@ -1084,10 +1086,16 @@ class Pet(QWidget):
         self._persona = look.get("persona", "")
         self._nickname = look.get("nickname", "")
 
-    def _restyle(self):
+    def _restyle(self, reload=False):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
         without restarting: colour applies on the next paint, a new scale needs
-        the window resized and the pet nudged back inside the screen."""
+        the window resized and the pet nudged back inside the screen.
+
+        `reload` is for a creature whose PACKAGE changed under the same name —
+        someone rebuilt the one being worn. `avatars.get()` already re-reads
+        the directory every call, so the art is fresh; what stopped it landing
+        was this method only accepting the result when the NAME differed.
+        Switching to another creature and back was the workaround."""
         cfg = petconfig.load_config()
         before = (self.u, self.avatar.name)
         want = _avatar_name(cfg, self.agent)
@@ -1099,10 +1107,12 @@ class Pet(QWidget):
         # restyle forever instead of settling once resolved.
         if want:
             resolved = avatars.get(want)
-            if resolved.name != self.avatar.name:
+            if reload or resolved.name != self.avatar.name:
                 self.avatar = resolved          # 크리처를 갈아입는다
         self._apply_style(cfg)
-        if (self.u, self.avatar.name) != before:
+        if reload or (self.u, self.avatar.name) != before:
+            # a rebuild can change the grid as well as the art, and the window
+            # is sized from the grid
             self._resize_to_avatar()
         # Companions are re-dressed ALWAYS, not only when the size or creature
         # changed: a colour-only change left the sidekicks in the old colour.
