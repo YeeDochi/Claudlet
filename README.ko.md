@@ -335,6 +335,8 @@ Claude Code 에서도 Codex 에서도 프롬프트로 바로 펫을 조종할 �
 - **[@pawprint0706](https://github.com/pawprint0706)** — Windows 픽스: 금지구역
   편집 오버레이가 마우스 입력을 전혀 받지 못하던 문제, 스킬 링크 정션을 매번
   경고하던 문제
+- **[@reujea](https://github.com/reujea)** — 포인터로 화면을 가리켜 묻기(창의
+  텍스트를 읽어 마스킹한 뒤 승인받고 보냄), 주고받은 대화 내역
 
 ## 라이선스
 

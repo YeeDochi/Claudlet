@@ -355,6 +355,9 @@ can drive the pet straight from a prompt — in Claude Code or in Codex:
 - **[@pawprint0706](https://github.com/pawprint0706)** — Windows fixes: the
   no-go zone editor took no mouse input at all, and skill-link junctions were
   re-warned about on every install
+- **[@reujea](https://github.com/reujea)** — point at something on screen and ask
+  about it (reads the window's text, redacts it, sends only on approval), and the
+  log of what was asked and answered
 
 ## License
 
