@@ -3005,9 +3005,19 @@ class Pet(QWidget):
         return (gw * self.u) / 22.0 if gw else self.u
 
     def _show_say(self):
-        # 말풍선은 하나뿐이다 — 포인터 질문의 답과 같은 창을 쓴다.
-        # (되묻기 꼬리표는 답일 때만 붙으므로 여기서는 reply=False)
-        self.say(self._say)
+        """크리처가 한 줄 말한다.
+
+        포인터 질문을 기다리던 중이었다면 이것이 그 답이다 — 세션이 훅을 통해
+        보낸 것이든 `claudlet-ask --answer` 로 보낸 것이든 사용자에게는 같은
+        답이므로, 기다림을 풀고 내역에도 같이 남긴다."""
+        answered = self._ask_waiting
+        if answered:
+            self._end_thinking()
+            try:
+                askhistory.record_answer(self.session_id, self._say)
+            except Exception:
+                pass
+        self.say(self._say, reply=answered)
 
     # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
     REPLY_POLL_MS = 200
@@ -3570,8 +3580,13 @@ class Pet(QWidget):
             else:
                 reader = backend.read_window
         ctx = inspectmod.build_context(win, question, read_text=reader)
-        askbox.post_question(self.session_id, inspectmod.render_prompt(ctx),
-                             ctx["target"])
+        # 배달은 아웃박스로 한다. 우편함(.ask.json)은 세션이 스스로 집어가지
+        # 않아 사용자가 "답해줘" 라고 시켜야 했다 — 아웃박스는 훅이 다음 경계
+        # (일하는 중이면 다음 툴콜, 놀고 있으면 다음 프롬프트)에서 자동으로
+        # 실어 보낸다. 창에서 읽은 텍스트는 프롬프트에 타이핑하기엔 너무 크므로
+        # 즉시 전송이 아니라 언제나 이 길이다.
+        outbox.append(self.session_id, inspectmod.render_prompt(ctx),
+                      persona=self._persona, nickname=self._nickname)
         # Log it too: the mailbox deletes the question as soon as the session
         # reads it, so without this there is no way to see what was asked --
         # or to tell "never answered" from "answered while you looked away".

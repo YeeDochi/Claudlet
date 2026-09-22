@@ -12,6 +12,14 @@ import pytest
 
 from claudlet import pet as P
 from claudlet.core import ask as askbox
+from claudlet.core import outbox
+
+
+def _posted(pet):
+    """세션에 닿은 질문. 배달은 아웃박스로 하고 훅이 다음 경계에서 실어 보낸다
+    — 우편함과 달리 세션이 스스로 집어가지 않아도 도착한다."""
+    notes = outbox.take(pet.session_id)
+    return {"prompt": notes[0]["text"]} if notes else None
 from claudlet.core import bubble as bubblegeom
 from claudlet.platform.geom import Win
 
@@ -22,6 +30,7 @@ from harness import pet  # noqa: F401  (`pet` used as a fixture)
 def _clean(pet):  # noqa: F811
     yield
     askbox.clear(pet.session_id)
+    outbox.drop(pet.session_id)
 
 
 def _win(**kw):
@@ -73,7 +82,7 @@ def test_asking_posts_a_question_for_the_session(pet, monkeypatch):  # noqa: F81
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     ctx = pet.ask_about((200, 200), "what is this?")
     assert ctx is not None
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert posted is not None
     assert "what is this?" in posted["prompt"]
     assert "Notepad" in posted["prompt"]
@@ -89,13 +98,13 @@ def test_asking_confirms_in_a_bubble(pet, monkeypatch):  # noqa: F811
 def test_a_point_with_no_window_posts_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
     assert pet.ask_about((9999, 9999), "q") is None
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_no_enumerable_windows_posts_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [])
     assert pet.ask_about((10, 10), "q") is None
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_secrets_read_off_the_window_never_reach_the_payload(pet, monkeypatch):  # noqa: F811
@@ -106,7 +115,7 @@ def test_secrets_read_off_the_window_never_reach_the_payload(pet, monkeypatch): 
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
     monkeypatch.setattr(pet, "_ask_backend", lambda: Backend)
     pet.ask_about((200, 200), "q")
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert "hunter2" not in posted["prompt"]
     assert "ghp_abcdefghij" not in posted["prompt"]
     assert "Inbox" in posted["prompt"]
@@ -162,7 +171,7 @@ def _answer(pet, text="it is a text editor"):  # noqa: F811
 def test_an_answer_bubble_offers_a_follow_up(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     assert _answer(pet).has_reply()
 
 
@@ -186,12 +195,12 @@ def test_no_follow_up_when_no_window_was_ever_resolved(pet, monkeypatch):  # noq
 def test_clicking_the_footer_re_asks_about_the_same_window(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(title="Ledger"), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     bubble = _answer(pet)
     monkeypatch.setattr(P.QInputDialog, "getText",
                         staticmethod(lambda *a, **k: ("second", True)))
     _click(bubble, bubble.height() - 6)
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert posted is not None
     assert "second" in posted["prompt"]
     assert "Ledger" in posted["prompt"]        # same window, never re-picked
@@ -200,7 +209,7 @@ def test_clicking_the_footer_re_asks_about_the_same_window(pet, monkeypatch):  #
 def test_the_follow_up_does_not_re_enumerate_windows(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     bubble = _answer(pet)
     called = []
     monkeypatch.setattr(pet, "_ask_windows", lambda: called.append(1) or [])
@@ -213,44 +222,44 @@ def test_the_follow_up_does_not_re_enumerate_windows(pet, monkeypatch):  # noqa:
 def test_cancelling_the_follow_up_posts_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     bubble = _answer(pet)
     monkeypatch.setattr(P.QInputDialog, "getText",
                         staticmethod(lambda *a, **k: ("", False)))
     _click(bubble, bubble.height() - 6)
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_an_empty_follow_up_posts_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     bubble = _answer(pet)
     monkeypatch.setattr(P.QInputDialog, "getText",
                         staticmethod(lambda *a, **k: ("   ", True)))
     _click(bubble, bubble.height() - 6)
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_clicking_the_text_still_dismisses(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     bubble = _answer(pet)
     _click(bubble, 2)
     assert pet._bubble is None
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_follow_up_answers_also_offer_a_follow_up(pet, monkeypatch):  # noqa: F811
     # the loop has to keep working, not just the first round
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     monkeypatch.setattr(P.QInputDialog, "getText",
                         staticmethod(lambda *a, **k: ("second", True)))
     _click(_answer(pet), 9999)
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     assert _answer(pet, "still here").has_reply()
 
 
@@ -261,11 +270,11 @@ def test_secrets_stay_masked_on_the_follow_up(pet, monkeypatch):  # noqa: F811
             return ["password: hunter2"]
     monkeypatch.setattr(pet, "_ask_backend", lambda: Backend)
     pet.ask_window(_win(), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     monkeypatch.setattr(P.QInputDialog, "getText",
                         staticmethod(lambda *a, **k: ("second", True)))
     _click(_answer(pet), 9999)
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert "hunter2" not in posted["prompt"]
 
 
@@ -274,7 +283,7 @@ def test_the_follow_up_label_is_actually_painted(pet, monkeypatch):  # noqa: F81
     from claudlet.core import bubble as B
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     bubble = _answer(pet)
     img = bubble.grab().toImage()
     top = int(B.footer_top(bubble._lines))
@@ -377,14 +386,14 @@ def test_a_region_question_is_posted(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_region(_rect(), "what is this?")
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert posted is not None and "what is this?" in posted["prompt"]
 
 
 def test_a_region_with_no_window_posts_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
     assert pet.ask_region(_rect(9000, 9000, 10, 10), "q") is None
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_secrets_in_the_region_are_masked(pet, monkeypatch):  # noqa: F811
@@ -392,7 +401,7 @@ def test_secrets_in_the_region_are_masked(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
     monkeypatch.setattr(pet, "_ask_backend", lambda: backend)
     pet.ask_region(_rect(), "q")
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert "hunter2" not in posted["prompt"]
     assert "Ledger" in posted["prompt"]
 
@@ -402,7 +411,7 @@ def test_the_follow_up_reuses_the_same_region(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
     monkeypatch.setattr(pet, "_ask_backend", lambda: backend)
     pet.ask_region(_rect(), "first")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     backend.calls.clear()
     monkeypatch.setattr(P.QInputDialog, "getText",
                         staticmethod(lambda *a, **k: ("second", True)))
@@ -429,7 +438,7 @@ def test_cancelling_pointer_mode_posts_nothing(pet):  # noqa: F811
     overlays = pet.enter_pointer()
     overlays[0]._finish()
     assert pet._pointer_overlays == []
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 # ---------- order: select first, then ask ----------
@@ -461,7 +470,7 @@ def test_the_question_is_asked_after_the_region_is_picked(pet, monkeypatch):  # 
     _dialog(monkeypatch, seen=seen)
     pet.enter_pointer()[0].on_region(_rect())
     assert len(seen) == 1
-    posted = askbox.take_question(pet.session_id)
+    posted = _posted(pet)
     assert posted is not None and "what is this?" in posted["prompt"]
 
 
@@ -481,7 +490,7 @@ def test_a_region_hitting_nothing_never_asks_the_question(pet, monkeypatch):  # 
     _dialog(monkeypatch, seen=seen)
     pet.enter_pointer()[0].on_region(_rect(9000, 9000, 10, 10))
     assert seen == []
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_cancelling_the_question_after_selecting_posts_nothing(pet, monkeypatch):  # noqa: F811
@@ -489,7 +498,7 @@ def test_cancelling_the_question_after_selecting_posts_nothing(pet, monkeypatch)
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     _dialog(monkeypatch, answer="", ok=False)
     pet.enter_pointer()[0].on_region(_rect())
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
     assert pet._bubble is not None          # told the user it was cancelled
 
 
@@ -498,7 +507,7 @@ def test_an_empty_question_after_selecting_posts_nothing(pet, monkeypatch):  # n
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     _dialog(monkeypatch, answer="   ", ok=True)
     pet.enter_pointer()[0].on_region(_rect())
-    assert askbox.take_question(pet.session_id) is None
+    assert _posted(pet) is None
 
 
 def test_picking_a_region_disarms_the_pointer(pet, monkeypatch):  # noqa: F811
@@ -732,7 +741,7 @@ def test_the_thinking_motion_does_not_expire_on_its_own(pet, monkeypatch):  # no
 def test_the_answer_stops_the_thinking_motion(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     _answer(pet)
     assert pet._motion is None
     assert not pet._ask_waiting
@@ -742,7 +751,7 @@ def test_a_user_chosen_motion_survives_the_answer(pet, monkeypatch):  # noqa: F8
     """Picking a motion from the menu while waiting must not be undone."""
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     pet._play_motion("jump", 2.5)
     _answer(pet)
     assert pet._motion == "jump"
@@ -805,7 +814,7 @@ def test_the_answer_lands_on_the_same_exchange(pet, monkeypatch, _hist):  # noqa
     from claudlet.core import history as H
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)
+    _posted(pet)
     _answer(pet, "the reply")
     recs = H.load(pet.session_id)
     assert len(recs) == 1
@@ -816,7 +825,7 @@ def test_an_unanswered_question_stays_pending_in_the_log(pet, monkeypatch, _hist
     from claudlet.core import history as H
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(_win(), "q")
-    askbox.take_question(pet.session_id)     # session read it but never replied
+    _posted(pet)     # session read it but never replied
     assert H.load(pet.session_id, pending_only=True)
 
 
@@ -849,7 +858,7 @@ def test_a_broken_history_never_loses_the_question(pet, monkeypatch, _hist):  # 
     monkeypatch.setattr(H, "record_question",
                         lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
     pet.ask_window(_win(), "q")
-    assert askbox.take_question(pet.session_id) is not None
+    assert _posted(pet) is not None
 
 
 # ---------- the pointer's cursor is configurable ----------
