@@ -2489,17 +2489,27 @@ class Pet(QWidget):
         fs, fh, fz = self.NOTE_FRAC
         return (gw * fs, gh * fh, gw * fz)
 
+    # 내장 크리처의 22 유닛 폭을 기준으로 잰 "한 유닛" — 화면에 실제로 그려지는
+    # 크기에서 나온다. `self.u` 를 그대로 쓰면 그리드가 촘촘한 크리처에서
+    # 글씨가 좁쌀이 된다: 176 dot 짜리 스프라이트는 같은 화면 크기를 u=1.3 으로
+    # 내므로 `1.3 * u` 가 1.7pt 가 되어 하한 6pt 에 눌려 있었다. 하트가 좁쌀이
+    # 됐던 것과 같은 실수이고, 쪽지(NOTE_FRAC)가 이미 쓰는 것과 같은 해법이다.
+    def _unit(self):
+        gw = self.avatar.grid[0]
+        return (gw * self.u) / 22.0 if gw else self.u
+
     def _draw_say(self, p):
         """크리처가 한 말을 머리 위 말풍선으로. 크리처 패키지의 말풍선(SPEECH)은
         상태마다 정해진 문구라 임의의 문장을 못 싣는다 — 하트·쪽지와 같은 이유로
         여기서 위에 얹는다. 창 밖으로는 못 나가므로 폭에 맞춰 줄을 나눈다."""
         from PyQt6.QtGui import QFont, QPainterPath, QPen
+        u = self._unit()
         f = QFont("Sans")
-        f.setPointSizeF(max(6.0, 1.3 * self.u))
+        f.setPointSizeF(max(6.0, 1.3 * u))
         f.setBold(True)
         p.setFont(f)
         fm = p.fontMetrics()
-        pad = max(3.0, 0.6 * self.u)
+        pad = max(3.0, 0.6 * u)
         maxw = max(60.0, self.w - 2 * pad)
         words, lines, cur = self._say.split(" "), [], ""
         for word in words:
@@ -2520,8 +2530,8 @@ class Pet(QWidget):
         path.addRoundedRect(QRectF(bx - pad, by, tw + 2 * pad, th + pad), 5, 5)
         p.setPen(Qt.PenStyle.NoPen)
         p.fillPath(path, QColor(255, 255, 255, 240))
-        p.fillRect(QRectF(self.w / 2.0 - 0.5 * self.u, by + th + pad - 1,
-                          1.1 * self.u, 0.9 * self.u), QColor(255, 255, 255, 240))
+        p.fillRect(QRectF(self.w / 2.0 - 0.5 * u, by + th + pad - 1,
+                          1.1 * u, 0.9 * u), QColor(255, 255, 255, 240))
         p.setPen(QPen(QColor("#2A2A30")))
         p.drawText(QRectF(bx - pad, by, tw + 2 * pad, th + pad),
                    int(Qt.AlignmentFlag.AlignCenter), "\n".join(lines))

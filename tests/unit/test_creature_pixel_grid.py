@@ -84,3 +84,25 @@ def test_tilted_frames_still_render_every_state():
     for state in C.STATES:
         for frame in (0, 7, 33, 65):
             assert _opaque_pixels(state, frame) > 0
+
+
+def test_bubble_unit_follows_on_screen_size_not_the_raw_scale():
+    """말풍선 글자는 화면에 그려지는 크기에서 나와야 한다.
+
+    `self.u` 를 그대로 쓰면 그리드가 촘촘한 크리처에서 좁쌀이 된다: 176 dot
+    스프라이트는 내장 크리처와 같은 화면 크기를 훨씬 작은 u 로 내기 때문이다.
+    내장 크리처(22 유닛)에서는 값이 그대로여야 한다 — 고쳐도 기존 모습은
+    안 바뀐다는 뜻."""
+    from claudlet.pet import Pet
+
+    class Fake:
+        def __init__(self, gw):
+            self.grid = (gw, 100)
+
+    def unit(gw, u):
+        obj = type("P", (), {"avatar": Fake(gw), "u": u})()
+        return Pet._unit(obj)
+
+    assert unit(22, 5) == 5                    # 내장: 달라지지 않는다
+    assert unit(176, 1.3) > 4 * unit(22, 1.3)  # 촘촘한 그리드: 훨씬 커진다
+    assert unit(0, 3) == 3                     # grid 가 이상해도 죽지 않는다
