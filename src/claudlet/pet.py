@@ -30,6 +30,28 @@ def im_module_for(xmodifiers):
     return name or None
 
 
+def ask_command(prompt, which=None):
+    """한 줄을 물어볼 시스템 대화상자의 argv, 없으면 None. 순수(`which` 주입).
+
+    우리 창으로 묻지 않는 이유: pip/pipx 로 깔린 PyQt6 는 자기 Qt 를 통째로
+    안고 오는데 그 안에는 compose 와 ibus 입력컨텍스트뿐이라, fcitx 사용자는
+    우리 대화상자에 한글을 한 글자도 못 친다. 시스템 플러그인을 빌려오는 것도
+    안 된다 — 시스템 Qt 6.10 플러그인이 wheel Qt 6.11 위에서 private 심볼
+    (`QtPrivate_6_10_2`)을 못 찾고 로드에 실패한다(실측).
+
+    그래서 입력기가 이미 붙어 있는 남의 프로세스에 묻는다. kdialog/zenity 는
+    시스템 Qt/GTK 로 빌드돼 있어 한글이 그냥 된다."""
+    if which is None:
+        which = shutil.which
+    exe = which("kdialog")
+    if exe:
+        return [exe, "--title", "claudlet", "--inputbox", prompt]
+    exe = which("zenity")
+    if exe:
+        return [exe, "--entry", "--title=claudlet", "--text=" + prompt]
+    return None
+
+
 if sys.platform.startswith("linux"):
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     _im = im_module_for(os.environ.get("XMODIFIERS"))
@@ -3023,6 +3045,14 @@ class Pet(QWidget):
         절대 활성화되지 않고, 그 밑에 달린 대화상자는 입력기(IME)를 못 잡는다 —
         알파벳은 들어오는데 한글이 한 글자도 안 써지는 게 그 증상이다.
         독립 창으로 띄우고 직접 활성화한다."""
+        argv = ask_command(self.ui["talk_prompt"])
+        if argv:
+            try:
+                out = subprocess.run(argv, capture_output=True, text=True,
+                                     timeout=300)
+                return out.stdout.strip() if out.returncode == 0 else ""
+            except Exception:
+                pass                   # 시스템 대화상자가 없거나 죽었다 — Qt 로
         from PyQt6.QtWidgets import QInputDialog
         d = QInputDialog(None)
         d.setWindowFlags(Qt.WindowType.Dialog
