@@ -239,15 +239,6 @@ def reply_from_transcript(path, tail_bytes=65536):
     return extract_reply(last_assistant_text(lines) or "")
 
 
-def typed_line(text, persona):
-    """즉시 전송일 때 프롬프트에 그대로 찍힐 한 줄. 순수.
-
-    말투 지시는 여기 넣지 않는다. 프롬프트 줄에 그대로 찍혀 사용자 눈에 계속
-    밟히기 때문이다(실사용에서 바로 걸렸다). 그것은 `append_voice` 로 아웃박스에
-    넣고, 이 타이핑이 제출될 때 도는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다."""
-    return text
-
-
 def payload(event, notes):
     """훅이 stdout 으로 뱉을 dict, 또는 전할 것이 없으면 None. 순수."""
     if not notes:

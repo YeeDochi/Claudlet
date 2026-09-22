@@ -526,8 +526,11 @@ class Bubble(QWidget):
         self.update()
 
     def follow(self, anchor_rect):
-        if self.isVisible():
-            self.move(*self._place(anchor_rect, self.width(), self.height()))
+        if not self.isVisible():
+            return
+        x, y = self._place(anchor_rect, self.width(), self.height())
+        if (x, y) != (self.x(), self.y()):     # 매 프레임 move 는 낭비다
+            self.move(x, y)
 
     def _place(self, anchor, w, h):
         """펫 머리 위 가운데. 화면 밖으로 나가면 안쪽으로 민다."""
@@ -2627,9 +2630,15 @@ class Pet(QWidget):
             self._reply_timer.stop()
 
     def _hush(self):
-        """하던 말을 즉시 거둔다."""
+        """하던 말을 즉시 거두고, 지난 턴 대사를 기다리던 것도 그만둔다.
+
+        타이머를 멈추지 않으면 새 턴이 시작된 뒤에 지난 턴 대사가 뒤늦게 떠서,
+        고치려던 "한 턴 늦음"이 그대로 재현된다."""
         self._say = ""
         self._say_until = 0.0
+        self._reply_left = 0
+        if self._reply_timer is not None:
+            self._reply_timer.stop()
         if self._bubble is not None:
             self._bubble.hide()
 
@@ -3279,8 +3288,9 @@ class Pet(QWidget):
         # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
         if immediate and (self._persona or self._nickname):
             outbox.append_voice(self.session_id, self._persona, self._nickname)
-        if immediate and self._konsole_send(
-                outbox.typed_line(text, self._persona)):
+        # 프롬프트에는 질문만 찍는다. 말투·이름은 위에서 아웃박스에 넣었고,
+        # 이 제출이 부르는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다.
+        if immediate and self._konsole_send(text):
             self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona,

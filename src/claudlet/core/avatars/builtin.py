@@ -9,7 +9,9 @@ from claudlet.core import creature as C
 
 class Claudlet:
     name = "claudlet"
-    persona = "짧고 명랑하게, 한 줄로."
+    # 크리처는 제 이름과 말투를 들고 온다. 사용자가 설정에서 적으면 그것이 이긴다.
+    nickname = "클로디"
+    persona = "짧고 명랑하게, 한 줄로. 반말."
     grid = (C.GRID_W, C.GRID_H)
     states = C.STATES
     hats = C.HAT_KINDS

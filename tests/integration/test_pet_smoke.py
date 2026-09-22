@@ -2309,3 +2309,16 @@ def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet
     write("이번 턴 대사")                                    # 이제 써졌다
     pet._poll_reply()
     assert pet.snapshot()["saying"] == "이번 턴 대사"
+
+
+def test_a_new_turn_cancels_the_wait_for_the_last_one(pet, tmp_path):
+    # 기다리던 타이머를 멈추지 않으면, 새 턴이 시작된 뒤 지난 턴 대사가 뒤늦게
+    # 떠서 고치려던 "한 턴 늦음"이 그대로 재현된다.
+    import json as _json
+    tr = tmp_path / "t.jsonl"
+    tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "🗨 지난 턴 대사"}]}}), encoding="utf-8")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    pet._hush()                                  # 사용자가 다음 말을 쳤다
+    pet._poll_reply()                            # 남아 있던 대기가 돌아도
+    assert pet.snapshot()["saying"] == ""        # 지난 대사는 뜨지 않는다

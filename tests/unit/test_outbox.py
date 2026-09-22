@@ -113,15 +113,6 @@ def test_a_note_is_stored_as_one_json_line():
     assert json.loads(lines[0])["text"] == "확인"
 
 
-# ---------- 즉시 전송: 프롬프트에는 질문만 찍힌다 ----------
-
-def test_only_the_question_is_typed_into_the_prompt():
-    # 말투 지시가 프롬프트 줄에 찍히면 사용자 눈에 계속 밟힌다. 그것은 훅으로
-    # 따로 들어간다 — 즉시 전송도 UserPromptSubmit 을 발동시키므로 같은 턴에 닿는다.
-    assert outbox.typed_line("이거 왜 느려?", "짧고 퉁명스럽게") == "이거 왜 느려?"
-    assert outbox.typed_line("이거 왜 느려?", None) == "이거 왜 느려?"
-
-
 def test_a_voice_note_carries_the_persona_without_repeating_a_message():
     outbox.append_voice("s1", "물컹하게")
     text = outbox.render(outbox.take("s1"))
