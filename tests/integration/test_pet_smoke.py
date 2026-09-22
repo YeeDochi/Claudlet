@@ -2322,3 +2322,29 @@ def test_a_new_turn_cancels_the_wait_for_the_last_one(pet, tmp_path):
     pet._hush()                                  # 사용자가 다음 말을 쳤다
     pet._poll_reply()                            # 남아 있던 대기가 돌아도
     assert pet.snapshot()["saying"] == ""        # 지난 대사는 뜨지 않는다
+
+
+def test_what_you_say_through_the_menu_is_in_the_history_too(pet, monkeypatch, tmp_path):
+    # 포인터로 시작한 대화만 내역에 남고 💬/📝 로 건 말은 안 남으면, "아까 뭘
+    # 물었더라" 가 절반만 답해진다 — 내역이 있는 이유가 바로 그거다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import history
+    monkeypatch.setattr(pet, "_ask_text", lambda label=None: "이거 왜 느려?")
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)   # 쪽지로 남긴다
+    pet._talk(immediate=False)
+    recs = history.load(pet.session_id)
+    assert any("이거 왜 느려?" in (r.get("question") or "") for r in recs)
+
+
+def test_an_answer_attaches_to_a_question_asked_from_the_menu(pet, monkeypatch, tmp_path):
+    # 메뉴로 물어본 것도 답이 붙어야 내역이 "물었는데 답이 없다" 를 제대로 말한다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import history
+    monkeypatch.setattr(pet, "_ask_text", lambda label=None: "이거 왜 느려?")
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    pet._talk(immediate=False)
+    assert [r for r in history.load(pet.session_id) if r.get("answer") is None]
+    send_hook(pet, "say", cmd="say", text="인덱스가 없어서 그렇다")
+    asked = [r for r in history.load(pet.session_id)
+             if "이거 왜 느려?" in (r.get("question") or "")]
+    assert asked and asked[-1].get("answer") == "인덱스가 없어서 그렇다"

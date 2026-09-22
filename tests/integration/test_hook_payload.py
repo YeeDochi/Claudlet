@@ -453,3 +453,20 @@ def test_a_turn_without_a_transcript_tells_the_pet_nothing(tmp_path, monkeypatch
         {"session_id": "s1", "hook_event_name": "Stop"})))
     mod.main()
     assert not [p for p in sent if b'turn_end' in p]
+
+
+def test_the_prompt_event_carries_the_transcript_path(tmp_path):
+    # 펫은 턴이 "시작될 때" transcript 에 뭐가 있었는지를 알아야, 나중에 나타난
+    # 줄만 이번 턴 것으로 셀 수 있다. 그 기준점이 이 필드다.
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "UserPromptSubmit"],
+        {"session_id": "s1", "transcript_path": "/tmp/t.jsonl"}))
+    assert msg["transcript"] == "/tmp/t.jsonl"
+
+
+def test_other_events_do_not_carry_it():
+    msg = json.loads(mod.build_message(
+        ["claudlet-hook", "PreToolUse"],
+        {"session_id": "s1", "tool_name": "Edit",
+         "transcript_path": "/tmp/t.jsonl"}))
+    assert "transcript" not in msg

@@ -27,3 +27,9 @@ dist/
 *.egg-info/
 __pycache__/
 *.pyc
+
+# 내부 작업 문서 (에이전트용 컨텍스트·작업 이력·실패 기록) — 공개 대상 아님
+spec/
+prd/
+handsoff/
+doc/

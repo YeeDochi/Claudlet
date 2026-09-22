@@ -77,6 +77,11 @@ def build_message(argv, data, title=None):
     msg = {"event": event, "session": session_of(data)}
     if title:
         msg["title"] = title
+    # 턴이 시작되는 순간의 transcript 경로. 펫은 이때의 마지막 대사를 기준점으로
+    # 삼아, 그 뒤에 나타난 줄만 "이번 턴 것"으로 센다 — 갓 뜬 펫이 지난 대화의
+    # 대사를 이번 답으로 착각해 띄우던 것을 막는다.
+    if event == "UserPromptSubmit" and data.get("transcript_path"):
+        msg["transcript"] = str(data["transcript_path"])
     for key in ("tool_name", "notification_type", "error_type",
                 "permission_mode"):
         val = data.get(key)

@@ -251,3 +251,25 @@ def test_a_codex_user_turn_is_not_mistaken_for_an_answer():
         "type": "message", "role": "user",
         "content": [{"type": "input_text", "text": "안녕"}]}})]
     assert outbox.last_assistant_text(lines) is None
+
+
+def test_an_answer_far_from_the_end_is_still_found(tmp_path):
+    # 한 턴이 남기는 기록(시스템 리마인더·툴 결과)은 수십~수백 KB 가 된다.
+    # 고정 꼬리만 읽으면 답이 창 밖으로 밀려나 말풍선이 아예 안 뜬다(실측:
+    # 답이 파일 끝에서 124KB 앞에 있었다).
+    p = tmp_path / "t.jsonl"
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "🗨 멀리 있는 대사"}]}}) + "\n")
+        for _ in range(400):
+            f.write(json.dumps({"type": "user", "message": {
+                "content": [{"type": "tool_result", "content": "x" * 500}]}}) + "\n")
+    assert outbox.reply_from_transcript(str(p)) == "멀리 있는 대사"
+
+
+def test_a_transcript_with_no_answer_anywhere_costs_a_bounded_read(tmp_path):
+    p = tmp_path / "t.jsonl"
+    with open(p, "w", encoding="utf-8") as f:
+        for _ in range(200):
+            f.write(json.dumps({"type": "user", "message": {"content": "x" * 500}}) + "\n")
+    assert outbox.reply_from_transcript(str(p)) is None

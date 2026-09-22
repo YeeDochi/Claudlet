@@ -221,22 +221,36 @@ def last_assistant_text(lines):
     return None
 
 
-def reply_from_transcript(path, tail_bytes=65536):
+TAIL_START = 65536          # 대개 여기서 찾는다
+TAIL_MAX = 8 << 20          # 못 찾으면 여기까지만 거슬러 올라간다
+
+
+def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX):
     """transcript 파일 끝에서 크리처가 말할 한 줄을 뽑는다. 얇은 껍데기.
 
-    전부 읽지 않는다 — 긴 대화의 JSONL 은 수십 MB 가 되고, 훅은 빨라야 한다."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - tail_bytes))
-            raw = f.read().decode("utf-8", "replace")
-    except (OSError, TypeError):
-        return None
-    lines = raw.splitlines()
-    if size > tail_bytes and lines:
-        lines = lines[1:]              # 잘린 첫 줄은 JSON 이 아니다
-    return extract_reply(last_assistant_text(lines) or "")
+    전부 읽지 않는다 — 긴 대화의 JSONL 은 수십 MB 가 되고, 펫은 이것을 0.2초마다
+    돌린다. 그렇다고 고정 꼬리만 읽어서도 안 된다: 한 턴이 남기는 기록(시스템
+    리마인더, 큰 툴 결과)이 수백 KB 가 되어 정작 답이 창 밖으로 밀려난다 —
+    실측에서 답이 파일 끝에서 124KB 앞에 있었고, 그래서 첫 말풍선이 아예 뜨지
+    않았다. 그래서 찾을 때까지 꼬리를 배로 늘리되 상한을 둔다."""
+    while True:
+        try:
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - tail_bytes))
+                raw = f.read().decode("utf-8", "replace")
+        except (OSError, TypeError):
+            return None
+        lines = raw.splitlines()
+        if size > tail_bytes and lines:
+            lines = lines[1:]          # 잘린 첫 줄은 JSON 이 아니다
+        text = last_assistant_text(lines)
+        if text is not None:
+            return extract_reply(text)
+        if tail_bytes >= size or tail_bytes >= tail_max:
+            return None                # 파일을 다 봤거나, 충분히 거슬러 올라갔다
+        tail_bytes = min(tail_bytes * 4, tail_max)
 
 
 def payload(event, notes):
