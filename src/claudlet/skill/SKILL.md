@@ -48,6 +48,9 @@ Look at the argument the user passed after `/claudlet`:
   → **Trigger a motion**; do NOT launch a pet.
 - `setting` / `settings` / `설정` → **Settings** (opens the appearance page);
   do NOT launch a pet.
+- `ask` / `물어봐` / `질문` / `포인터` / `pointer` → **Answer a pet question**;
+  do NOT launch a pet.
+- `new` / `새 세션` / `세션 만들어` → **Start a new paired session**.
 - `config` (optionally `config open` / `config init`) → **Configure** (the raw
   config file: which motion for which activity, language); do NOT launch a pet.
 - `update` (or `업데이트`) → **Update** (release channel). `update latest`
@@ -317,6 +320,95 @@ also the one thing that shouldn't happen silently mid-session. Steps:
    also prints this link, labelled in their language, when it finishes).
 
 If `git pull` fails (local changes / divergence), report it — don't force.
+
+## Start a new paired session
+
+`claudlet-attach --new` opens a NEW terminal window running a fresh agent
+session, and brings up a pet bound to it. One pet, one session, paired by an id
+we mint -- not by guessing which transcript is newest.
+
+```bash
+cpet attach --new                          # start it in the current directory
+cpet attach --new --cwd /path/to/project   # or somewhere else
+```
+
+Use this when the user wants *another* session with its own pet, not when they
+want a pet for the session you are already in -- that is plain `cpet attach`.
+
+**Plain `cpet attach` now does this too when there is nothing to attach to.**
+Run from inside a session it attaches as before; run where no session exists it
+starts one rather than binding a pet to a session id that has already ended (a
+pet paired with a dead id looks attached and answers nothing). Pass `--no-start`
+for the old behaviour -- a loose, decorative pet on the `default` id.
+
+- The new window is where they talk to that session; this one keeps running.
+- Only agents that accept a caller-chosen session id can be started this way.
+  Claude Code can (`--session-id`); anything that cannot is refused with a
+  message rather than opening a window that errors.
+- If the pet comes up but the terminal does not open, say so plainly: they have
+  a pet waiting on a session that never started, and the fix is to run the
+  printed command themselves.
+
+## Answer a pet question
+
+The user pointed at something on their screen and asked the creature about it —
+either by dragging a region in the pet's 🎯 포인터 mode, or from the command line
+(`claudlet-ask --at x,y "..."`). The question is waiting in a per-session
+mailbox; this section is how you pick it up and answer.
+
+**The user already approved exactly what it contains.** `claudlet-ask` showed
+them the payload — window, question, and any text read off that window with
+secrets masked — and wrote nothing until they said yes. So treat the contents
+as something they deliberately handed you.
+
+1. **Take the question.** It is delivered once; reading it clears the mailbox:
+```bash
+cpet ask --pull --session "$CLAUDE_SESSION_ID"
+```
+   - prints the prompt → answer it.
+   - prints `대기 중인 질문 없음` (exit 1) → there is nothing pending. Say so
+     and stop; do not invent a question.
+
+2. **Answer it.** Read what was printed, work out the answer, and send it back:
+```bash
+cpet ask --answer "your answer here" --session "$CLAUDE_SESSION_ID"
+```
+
+3. **Tell the user** what you answered, since the pet bubble is small.
+
+**Before saying there is nothing pending, check the log.** `--pull` only sees a
+question that is still in the mailbox; one you already pulled is gone from it
+but recorded as unanswered:
+```bash
+cpet ask --history --pending    # questions that never got a reply
+```
+If something is listed there, answer it with `--answer` -- it is a question the
+user asked and never got a reply to, which from their side looks like the pet
+simply ignored them.
+
+**Other history views** (offer these when the user asks what they asked before):
+```bash
+cpet ask --history              # recent exchanges, newest first
+cpet ask --history --full       # including the screen text that was sent
+cpet ask --history --limit 5    # just the last few
+cpet ask --clear-history        # delete this session's log
+```
+The log lives at `~/.config/claudlet/history.jsonl`, holds the last 200
+exchanges, and contains the text read off the user's screen -- so quote from it
+when they ask, but do not paste it somewhere it would leave their machine.
+
+Notes:
+- The prompt carries the window's app name, size and pid, plus whatever text
+  could be read. When the user dragged a region, that text is only what sits
+  INSIDE the region — so it is a fragment of the window by design, not a partial
+  read to apologise for. Without the optional text backend it carries the window
+  metadata only; answer from that rather than guessing at contents.
+- A question older than 10 minutes is dropped rather than answered late: it
+  would land next to whatever is on screen *now*, not what the user asked about.
+- Nothing here re-reads the user's screen. If you need more than the prompt
+  holds, ask them to run `claudlet-ask` again on the window they mean.
+- A question you pulled but never answered stays in the log as pending. If the
+  user says "I asked something and got nothing back", that is where to look.
 
 ## Notes
 - Multiple pets are fine — each is independent. Stop one via right-click → 종료.

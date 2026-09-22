@@ -118,6 +118,7 @@ def _clean(raw):
             return None
         return {"x": x, "y": y, "w": w, "h": h}
 
+    pointer = _clean_pointer(raw.get("pointer"))
     roam_area = _rect(raw.get("roam_area"))
     if not isinstance(raw.get("no_go"), list):
         no_go = []
@@ -128,6 +129,7 @@ def _clean(raw):
             "raw_events": raw_events, "lang": lang,
             "roam_area": roam_area, "no_go": no_go, "palette": palette,
             "scale": scale, "avatar": avatar, "creatures": creatures,
+            "pointer": pointer,
             "dock": _clean_dock(raw.get("dock"))}
 
 
@@ -160,6 +162,71 @@ def resolve_lang(value):
 # pixels across device pixels, which is exactly the silhouette wobble v1.7.1
 # removed. The range is what stays legible on one end and fits a screen on the
 # other.
+# --- pointer (the 🎯 ask-about-a-region mode) -------------------------------
+# Cursor shapes a user may pick by name. Kept to the ones that actually read as
+# "pick something" -- offering all 24 Qt shapes would mostly offer resize arrows.
+POINTER_CURSORS = ("cross", "crosshair", "pointing", "arrow", "open-hand")
+DEFAULT_POINTER_CURSOR = "cross"
+
+# Where a custom pointer image may live, and what we will load. The cap is on
+# the DECODED size, not the file: a 2MB PNG can still decode to something huge,
+# and a cursor bigger than this is a usability bug rather than a preference.
+POINTER_IMAGE_MAX = 128
+POINTER_IMAGE_SUFFIXES = (".png", ".svg", ".bmp", ".gif", ".jpg", ".jpeg", ".webp")
+
+DEFAULT_POINTER = {
+    # Which agent config the pointer's questions belong to. None = inherit the
+    # environment, which is what a session started by claudlet already has.
+    "claude_config_dir": None,
+    "cursor": DEFAULT_POINTER_CURSOR,
+    "image": None,          # absolute path to a custom cursor image
+    "hotspot": None,        # [x, y] within the image; None = centre it
+}
+
+
+def _clean_pointer(v):
+    """pointer 섹션 검증. 다른 키와 같은 규칙: 이상한 값은 조용히 떨군다."""
+    d = dict(DEFAULT_POINTER)
+    if not isinstance(v, dict):
+        return d
+
+    cfg = v.get("claude_config_dir")
+    if isinstance(cfg, str) and cfg.strip():
+        # Kept as written (~ expanded) even when it does not exist yet: the
+        # user may be pointing at a profile they are about to create, and
+        # silently dropping it would look like the setting did not save.
+        d["claude_config_dir"] = os.path.expanduser(cfg.strip())
+
+    if v.get("cursor") in POINTER_CURSORS:
+        d["cursor"] = v["cursor"]
+
+    img = v.get("image")
+    if isinstance(img, str) and img.strip():
+        path = os.path.expanduser(img.strip())
+        if os.path.splitext(path)[1].lower() in POINTER_IMAGE_SUFFIXES:
+            d["image"] = path
+
+    hot = v.get("hotspot")
+    if isinstance(hot, (list, tuple)) and len(hot) == 2:
+        try:
+            d["hotspot"] = [int(hot[0]), int(hot[1])]
+        except (TypeError, ValueError):
+            pass
+    return d
+
+
+def pointer_config_dir(cfg=None):
+    """CLAUDE_CONFIG_DIR for pointer-started sessions, or None to inherit.
+
+    Config wins over the environment on purpose: the environment is whatever
+    shell the pet happened to be launched from, and the setting is what the
+    user chose.
+    """
+    if cfg is None:
+        cfg = load_config()
+    return (cfg.get("pointer") or {}).get("claude_config_dir")
+
+
 DEFAULT_SCALE = 5
 # 1 is allowed because a creature may carry art at a finer grid than the
 # built-in's 22x17 — such a creature declares its box in ITS dots and draws one
@@ -371,7 +438,7 @@ def _empty_config():
     return {"tool_states": {}, "event_states": {}, "raw_events": {},
             "lang": "auto", "roam_area": None, "no_go": [], "palette": "auto",
             "scale": DEFAULT_SCALE, "avatar": None, "creatures": {},
-            "dock": default_dock()}
+            "pointer": _clean_pointer(None), "dock": default_dock()}
 
 
 def load_config(path=None):

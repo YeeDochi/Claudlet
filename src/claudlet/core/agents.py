@@ -20,6 +20,10 @@ AGENTS = {
         "settings": os.path.join(".claude", "settings.json"),
         "skills": os.path.join(".claude", "skills"),
         "proc": "claude",                    # the reaper's ancestor needle
+        # Flag that makes the agent adopt an id WE choose, so a pet and the
+        # session it starts are paired exactly instead of racing to spot the
+        # newest transcript. None = this agent can't be started that way.
+        "session_id_flag": "--session-id",
         "events": ["PreToolUse", "PostToolUse", "UserPromptSubmit",
                    "Notification", "Stop", "StopFailure", "SubagentStop",
                    "SessionStart", "SessionEnd"],
@@ -34,6 +38,11 @@ AGENTS = {
         "settings": os.path.join(".codex", "hooks.json"),
         "skills": os.path.join(".codex", "skills"),
         "proc": "codex",
+        # Not set: codex was not installed on the machine this was written on,
+        # so whether it accepts a caller-chosen session id is unverified. Left
+        # None rather than guessed -- a wrong flag produces a command that fails
+        # in a terminal window the user then has to close.
+        "session_id_flag": None,
         # Measured from the codex 0.147.0 native binary's strings, corroborated
         # by Codex's own plugin hooks.json (which registers SessionEnd). No
         # Notification, no StopFailure. Adds PermissionRequest (its "may I?"

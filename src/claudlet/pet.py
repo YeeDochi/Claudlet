@@ -94,13 +94,21 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
-                             QToolTip)
-from PyQt6.QtGui import QPainter, QAction, QCursor, QIcon, QPixmap, QColor, QRegion, QPainterPath
+                             QToolTip, QInputDialog, QLineEdit, QFileDialog,
+                             QDialog, QTextBrowser, QPushButton, QVBoxLayout,
+                             QHBoxLayout, QTabBar)
+from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
+                         QRegion, QPainterPath, QFont, QPen)
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
 from claudlet.core import agents
+from claudlet.core import ask as askbox
 from claudlet.core import avatars
+from claudlet.core import bubble as bubblegeom
+from claudlet.core import history as askhistory
+from claudlet.core import transcript
+from claudlet.core import inspect as inspectmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
 from claudlet.platform import konsole
@@ -225,7 +233,26 @@ UI = {
            "settings": "🎨 크리처 설정…",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
-           "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)"},
+           "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)",
+           "ask": "🎯 포인터…",
+           "ask_prompt": "무엇이 궁금한가요?",
+           "ask_pick": "궁금한 영역을 드래그하세요 · ESC 취소",
+           "ask_hint": "🎯 드래그해서 영역 선택 · 우클릭/ESC 취소",
+           "ask_sent": "물어봤어요. 세션이 답하면 알려드릴게요",
+           "ask_none": "그 영역에서 창을 찾지 못했어요",
+           "ask_cancel": "취소했어요 — 아무것도 보내지 않았어요",
+           "ask_again": "↩ 이 영역에 대해 더 물어보기",
+           "ptr_menu": "🎯 포인터 설정",
+           "ptr_cursor": "커서 모양",
+           "ptr_image": "커서 이미지 고르기…",
+           "ptr_image_clear": "커서 이미지 지우기",
+           "ptr_dir": "세션 프로필 (CLAUDE_CONFIG_DIR)…",
+           "ptr_dir_clear": "세션 프로필 해제",
+           "ptr_pick_image": "포인터로 쓸 이미지",
+           "ptr_pick_dir": "세션이 쓸 CLAUDE_CONFIG_DIR",
+           "ptr_saved": "포인터 설정을 저장했어요",
+           "ptr_bad_image": "그 파일은 이미지로 읽을 수 없어요",
+           "history": "🗒 대화 내역…"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
@@ -237,7 +264,26 @@ UI = {
            "settings": "🎨 Creature settings…",
            "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
            "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
-           "roam": "Roam freely", "dock_reset": "Reset dock position"},
+           "roam": "Roam freely", "dock_reset": "Reset dock position",
+           "ask": "🎯 Pointer…",
+           "ask_prompt": "What would you like to know?",
+           "ask_pick": "Drag the area you're asking about · Esc to cancel",
+           "ask_hint": "🎯 Drag to select an area · right-click or Esc to cancel",
+           "ask_sent": "Asked. I'll show the answer when the session replies",
+           "ask_none": "No window found in that area",
+           "ask_cancel": "Cancelled — nothing was sent",
+           "ask_again": "↩ Ask more about this area",
+           "ptr_menu": "🎯 Pointer settings",
+           "ptr_cursor": "Cursor shape",
+           "ptr_image": "Choose a cursor image…",
+           "ptr_image_clear": "Clear the cursor image",
+           "ptr_dir": "Session profile (CLAUDE_CONFIG_DIR)…",
+           "ptr_dir_clear": "Clear the session profile",
+           "ptr_pick_image": "Image to use as the pointer",
+           "ptr_pick_dir": "CLAUDE_CONFIG_DIR for started sessions",
+           "ptr_saved": "Pointer settings saved",
+           "ptr_bad_image": "That file could not be read as an image",
+           "history": "🗒 Conversation log…"},
 }
 
 # 도크 재정렬 주기(ms): 앞자리 펫이 종료해 생긴 구멍을 뒷펫이 메워 대열을 다시
@@ -252,6 +298,9 @@ SAY_SEC = 12.0
 # 글자를 보낸 뒤 엔터를 떼어 보내기까지 기다리는 시간(ms). 코덱스의 붙여넣기
 # 판정에서 벗어날 만큼은 길고, 사람 눈에 띄지 않을 만큼은 짧게.
 ENTER_DELAY_MS = 250
+
+# 답을 기다리며 크리처가 바쁜 척하는 시간(초).
+ASK_WAIT_TIMEOUT = 600.0
 
 # transient motions offered in the menus: (name, seconds, {lang: label})
 MOTION_MENU = [
@@ -294,6 +343,11 @@ def _macos_keep_visible(widget):
         another window);
       - stop the Show-Desktop / Mission Control gesture sweeping it off-screen."""
     if sys.platform != "darwin":
+        return
+    # The offscreen/minimal QPA plugins hand back a winId that is not an
+    # NSView*, and poking AppKit with it segfaults rather than raising -- so
+    # the try/except below cannot save us. Check the platform name instead.
+    if QApplication.platformName() in ("offscreen", "minimal", "vnc"):
         return
     try:
         from claudlet.platform.geom import macos
@@ -502,81 +556,376 @@ class Companion(QWidget):
         p.end()
 
 
-class Bubble(QWidget):
-    """크리처가 한 말을 띄우는 작은 창.
+class SpeechBubble(QWidget):
+    """A frameless bubble showing one answer next to the creature.
 
-    펫 창 안에 그리면 안 된다 — 그 창은 크리처 크기에 맞춰져 있고(물리·도크·
-    퍼치가 그 크기를 그대로 쓴다) 늘릴 수 없어서, 조금만 긴 말도 잘린다.
-    그래서 자기 창을 갖는다. 클릭은 통과시키고 포커스는 절대 가져가지 않는다."""
+    A separate window rather than another creature prop: the in-creature bubble
+    (`core/creature.py`) is a fixed-size pixel drawing sized for one canned word,
+    and an answer is arbitrary text. Placement and wrapping live in
+    `core/bubble.py` so they can be tested without a display; this class only
+    paints and forwards clicks.
 
-    MAX_W = 360            # 이보다 넓어지지 않고 줄을 바꾼다
-    PAD = 8
-    GAP = 6                # 크리처 머리와 말풍선 사이
+    The bubble never takes focus (WindowDoesNotAcceptFocus) so the user's typing
+    stays where it was. The reply affordance does not change that: clicking it
+    opens a modal dialog, which is the only thing that takes the caret, and only
+    because the user asked for it.
 
-    def __init__(self):
+    Two click targets, so `hit()` decides which one -- a bubble showing an answer
+    carries a small "되묻기" footer, and a click there re-asks about the SAME
+    window instead of dismissing.
+    """
+    def __init__(self, text, pet_rect, screen_rect, on_close, lang="ko",
+                 on_reply=None, reply_label=""):
         super().__init__(None)
+        self._on_close = on_close
+        self._on_reply = on_reply
+        self._reply_label = reply_label if on_reply else ""
+        self._lines, w, h, self._truncated = bubblegeom.layout(
+            text, footer=self._reply_label)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint
+                            | Qt.WindowType.WindowStaysOnTopHint
+                            | Qt.WindowType.Tool
+                            | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        x, y = bubblegeom.place(pet_rect, (w, h), screen_rect)
+        self.setGeometry(int(x), int(y), int(w), int(h))
+        self._tail = bubblegeom.tail_x(pet_rect, x, w)
+        self._below = y > pet_rect[1]
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        # Qt.Tool is an NSPanel on macOS and hidesOnDeactivate defaults to YES,
+        # so the bubble vanished the moment the user's own terminal was
+        # frontmost -- which is always, since that is where they asked from.
+        # The pet already does this; the bubble has to as well.
+        _macos_keep_visible(self)
+
+    def follow(self, pet_rect, screen_rect):
+        """Re-place the bubble beside a moved creature.
+
+        The pet moves constantly -- roaming, dragged, thrown, docked -- and a
+        bubble pinned to where it used to be reads as a stuck window. Size does
+        not change (the text is the same), so this is placement only.
+        """
+        w, h = self.width(), self.height()
+        x, y = bubblegeom.place(pet_rect, (w, h), screen_rect)
+        self._tail = bubblegeom.tail_x(pet_rect, x, w)
+        self._below = y > pet_rect[1]
+        self.move(int(x), int(y))
+        self.update()          # the tail moved, so the painted shape changed
+        return int(x), int(y)
+
+    def text(self):
+        """What is actually displayed -- what tests assert on."""
+        return "\n".join(self._lines)
+
+    def has_reply(self):
+        """True when this bubble offers a follow-up."""
+        return self._on_reply is not None
+
+    def hit(self, y):
+        """Which target a click at local `y` lands on: "reply" or "close"."""
+        if self._on_reply is None:
+            return "close"
+        return "reply" if y >= bubblegeom.footer_top(self._lines) else "close"
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w, h = self.width(), self.height()
+        body = QColor(255, 255, 255, 244)
+        edge = QColor(60, 50, 45, 210)
+        path = QPainterPath()
+        path.addRoundedRect(0.5, 0.5, w - 1.0, h - 1.0, 8.0, 8.0)
+        # The tail is part of the same path so the outline runs around both and
+        # there is no seam where it meets the body.
+        tri = QPainterPath()
+        tx = float(self._tail)
+        if self._below:
+            tri.moveTo(tx - 6, 0.5); tri.lineTo(tx + 6, 0.5); tri.lineTo(tx, -6.0)
+        else:
+            tri.moveTo(tx - 6, h - 0.5); tri.lineTo(tx + 6, h - 0.5); tri.lineTo(tx, h + 6.0)
+        tri.closeSubpath()
+        path = path.united(tri)
+        p.fillPath(path, body)
+        p.strokePath(path, QPen(edge, 1.0))
+        f = QFont()
+        f.setPixelSize(12)
+        p.setFont(f)
+        # The footer is the last line; draw it in the link colour so it reads as
+        # clickable rather than as more answer text.
+        last = len(self._lines) - 1
+        y = bubblegeom.PAD_Y
+        for i, line in enumerate(self._lines):
+            if self._reply_label and i == last:
+                p.setPen(QPen(QColor(40, 90, 170)))
+            else:
+                p.setPen(QPen(QColor(30, 26, 22)))
+            p.drawText(bubblegeom.PAD_X, y + 12, line)
+            y += bubblegeom.LINE_H
+        p.end()
+
+    def mousePressEvent(self, e):
+        y = e.position().y() if e is not None else 0.0
+        if self.hit(y) == "reply":
+            self._on_reply()
+        else:
+            self._on_close()
+
+
+# Config cursor names -> Qt shapes. Names rather than Qt constants so the
+# config file stays readable and does not depend on PyQt's enum spelling.
+_POINTER_SHAPES = {
+    "cross": Qt.CursorShape.CrossCursor,
+    "crosshair": Qt.CursorShape.CrossCursor,
+    "pointing": Qt.CursorShape.PointingHandCursor,
+    "arrow": Qt.CursorShape.ArrowCursor,
+    "open-hand": Qt.CursorShape.OpenHandCursor,
+}
+
+
+def pointer_cursor(cfg, load=None):
+    """The cursor pointer mode should use, from the `pointer` config section.
+
+    A custom image wins when it loads; anything wrong with it (missing file,
+    unreadable, absurd size) falls back to the named shape rather than leaving
+    the user with an invisible cursor they cannot aim.
+
+    `load` is injected so the fallback logic is testable without a display.
+    """
+    cfg = cfg or {}
+    shape = _POINTER_SHAPES.get(cfg.get("cursor"), Qt.CursorShape.CrossCursor)
+    path = cfg.get("image")
+    if not path:
+        return QCursor(shape)
+    loader = load or QPixmap
+    try:
+        pm = loader(path)
+    except Exception:
+        return QCursor(shape)
+    if pm is None or pm.isNull():
+        return QCursor(shape)
+    cap = petconfig.POINTER_IMAGE_MAX
+    if pm.width() > cap or pm.height() > cap:
+        pm = pm.scaled(cap, cap, Qt.AspectRatioMode.KeepAspectRatio,
+                       Qt.TransformationMode.SmoothTransformation)
+    hot = cfg.get("hotspot")
+    if isinstance(hot, (list, tuple)) and len(hot) == 2:
+        hx, hy = int(hot[0]), int(hot[1])
+    else:
+        hx, hy = pm.width() // 2, pm.height() // 2
+    # Out-of-range hotspots make the cursor un-aimable; clamp rather than refuse.
+    hx = max(0, min(hx, pm.width() - 1))
+    hy = max(0, min(hy, pm.height() - 1))
+    return QCursor(pm, hx, hy)
+
+
+class HistoryWindow(QDialog):
+    """This pet's own conversation log.
+
+    A real window rather than a bubble: a bubble holds one answer, and the
+    point here is to scan several exchanges and find the one you half remember.
+
+    Scoped to THIS pet's session -- each pet is paired with one agent session,
+    so "what did I ask this creature" is the question being answered. The CLI
+    (`claudlet-ask --history --all-sessions`) is where you go to see everything.
+    """
+    def __init__(self, session_id, lang="ko", parent=None):
+        super().__init__(parent)
+        self._session = session_id
+        self._lang = lang
+        self._full = False
+        self.setWindowTitle("claudlet — %s"
+                            % ("conversation" if lang == "en" else "대화 내역"))
+        self.resize(560, 460)
+
+        self._view = QTextBrowser(self)
+        self._view.setOpenExternalLinks(False)
+
+        # Two views, because they answer different questions: "what did I ask
+        # the creature" (the pet's own mailbox) and "what has this session been
+        # doing" (the agent's transcript). Merging them would bury the handful
+        # of pet exchanges under hundreds of tool calls.
+        self._tabs = QTabBar(self)
+        self._tabs.addTab("펫과의 대화" if lang != "en" else "With the pet")
+        self._tabs.addTab("세션 활동" if lang != "en" else "Session activity")
+        self._tabs.currentChanged.connect(lambda _i: self.refresh())
+
+        self._toggle = QPushButton(self)
+        self._toggle.setCheckable(True)
+        self._toggle.setText("보낸 화면 내용 보기" if lang != "en"
+                             else "Show what was sent")
+        self._toggle.toggled.connect(self._set_full)
+
+        self._clear = QPushButton("내역 지우기" if lang != "en" else "Clear",
+                                  self)
+        self._clear.clicked.connect(self._clear_history)
+
+        close = QPushButton("닫기" if lang != "en" else "Close", self)
+        close.clicked.connect(self.close)
+
+        row = QHBoxLayout()
+        row.addWidget(self._toggle)
+        row.addWidget(self._clear)
+        row.addStretch(1)
+        row.addWidget(close)
+
+        box = QVBoxLayout(self)
+        box.addWidget(self._tabs)
+        box.addWidget(self._view)
+        box.addLayout(row)
+        self.refresh()
+
+    def view(self):
+        """Which tab is showing: "pet" or "session"."""
+        return "pet" if self._tabs.currentIndex() == 0 else "session"
+
+    def timeline(self):
+        """The session's transcript timeline. Separate so tests can call it."""
+        try:
+            return transcript.load(self._session)
+        except Exception:
+            return []
+
+    def _set_full(self, on):
+        self._full = bool(on)
+        self.refresh()
+
+    def _clear_history(self):
+        try:
+            askhistory.clear(self._session)
+        except Exception:
+            pass
+        self.refresh()
+
+    def records(self):
+        """This session's records. Separate so tests need no widget internals."""
+        try:
+            return askhistory.load(self._session)
+        except Exception:
+            return []
+
+    def refresh(self):
+        if self.view() == "session":
+            # The transcript is Claude Code's file; we only read it, so the
+            # controls that write have nothing to act on here.
+            self._view.setHtml(transcript.render_html(self.timeline(), self._lang))
+            self._toggle.setEnabled(False)
+            self._clear.setEnabled(False)
+            return
+        recs = self.records()
+        self._view.setHtml(askhistory.render_html(recs, self._lang, self._full))
+        self._toggle.setEnabled(True)
+        self._clear.setEnabled(bool(recs))
+
+    def html(self):
+        """What is displayed -- what tests assert on."""
+        return self._view.toHtml()
+
+
+class PointerOverlay(QWidget):
+    """Full-screen overlay for picking a REGION to ask about.
+
+    One per monitor, for the reason spelled out in ZoneOverlay: a single
+    union-sized window gets clamped to one screen by the WM, so a region drawn
+    on the second monitor lands on the wrong one. Coordinates are GLOBAL
+    throughout -- captured from e.globalPosition(), painted via mapToGlobal.
+
+    The cursor is a crosshair while this is up: that IS the "pointer mode" the
+    user turned on, and it is the only feedback that the next drag means
+    something different than usual.
+
+    Note this overlay covers the screen, so the windows underneath cannot be
+    hit-tested through it -- which is why the region, not the click target, is
+    what gets resolved to a window afterwards (see Pet._region_target).
+    """
+    def __init__(self, screen_rect, on_region, on_done, hint=None, cursor=None):
+        super().__init__(None)
+        self._on_region = on_region
+        self._on_done = on_done
+        self._hint = hint
+        self._drag = None                  # (x0,y0,x1,y1) GLOBAL, in-progress
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint
                             | Qt.WindowType.WindowStaysOnTopHint
                             | Qt.WindowType.Tool)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._text = ""
-        self._rect = QRect(0, 0, 0, 0)     # 계산된 글자 영역
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setGeometry(screen_rect)
+        self.setCursor(cursor or QCursor(Qt.CursorShape.CrossCursor))
+        self.setMouseTracking(True)
 
-    def _font(self):
-        from PyQt6.QtGui import QFont
-        f = QFont("Sans")
-        f.setPointSizeF(10.0)
-        f.setBold(True)
-        return f
+    def showEvent(self, e):
+        super().showEvent(e)
+        # Same NSPanel auto-hide problem as the bubble: the overlay is armed
+        # while the user is working in another app, which is precisely when
+        # AppKit would hide it.
+        _macos_keep_visible(self)
 
-    def say(self, text, anchor_rect):
-        """`anchor_rect`(펫의 화면 좌표) 위에 `text` 를 띄운다."""
-        from PyQt6.QtGui import QFontMetrics
-        self._text = text
-        fm = QFontMetrics(self._font())
-        flags = int(Qt.TextFlag.TextWordWrap)
-        box = fm.boundingRect(QRect(0, 0, self.MAX_W, 10000), flags, text)
-        w, h = box.width() + 2 * self.PAD, box.height() + 2 * self.PAD
-        self._rect = QRect(self.PAD, self.PAD, box.width(), box.height())
-        self.setFixedSize(w, h + 6)        # +6: 아래 꼬리
-        self.move(*self._place(anchor_rect, w, h + 6))
-        self.show()
-        self.raise_()
-        self.update()
+    def on_region(self, rect):
+        """Entry point the controller/tests call when a region is finalized."""
+        cb, self._on_region = self._on_region, None
+        if cb is not None:
+            cb(rect)
 
-    def follow(self, anchor_rect):
-        if not self.isVisible():
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.RightButton:
+            self._finish(); return
+        g = e.globalPosition()
+        self._drag = (g.x(), g.y(), g.x(), g.y())
+
+    def mouseMoveEvent(self, e):
+        if self._drag is not None:
+            g = e.globalPosition()
+            self._drag = (self._drag[0], self._drag[1], g.x(), g.y())
+            self.update()
+
+    def mouseReleaseEvent(self, e):
+        if self._drag is None:
             return
-        x, y = self._place(anchor_rect, self.width(), self.height())
-        if (x, y) != (self.x(), self.y()):     # 매 프레임 move 는 낭비다
-            self.move(x, y)
+        x0, y0, x1, y1 = self._drag
+        self._drag = None
+        rect = roambounds.normalize_rect(x0, y0, x1, y1)
+        self.update()
+        if rect is not None:
+            self.on_region(rect)
 
-    def _place(self, anchor, w, h):
-        """펫 머리 위 가운데. 화면 밖으로 나가면 안쪽으로 민다."""
-        x = anchor.center().x() - w // 2
-        y = anchor.top() - h - self.GAP
-        screen = QApplication.screenAt(anchor.center()) or QApplication.primaryScreen()
-        g = screen.availableGeometry()
-        x = max(g.left(), min(x, g.right() - w))
-        if y < g.top():                    # 위가 없으면 아래로 뒤집는다
-            y = min(anchor.bottom() + self.GAP, g.bottom() - h)
-        return int(x), int(y)
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key.Key_Escape:
+            self._finish()
+
+    def _finish(self):
+        cb, self._on_done = self._on_done, None
+        if cb is not None:
+            cb()
+
+    def closeEvent(self, e):
+        self._finish()
+        super().closeEvent(e)
 
     def paintEvent(self, _e):
-        from PyQt6.QtGui import QPainter, QPainterPath, QPen
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.setPen(Qt.PenStyle.NoPen)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), self.height() - 6), 8, 8)
-        p.fillPath(path, QColor(255, 255, 255, 243))
-        p.fillRect(QRectF(self.width() / 2 - 5, self.height() - 7, 10, 6),
-                   QColor(255, 255, 255, 243))
-        p.setFont(self._font())
-        p.setPen(QPen(QColor("#2A2A30")))
-        p.drawText(self._rect, int(Qt.TextFlag.TextWordWrap), self._text)
+        origin = self.mapToGlobal(QPoint(0, 0))
+        # A faint wash so it is obvious the screen is armed, light enough to
+        # still read what is underneath -- the user is choosing by what they see.
+        p.fillRect(self.rect(), QColor(20, 24, 34, 40))
+        if self._hint:
+            f = QFont()
+            f.setPixelSize(13)
+            p.setFont(f)
+            p.setPen(QPen(QColor(255, 255, 255, 230)))
+            p.drawText(16, 28, self._hint)
+        if self._drag is not None:
+            x0, y0, x1, y1 = self._drag
+            r = QRectF(min(x0, x1) - origin.x(), min(y0, y1) - origin.y(),
+                       abs(x1 - x0), abs(y1 - y0))
+            # Punch the selection clear so the region reads as "this part".
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+            p.fillRect(r, QColor(0, 0, 0, 255))
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            p.setPen(QPen(QColor(90, 170, 255, 235), 1.5))
+            p.drawRect(r)
         p.end()
 
 
@@ -807,6 +1156,14 @@ class Pet(QWidget):
         self._project_names = geom.project_names(self._cwd) or (self._project,)
         self._tip_checked = 0.0              # last transcript read (see _session_tip)
         self.setToolTip(self._session_tip())
+        self._bubble = None                  # answer bubble, when one is showing
+        self._ask_target = None              # window the last question was about
+        self._ask_region = None              # region of the last question, if any
+        self._ask_waiting = False            # holding `thinking` for an answer
+        self._ask_waiting_since = 0.0        # when that hold started
+        self._pointer_overlays = []           # pointer-mode overlays, one per screen
+        self._ask_timer = None
+        self._ask_poll = 0                   # tick counter for answer polling
         self._companions = []                # agent followers, one per running agent
         self._departing = []                 # finished agents' companions waving goodbye
         self._throw_trail = []               # main-pet snapshots replayed by companions
@@ -873,7 +1230,6 @@ class Pet(QWidget):
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
-        self._bubble = None                # 말풍선은 자기 창이다 (Bubble)
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
         self._reply_path = ""
         self._reply_left = 0
@@ -1308,6 +1664,19 @@ class Pet(QWidget):
         eff = self.claude_state
         self._update_tray_icon()
 
+        # An answer can land at any time; check about once a second rather than
+        # every frame -- it is a filesystem stat and nothing needs it sooner.
+        self._ask_poll += 1
+        if self._ask_poll >= FPS:
+            self._ask_poll = 0
+            self._poll_answer()
+
+        # Stop acting busy for a question nobody is going to answer -- the
+        # mailbox drops it at ASK_WAIT_TIMEOUT anyway, and a creature stuck
+        # thinking forever is worse than one that quietly gives up.
+        if self._ask_waiting and now - self._ask_waiting_since > ASK_WAIT_TIMEOUT:
+            self._end_thinking()
+
         # transient motion override (jump/wave/sing/juggle + exposed states):
         # plays for its duration then reverts. Never overrides drag/throw.
         motion_active = False
@@ -1451,6 +1820,11 @@ class Pet(QWidget):
             self._social_start(now)
 
         self.move(int(self.x), int(self.y))
+        # Keep the bubble beside the creature. Must come AFTER the move above:
+        # placing it first leaves it a tick behind, which is visible as the
+        # bubble lagging the pet while it roams. moveEvent covers dragging, but
+        # Qt delivers none to a hidden widget, so this is what guarantees it.
+        self._reposition_bubble()
         # hide/show with the window we're riding (perched-on / contained-in)
         self._update_visibility()
         self.update()
@@ -2540,6 +2914,23 @@ class Pet(QWidget):
         super().showEvent(e)
         _macos_keep_visible(self)      # stop AppKit hiding it on app deactivate
 
+    def moveEvent(self, e):
+        """Drag the bubble along with the creature.
+
+        Hooked here rather than at each call site because the pet moves from a
+        dozen places -- roaming, dragging, throwing, docking, screen changes --
+        and Qt fires moveEvent for all of them.
+        """
+        super().moveEvent(e)
+        self._reposition_bubble()
+
+    def _reposition_bubble(self):
+        b = getattr(self, "_bubble", None)
+        if b is None:
+            return
+        r = self.geometry()
+        b.follow((r.x(), r.y(), r.width(), r.height()), self._screen_rect())
+
     # ---------- painting ----------
     def paintEvent(self, _e):
         p = QPainter(self)
@@ -2614,9 +3005,9 @@ class Pet(QWidget):
         return (gw * self.u) / 22.0 if gw else self.u
 
     def _show_say(self):
-        if self._bubble is None:
-            self._bubble = Bubble()
-        self._bubble.say(self._say, self.frameGeometry())
+        # 말풍선은 하나뿐이다 — 포인터 질문의 답과 같은 창을 쓴다.
+        # (되묻기 꼬리표는 답일 때만 붙으므로 여기서는 reply=False)
+        self.say(self._say)
 
     # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
     REPLY_POLL_MS = 200
@@ -2660,20 +3051,15 @@ class Pet(QWidget):
         self._reply_left = 0
         if self._reply_timer is not None:
             self._reply_timer.stop()
-        if self._bubble is not None:
-            self._bubble.hide()
+        self._dismiss_bubble()
 
     def _tick_say(self):
-        """말풍선은 펫을 따라다니고, 시간이 지나면 사라진다. `_tick` 에서 부른다."""
-        if not self._say:
-            return
-        if time.monotonic() >= self._say_until:
+        """때가 되면 크리처의 대사를 거둔다. `_tick` 에서 부른다.
+
+        따라다니는 일은 `_reposition_bubble` 이 이미 하므로 여기서는 수명만 본다."""
+        if self._say and time.monotonic() >= self._say_until:
             self._say = ""
-            if self._bubble is not None:
-                self._bubble.hide()
-            return
-        if self._bubble is not None:
-            self._bubble.follow(self.frameGeometry())
+            self._dismiss_bubble()
 
     def _draw_note(self, p):
         """아웃박스에 쌓인 것이 있으면 크리처가 쪽지를 물고 있다.
@@ -2934,6 +3320,36 @@ class Pet(QWidget):
             a_talk_drop = QAction(self.ui["talk_drop"] % self._notes, m)
             m.addAction(a_talk_drop)
         m.addSeparator()
+        a_ask = QAction(self.ui["ask"], m)
+        m.addAction(a_ask)
+
+        pcfg = self._pointer_cfg()
+        psub = m.addMenu(self.ui["ptr_menu"])
+        cursor_sub = psub.addMenu(self.ui["ptr_cursor"])
+        cursor_acts = {}
+        current = pcfg.get("cursor") or petconfig.DEFAULT_POINTER_CURSOR
+        for name in petconfig.POINTER_CURSORS:
+            act = QAction(name, cursor_sub, checkable=True)
+            act.setChecked(name == current and not pcfg.get("image"))
+            cursor_sub.addAction(act)
+            cursor_acts[act] = name
+        a_pimg = QAction(self.ui["ptr_image"], psub)
+        psub.addAction(a_pimg)
+        a_pimg_clear = None
+        if pcfg.get("image"):
+            a_pimg_clear = QAction(self.ui["ptr_image_clear"], psub)
+            psub.addAction(a_pimg_clear)
+        psub.addSeparator()
+        a_pdir = QAction(self.ui["ptr_dir"], psub)
+        psub.addAction(a_pdir)
+        a_pdir_clear = None
+        if pcfg.get("claude_config_dir"):
+            a_pdir_clear = QAction(self.ui["ptr_dir_clear"], psub)
+            psub.addAction(a_pdir_clear)
+
+        a_hist = QAction(self.ui["history"], m)
+        m.addAction(a_hist)
+
         a_settings = QAction(self.ui["settings"], m)
         m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
@@ -2974,6 +3390,23 @@ class Pet(QWidget):
             self._spawn_test_companion(+1)
         elif a_comp_del is not None and chosen == a_comp_del:
             self._spawn_test_companion(-1)
+        elif chosen == a_ask:
+            self._start_ask()
+        elif chosen in cursor_acts:
+            # Picking a shape clears a custom image: otherwise the image keeps
+            # winning and the shape they just ticked does nothing.
+            self._save_pointer({"cursor": cursor_acts[chosen], "image": None,
+                                "hotspot": None})
+        elif chosen == a_pimg:
+            self._pick_pointer_image()
+        elif a_pimg_clear is not None and chosen == a_pimg_clear:
+            self._save_pointer({"image": None, "hotspot": None})
+        elif chosen == a_pdir:
+            self._pick_pointer_dir()
+        elif a_pdir_clear is not None and chosen == a_pdir_clear:
+            self._save_pointer({"claude_config_dir": None})
+        elif chosen == a_hist:
+            self.show_history()
         elif chosen == a_settings:
             self._open_settings()
         elif chosen == a_zone_edit:
@@ -2982,6 +3415,343 @@ class Pet(QWidget):
             self._clear_zones()
         elif chosen == a_quit:
             self._quit()
+
+    # ---------- ask: question about a window, answer in a bubble ----------
+    def show_history(self):
+        """Open (or raise) this pet's conversation log."""
+        win = getattr(self, "_history_win", None)
+        if win is not None:
+            try:
+                win.refresh()
+                win.show()
+                win.raise_()
+                return win
+            except RuntimeError:
+                pass          # the window was closed and destroyed; remake it
+        self._history_win = HistoryWindow(self.session_id, self.lang)
+        self._history_win.show()
+        return self._history_win
+
+    def _save_pointer(self, updates, notify=True):
+        """Merge into the `pointer` config section and confirm it.
+
+        Writes only what changed: the menu edits one thing at a time, and
+        rewriting the whole section would clobber whatever the settings page or
+        the CLI set in between.
+        """
+        try:
+            current = dict(petconfig.load_config().get("pointer")
+                           or petconfig.DEFAULT_POINTER)
+            current.update(updates)
+            petconfig.save_keys({"pointer": {k: v for k, v in current.items()
+                                             if v is not None}})
+        except Exception:
+            return None
+        if notify:
+            self.say(self.ui["ptr_saved"])
+        return current
+
+    def _pick_pointer_image(self):
+        """Ask for an image file and adopt it as the pointer cursor."""
+        start = os.path.dirname(self._pointer_cfg().get("image") or "") \
+            or os.path.expanduser("~")
+        patterns = " ".join("*" + s for s in petconfig.POINTER_IMAGE_SUFFIXES)
+        path, _ = QFileDialog.getOpenFileName(
+            None, self.ui["ptr_pick_image"], start,
+            "Images (%s)" % patterns)
+        if not path:
+            return None
+        # Check it actually decodes before saving: a file with the right
+        # extension that Qt cannot read would silently fall back to the named
+        # cursor, which looks like the setting did not take.
+        if QPixmap(path).isNull():
+            self.say(self.ui["ptr_bad_image"])
+            return None
+        return self._save_pointer({"image": path, "hotspot": None})
+
+    def _pick_pointer_dir(self):
+        """Ask for the CLAUDE_CONFIG_DIR that started sessions should use."""
+        start = self._pointer_cfg().get("claude_config_dir") \
+            or os.path.expanduser("~")
+        path = QFileDialog.getExistingDirectory(
+            None, self.ui["ptr_pick_dir"], start)
+        if not path:
+            return None
+        return self._save_pointer({"claude_config_dir": path})
+
+    def _pointer_cfg(self):
+        """The `pointer` config section, re-read so a settings change lands
+        without restarting the pet (same reason `restyle` exists)."""
+        try:
+            return petconfig.load_config().get("pointer") or {}
+        except Exception:
+            return {}
+
+    def _screen_rect(self):
+        """Virtual-desktop rect the bubble must stay inside."""
+        scr = self.screen() or QApplication.primaryScreen()
+        g = scr.availableGeometry()
+        return (g.x(), g.y(), g.width(), g.height())
+
+    def say(self, text, reply=False):
+        """Show `text` in a bubble beside the creature. The tests' entry point.
+
+        `reply=True` adds the follow-up footer. Only answers get it: offering
+        "되묻기" on "그 지점에 창이 없어요" would re-ask about a window we never
+        resolved.
+        """
+        self._dismiss_bubble()
+        if not text:
+            return None
+        r = self.geometry()
+        can_reply = bool(reply) and self._ask_target is not None
+        self._bubble = SpeechBubble(
+            text, (r.x(), r.y(), r.width(), r.height()), self._screen_rect(),
+            self._dismiss_bubble, self.lang,
+            on_reply=self._reply_to_bubble if can_reply else None,
+            reply_label=self.ui["ask_again"] if can_reply else "")
+        self._bubble.show()
+        return self._bubble
+
+    def _reply_to_bubble(self):
+        """Footer clicked: ask another question about the SAME window.
+
+        Skips the window-picking step entirely -- the user already told us which
+        window they meant, and making them click it again is the thing this
+        exists to remove.
+        """
+        win = self._ask_target
+        if win is None:
+            self._dismiss_bubble()
+            return None
+        self._dismiss_bubble()
+        q, ok = QInputDialog.getText(None, "claudlet", self.ui["ask_prompt"],
+                                     QLineEdit.EchoMode.Normal, "")
+        if not ok or not q.strip():
+            return None
+        return self.ask_window(win, q.strip(), region=self._ask_region)
+
+    def _dismiss_bubble(self):
+        b = getattr(self, "_bubble", None)
+        if b is not None:
+            b.close()
+            self._bubble = None
+
+    def ask_about(self, point, question):
+        """Build the payload for the window at `point`, confirm, and post it.
+
+        Split from the menu handler so a test can drive it without a dialog:
+        the interesting behaviour is which window got picked and whether the
+        question was actually posted, not how the text was typed.
+        """
+        wins = self._ask_windows()
+        win = geom.window_at(point[0], point[1], wins) if wins else None
+        if win is None:
+            self.say(self.ui["ask_none"])
+            return None
+        return self.ask_window(win, question)
+
+    def ask_window(self, win, question, region=None):
+        """Post a question about an already-resolved window.
+
+        The half of ask_about that doesn't need a screen point, so the bubble's
+        follow-up can reuse it without re-picking. `region` narrows the read to
+        the elements the user actually dragged over; without it the whole window
+        is read.
+        """
+        if win is None:
+            return None
+        backend = self._ask_backend()
+        reader = None
+        if backend is not None:
+            if region is not None and hasattr(backend, "read_region"):
+                box = (region["x"], region["y"], region["w"], region["h"])
+                reader = lambda w: backend.read_region(w, box)   # noqa: E731
+            else:
+                reader = backend.read_window
+        ctx = inspectmod.build_context(win, question, read_text=reader)
+        askbox.post_question(self.session_id, inspectmod.render_prompt(ctx),
+                             ctx["target"])
+        # Log it too: the mailbox deletes the question as soon as the session
+        # reads it, so without this there is no way to see what was asked --
+        # or to tell "never answered" from "answered while you looked away".
+        try:
+            askhistory.record_question(self.session_id, question, ctx["target"],
+                                       ctx["text"], region)
+        except Exception:
+            pass          # a history failure must never lose the question
+        # Remember both so the answer's bubble can offer a follow-up on the same
+        # thing the user pointed at, not on the whole window.
+        self._ask_target = win
+        self._ask_region = region
+        self.say(self.ui["ask_sent"])
+        self._begin_thinking()
+        return ctx
+
+    def _begin_thinking(self):
+        """Act out "I'm working on it" until the answer lands.
+
+        dur=0 holds the motion open -- there is no telling how long the session
+        will take, and a motion that expires on a timer would go still while the
+        question is still in flight, which reads as "it forgot".
+        """
+        self._ask_waiting = True
+        self._ask_waiting_since = time.monotonic()
+        self._play_motion("thinking", 0.0)
+
+    def _end_thinking(self):
+        """Drop the held motion. Safe to call when nothing is held.
+
+        Only clears if OUR motion is still the one playing: the user may have
+        picked a motion from the menu while waiting, and cancelling their choice
+        because an answer happened to arrive would be taking something away they
+        asked for.
+        """
+        if not self._ask_waiting:
+            return
+        self._ask_waiting = False
+        if self._motion == "thinking":
+            self._play_motion(None)    # the `stop` branch clears _motion
+
+    def _ask_windows(self):
+        """Window list for picking, or [] where no backend enumerates."""
+        try:
+            if sys.platform == "darwin":
+                from claudlet.platform.geom import macos
+                return geom.parse_dump(macos.dump()) if macos.available() else []
+            if sys.platform.startswith("win"):
+                from claudlet.platform.geom import win32
+                return geom.parse_dump(win32.dump()) if win32.available() else []
+        except Exception:
+            return []
+        return []
+
+    def _ask_backend(self):
+        """Text reader for this OS, or None. Mirrors cli/askcli.text_backend."""
+        try:
+            if sys.platform == "darwin":
+                from claudlet.platform import axtree
+                return axtree
+            if sys.platform.startswith("win"):
+                from claudlet.platform import uiatree
+                return uiatree
+        except Exception:
+            return None
+        return None
+
+    def _start_ask(self):
+        """Menu handler: arm the pointer straight away.
+
+        Select first, ask second. Typing the question before seeing what you are
+        pointing at means composing it blind -- and the thing you want to ask
+        about is usually what makes you phrase it the way you do.
+        """
+        self.enter_pointer()
+
+    def _prompt_question(self, target=""):
+        """Modal asking what they want to know. "" when cancelled or empty.
+
+        The only thing in this feature that takes focus, and only after the user
+        acted -- the bubble and the overlay both stay focus-free.
+        """
+        label = self.ui["ask_prompt"]
+        if target:
+            label = "%s\n%s" % (target, label)
+        q, ok = QInputDialog.getText(None, "claudlet", label,
+                                     QLineEdit.EchoMode.Normal, "")
+        return q.strip() if ok and q.strip() else ""
+
+    def enter_pointer(self):
+        """Arm pointer mode: crosshair cursor, drag to select a region."""
+        if self._pointer_overlays:
+            return
+        self._dismiss_bubble()
+
+        def _picked(rect):
+            self.exit_pointer()
+            # Resolve the window BEFORE prompting so the dialog can name what
+            # was selected -- and so a miss is reported without making the user
+            # type a question first.
+            win = self._region_target(rect)
+            if win is None:
+                self.say(self.ui["ask_none"])
+                return
+            q = self._prompt_question(inspectmod.describe_window(win))
+            if not q:
+                self.say(self.ui["ask_cancel"])
+                return
+            self.ask_window(win, q, region=rect)
+
+        def _done():
+            self.exit_pointer()
+
+        # One overlay per monitor -- a single union-sized window gets clamped to
+        # one screen by the WM (see ZoneOverlay).
+        cursor = pointer_cursor(self._pointer_cfg())
+        self._pointer_overlays = [
+            PointerOverlay(g, _picked, _done, hint=self.ui.get("ask_hint"),
+                           cursor=cursor)
+            for g in self._screens]
+        for ov in self._pointer_overlays:
+            ov.show()
+            ov.raise_()
+        return self._pointer_overlays
+
+    def exit_pointer(self):
+        """Tear down pointer mode. Idempotent -- any overlay finishing ends all."""
+        overlays, self._pointer_overlays = self._pointer_overlays, []
+        for ov in overlays:
+            ov._on_region = None
+            ov._on_done = None
+            ov.close()
+
+    def _region_target(self, rect):
+        """The window a selected region sits on: the topmost one at its centre.
+
+        Resolved from the region rather than from the click, because our own
+        overlay was covering the screen at click time -- hit-testing through it
+        would just find the overlay.
+        """
+        wins = self._ask_windows()
+        if not wins:
+            return None
+        cx = rect["x"] + rect["w"] / 2.0
+        cy = rect["y"] + rect["h"] / 2.0
+        win = geom.window_at(cx, cy, wins)
+        if win is not None:
+            return win
+        # Centre fell in a gap (a region spanning two windows, or desktop):
+        # fall back to whichever window the region overlaps most.
+        best, best_area = None, 0.0
+        for w in wins:
+            ox = max(0.0, min(w.x + w.w, rect["x"] + rect["w"]) - max(w.x, rect["x"]))
+            oy = max(0.0, min(w.y + w.h, rect["y"] + rect["h"]) - max(w.y, rect["y"]))
+            area = ox * oy
+            if area > best_area:
+                best, best_area = w, area
+        return best
+
+    def ask_region(self, rect, question):
+        """Post a question about the selected screen region."""
+        win = self._region_target(rect)
+        if win is None:
+            self.say(self.ui["ask_none"])
+            return None
+        return self.ask_window(win, question, region=rect)
+
+    def _poll_answer(self):
+        """Show an answer the session posted back, if any."""
+        try:
+            text = askbox.take_answer(self.session_id)
+        except Exception:
+            return
+        if text:
+            self._end_thinking()
+            try:
+                askhistory.record_answer(self.session_id, text)
+            except Exception:
+                pass
+            self.say(text, reply=True)
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
     def _toggle_follow(self):
@@ -3557,9 +4327,7 @@ class Pet(QWidget):
         # past QApplication.quit() on Windows; hiding it is a no-op elsewhere.
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
-        if getattr(self, "_bubble", None) is not None:
-            self._bubble.close()
-            self._bubble = None
+        self._dismiss_bubble()
         for c in getattr(self, "_companions", []) + getattr(self, "_departing", []):
             c.close()
         self._companions = []
