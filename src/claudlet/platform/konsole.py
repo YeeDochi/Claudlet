@@ -17,6 +17,7 @@ The parsing/decision logic here is pure and tested with a fake runner
 any missing method, non-Konsole host, or bus error returns None so the caller
 falls back to the plain window raise.
 """
+import os
 import re
 
 _SERVICE_PREFIX = "org.kde.konsole-"
@@ -147,3 +148,42 @@ def send_text(ancestor_pids, run, text):
     except Exception:
         return False
     return True
+
+
+# Konsole 은 sendText/runCommand 를 **기본으로 막아둔다**. introspection 에는
+# 메서드가 그대로 보이는데 호출하면 AccessDenied
+# ("보안에 민감한 DBus API가 비활성화되어 있습니다")가 돌아온다 — 있으니까
+# 된다고 넘겨짚으면 안 되는 자리였다. 켜는 곳은
+# 설정 → Konsole 설정 → 일반 → "DBus API의 보안에 민감한 부분 활성화"
+# (konsolerc 의 [General] EnableSecuritySensitiveDBusAPI).
+SENSITIVE_KEY = "enablesecuritysensitivedbusapi"
+
+
+def dbus_api_enabled(konsolerc_text):
+    """konsolerc 내용에서 sendText 가 허용돼 있는지. 순수.
+
+    설정이 없으면 꺼짐이 기본이다. 호출해 보고 알아내는 대신 설정을 읽는 이유는,
+    실패를 확인하는 유일한 방법이 실제로 글자를 밀어 넣어 보는 것이기 때문이다."""
+    group = None
+    for line in (konsolerc_text or "").splitlines():
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            group = line[1:-1].strip().lower()
+            continue
+        if group != "general" or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip().lower() == SENSITIVE_KEY:
+            return value.strip().lower() in ("true", "1", "yes", "on")
+    return False
+
+
+def can_send_text(config_home=None):
+    """이 기계의 Konsole 이 sendText 를 받아주나. konsolerc 를 읽는 얇은 껍데기."""
+    base = config_home or os.environ.get("XDG_CONFIG_HOME") or \
+        os.path.expanduser("~/.config")
+    try:
+        with open(os.path.join(base, "konsolerc"), encoding="utf-8") as f:
+            return dbus_api_enabled(f.read())
+    except OSError:
+        return False

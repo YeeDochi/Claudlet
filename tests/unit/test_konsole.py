@@ -171,3 +171,28 @@ def test_send_text_sends_nothing_for_an_empty_message():
         raise AssertionError("빈 메시지로 버스를 건드리면 안 된다")
 
     assert konsole.send_text({1}, run, "  ") is False
+
+
+# ---------- Konsole 이 sendText 를 아예 막아두었는지 ----------
+
+def test_sensitive_dbus_is_off_unless_the_user_turned_it_on():
+    # introspection 에는 sendText 가 보이지만 호출은 AccessDenied 로 막힌다
+    # ("보안에 민감한 DBus API가 비활성화되어 있습니다"). 기본값은 꺼짐.
+    assert konsole.dbus_api_enabled("[General]\nConfigVersion=1\n") is False
+    assert konsole.dbus_api_enabled("") is False
+    assert konsole.dbus_api_enabled(None) is False
+
+
+def test_sensitive_dbus_is_on_when_the_setting_says_so():
+    text = "[General]\nEnableSecuritySensitiveDBusAPI=true\n"
+    assert konsole.dbus_api_enabled(text) is True
+
+
+def test_the_setting_is_read_case_insensitively():
+    assert konsole.dbus_api_enabled("[General]\nEnableSecuritySensitiveDBusAPI=True\n") is True
+    assert konsole.dbus_api_enabled("[General]\nEnableSecuritySensitiveDBusAPI=false\n") is False
+
+
+def test_a_setting_in_another_group_does_not_count():
+    text = "[UiSettings]\nEnableSecuritySensitiveDBusAPI=true\n"
+    assert konsole.dbus_api_enabled(text) is False

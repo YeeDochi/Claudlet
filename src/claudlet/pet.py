@@ -2989,13 +2989,32 @@ class Pet(QWidget):
     def _can_talk_now(self):
         """이 호스트에서 프롬프트에 직접 써 넣을 수 있나. 지금은 KDE/Konsole 뿐 —
         다른 호스트는 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        # 메서드가 있다고 되는 게 아니다: Konsole 은 sendText 를 기본으로 막아둔다
+        # (AccessDenied). 막혀 있으면 이 항목을 아예 띄우지 않는다 — 눌렀더니
+        # 조용히 쪽지가 되는 것보다 없는 편이 정직하다.
         return bool(sys.platform.startswith("linux") and self._ancestor_pids
-                    and "konsole" in [c.lower() for c in (self.host_classes or [])])
+                    and "konsole" in [c.lower() for c in (self.host_classes or [])]
+                    and konsole.can_send_text())
 
     def _ask_text(self):
+        """말할 내용을 묻는다.
+
+        부모를 펫으로 두면 안 된다. 펫 창은 Tool + WA_ShowWithoutActivating 이라
+        절대 활성화되지 않고, 그 밑에 달린 대화상자는 입력기(IME)를 못 잡는다 —
+        알파벳은 들어오는데 한글이 한 글자도 안 써지는 게 그 증상이다.
+        독립 창으로 띄우고 직접 활성화한다."""
         from PyQt6.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self, "claudlet", self.ui["talk_prompt"])
-        return text.strip() if ok else ""
+        d = QInputDialog(None)
+        d.setWindowFlags(Qt.WindowType.Dialog
+                         | Qt.WindowType.WindowStaysOnTopHint)
+        d.setWindowTitle("claudlet")
+        d.setLabelText(self.ui["talk_prompt"])
+        d.setInputMode(QInputDialog.InputMode.TextInput)
+        d.show()
+        d.raise_()
+        d.activateWindow()                  # 이게 있어야 입력기가 붙는다
+        ok = d.exec()
+        return d.textValue().strip() if ok else ""
 
     def _talk(self, immediate):
         text = self._ask_text()
