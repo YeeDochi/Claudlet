@@ -106,6 +106,21 @@ def take(session_id):
     return notes
 
 
+def restore(session_id, note):
+    """가져갔던 쪽지를 되돌려 놓는다 — 배달에 실패했을 때.
+
+    take() 는 먼저 가져가고 나중에 쓴다. 그 사이에 실패하면 사용자의 말이 영영
+    사라지므로, 실패한 쪽은 이것으로 되돌린다."""
+    if not isinstance(note, dict) or not (note.get("text") or note.get("voice")):
+        return False
+    try:
+        with open(outbox_file(session_id), "a", encoding="utf-8") as f:
+            f.write(json.dumps(note, ensure_ascii=False) + "\n")
+        return True
+    except OSError:
+        return False
+
+
 def pending(session_id):
     """배달하지 않고 몇 장이나 물고 있는지만 센다 — 펫이 그리려고 본다.
 

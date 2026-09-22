@@ -470,3 +470,39 @@ def test_other_events_do_not_carry_it():
         {"session_id": "s1", "tool_name": "Edit",
          "transcript_path": "/tmp/t.jsonl"}))
     assert "transcript" not in msg
+
+
+def test_the_hook_writes_ascii_safe_json(tmp_path, monkeypatch):
+    # 훅의 stdout 이 cp949 로 떨어지는 자리(윈도우에서 reconfigure 가 실패하면
+    # 그렇다)에서, 창에서 읽은 텍스트에 그 코드페이지가 모르는 글자가 하나라도
+    # 있으면 write 가 터지고 질문이 통째로 사라진다. ASCII 로만 적으면 어떤
+    # 코드페이지에서도 쓰인다 — JSON 소비자는 \uXXXX 를 원래대로 읽는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "창에서 읽음: 🧭 한글 ｜ box┃drawing")
+    out = io.StringIO()
+    monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: True)
+    monkeypatch.setattr(mod, "_launch_pet", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_send", lambda port, payload: None)
+    monkeypatch.setattr(mod.sys, "argv", ["claudlet-hook", "UserPromptSubmit"])
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
+        {"session_id": "s1", "hook_event_name": "UserPromptSubmit"})))
+    monkeypatch.setattr(mod.sys, "stdout", out)
+    mod.main()
+    raw = out.getvalue()
+    raw.encode("cp949")                       # 어떤 코드페이지에서도 쓰인다
+    assert "🧭" in json.loads(raw)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_a_question_is_not_lost_when_the_hook_cannot_write(tmp_path, monkeypatch):
+    # take() 는 쪽지를 먼저 가져간다. 그 뒤 write 가 실패하면 사용자의 질문이
+    # 영영 사라진다 — 되돌려놓고 다음 경계에서 다시 시도한다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "잃어버리면 안 되는 질문")
+
+    class Dead:
+        def write(self, _):
+            raise OSError("stdout is gone")
+
+    monkeypatch.setattr(mod.sys, "stdout", Dead())
+    mod.deliver_outbox("UserPromptSubmit", "s1", "claude")
+    assert [n["text"] for n in outbox.take("s1")] == ["잃어버리면 안 되는 질문"]

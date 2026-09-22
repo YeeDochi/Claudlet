@@ -414,12 +414,24 @@ def deliver_outbox(event, session_id, agent=None):
     # 박힌 스키마로 확인했다 (Codex 0.1xx 의 UserPromptSubmitHookSpecificOutputWire
     # / PostToolUseHookSpecificOutputWire 가 {hookEventName, additionalContext}
     # 를 hookSpecificOutput 아래에 그대로 받는다). 그래서 에이전트를 가르지 않는다.
+    notes = []
     try:
-        payload = outbox.payload(event, outbox.take(session_id))
+        notes = outbox.take(session_id)
+        payload = outbox.payload(event, notes)
         if payload:
-            sys.stdout.write(json.dumps(payload, ensure_ascii=False))
+            # ensure_ascii: 이 줄은 훅의 stdout 으로 나가는데, 윈도우에서 그
+            # 스트림이 코드페이지(cp949)로 떨어지는 경우가 있다. 창에서 읽은
+            # 텍스트에 그 코드페이지가 모르는 글자가 하나라도 있으면 write 가
+            # 터지고 질문이 통째로 사라졌다. \uXXXX 로만 적으면 어디서도 쓰인다.
+            sys.stdout.write(json.dumps(payload, ensure_ascii=True))
     except Exception:
-        pass
+        # take() 가 이미 가져간 뒤라 여기서 끝내면 사용자의 질문이 영영 없어진다.
+        # 되돌려놓고 다음 경계에서 다시 시도한다.
+        for note in notes:
+            try:
+                outbox.restore(session_id, note)
+            except Exception:
+                pass
 
 
 def _cli():
