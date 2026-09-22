@@ -113,19 +113,34 @@ def test_a_note_is_stored_as_one_json_line():
     assert json.loads(lines[0])["text"] == "확인"
 
 
-# ---------- 즉시 전송: 프롬프트에 그대로 찍히는 한 줄 ----------
+# ---------- 즉시 전송: 프롬프트에는 질문만 찍힌다 ----------
 
-def test_typed_line_carries_the_persona_where_the_user_can_see_it():
-    # 터미널에 찍히는 문장이므로 숨길 수가 없다. 숨기지 않는 편이 정직하다.
-    line = outbox.typed_line("이거 왜 느려?", "짧고 퉁명스럽게")
-    assert "이거 왜 느려?" in line
-    assert "짧고 퉁명스럽게" in line
-    assert "\n" not in line
-
-
-def test_typed_line_is_just_the_question_without_a_persona():
-    assert outbox.typed_line("이거 왜 느려?", "") == "이거 왜 느려?"
+def test_only_the_question_is_typed_into_the_prompt():
+    # 말투 지시가 프롬프트 줄에 찍히면 사용자 눈에 계속 밟힌다. 그것은 훅으로
+    # 따로 들어간다 — 즉시 전송도 UserPromptSubmit 을 발동시키므로 같은 턴에 닿는다.
+    assert outbox.typed_line("이거 왜 느려?", "짧고 퉁명스럽게") == "이거 왜 느려?"
     assert outbox.typed_line("이거 왜 느려?", None) == "이거 왜 느려?"
+
+
+def test_a_voice_note_carries_the_persona_without_repeating_a_message():
+    outbox.append_voice("s1", "물컹하게")
+    text = outbox.render(outbox.take("s1"))
+    assert "물컹하게" in text
+    assert outbox.MARK_OPEN in text          # 크리처 목소리로 답하라는 요청은 그대로
+    assert "- " not in text                  # 사용자가 한 말을 지어내지는 않는다
+
+
+def test_a_voice_note_alone_does_not_claim_the_user_said_something():
+    outbox.append_voice("s1", "물컹하게")
+    assert outbox.HEADER not in outbox.render(outbox.take("s1"))
+
+
+def test_a_voice_note_and_a_whisper_together_read_as_one_message():
+    outbox.append_voice("s1", "물컹하게")
+    outbox.append("s1", "이거 왜 느려?")
+    text = outbox.render(outbox.take("s1"))
+    assert outbox.HEADER in text and "- 이거 왜 느려?" in text
+    assert text.count("물컹하게") == 1
 
 
 # ---------- 크리처의 답: 에이전트의 답과 분리된다 ----------
@@ -184,3 +199,11 @@ def test_a_transcript_we_cannot_read_says_nothing_rather_than_failing():
     assert outbox.last_assistant_text([]) is None
     assert outbox.last_assistant_text(
         [json.dumps({"type": "user", "message": {"content": "나뿐"}})]) is None
+
+
+def test_the_pet_does_not_hold_up_its_own_plumbing_as_a_note():
+    # 말투 쪽지는 내부 배관이다. 쪽지를 문 그림은 "네 말을 들고 있다"는 뜻이라야 한다.
+    outbox.append_voice("s1", "물컹하게")
+    assert outbox.pending("s1") == 0
+    outbox.append("s1", "이거 왜 느려?")
+    assert outbox.pending("s1") == 1

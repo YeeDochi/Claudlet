@@ -3145,6 +3145,10 @@ class Pet(QWidget):
         text = self._ask_text()
         if not text:
             return
+        # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
+        # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
+        if immediate and self._persona:
+            outbox.append_voice(self.session_id, self._persona)
         if immediate and self._konsole_send(
                 outbox.typed_line(text, self._persona)):
             self._play_motion("jump", 1.5)          # 바로 전했다

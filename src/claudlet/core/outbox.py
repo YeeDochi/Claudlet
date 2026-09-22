@@ -40,6 +40,23 @@ def append(session_id, text, persona=None):
         return False
 
 
+def append_voice(session_id, persona):
+    """"이번 턴은 펫을 통해 들어온 것이다"를 쌓는다 — 말투만 싣고 사용자가 한
+    말은 싣지 않는다.
+
+    즉시 전송은 프롬프트에 질문을 그대로 타이핑하므로, 말투 지시까지 거기
+    끼워 넣으면 사용자 눈에 계속 밟힌다(실사용에서 바로 걸렸다). 타이핑이
+    제출되면 UserPromptSubmit 이 돌고, 훅이 이 쪽지를 같은 턴에 실어 보낸다."""
+    if not persona:
+        return False
+    try:
+        with open(outbox_file(session_id), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"voice": persona}, ensure_ascii=False) + "\n")
+        return True
+    except OSError:
+        return False
+
+
 def _read(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -55,7 +72,7 @@ def _read(path):
             note = json.loads(line)
         except ValueError:
             continue                  # 깨진 한 줄이 나머지를 가리지 않는다
-        if isinstance(note, dict) and note.get("text"):
+        if isinstance(note, dict) and (note.get("text") or note.get("voice")):
             notes.append(note)
     return notes
 
@@ -84,8 +101,11 @@ def take(session_id):
 
 
 def pending(session_id):
-    """배달하지 않고 몇 장이나 물고 있는지만 센다 — 펫이 그리려고 본다."""
-    return len(_read(outbox_file(session_id)))
+    """배달하지 않고 몇 장이나 물고 있는지만 센다 — 펫이 그리려고 본다.
+
+    말투 쪽지는 세지 않는다. 쪽지를 문 그림은 "네 말을 들고 있다"는 뜻이고,
+    내부 배관까지 물고 있는 것처럼 보이면 거짓말이 된다."""
+    return len([n for n in _read(outbox_file(session_id)) if n.get("text")])
 
 
 def drop(session_id):
@@ -118,14 +138,16 @@ def render(notes):
     출처를 밝히는 머리말이 붙는다 — 이것이 사용자가 직접 친 프롬프트로
     보이면 에이전트가 하던 일을 통째로 갈아탄다. 같은 말투 지시가 여러 장에
     반복되면 한 번만 싣는다."""
-    lines = [HEADER, ASK_LINE]
+    said = [n for n in notes if n.get("text")]
+    lines = [HEADER] if said else []
+    lines.append(ASK_LINE)
     seen = []
     for note in notes:
-        persona = note.get("persona")
+        persona = note.get("persona") or note.get("voice")
         if persona and persona not in seen:
             seen.append(persona)
             lines.append("말투: " + persona)
-    for note in notes:
+    for note in said:
         lines.append("- " + note["text"])
     return "\n".join(lines)
 
@@ -191,9 +213,10 @@ def reply_from_transcript(path, tail_bytes=65536):
 def typed_line(text, persona):
     """즉시 전송일 때 프롬프트에 그대로 찍힐 한 줄. 순수.
 
-    쪽지와 달리 이건 사용자 눈앞에 찍히므로 말투 지시를 숨길 수가 없다 —
-    숨기지 않는 편이 정직하고, 무엇이 제출됐는지 그대로 보인다."""
-    return "[펫: %s] %s" % (persona, text) if persona else text
+    말투 지시는 여기 넣지 않는다. 프롬프트 줄에 그대로 찍혀 사용자 눈에 계속
+    밟히기 때문이다(실사용에서 바로 걸렸다). 그것은 `append_voice` 로 아웃박스에
+    넣고, 이 타이핑이 제출될 때 도는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다."""
+    return text
 
 
 def payload(event, notes):
