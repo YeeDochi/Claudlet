@@ -2269,3 +2269,14 @@ def test_the_creature_says_its_line_when_the_hook_sends_one(pet):
 def test_an_empty_line_is_not_spoken(pet):
     send_hook(pet, "say", cmd="say", text="   ")
     assert pet.snapshot()["saying"] == ""
+
+
+def test_a_long_line_is_not_cut_off_by_the_pet_window(pet):
+    # 말풍선을 펫 창 안에 그리면 창 크기(물리·도크가 쓰는 값)에 갇혀 잘린다.
+    long = "느려터졌더라구우… 인덱스가 없어가 풀스캔을 돌고 있었다 아이가 " * 2
+    send_hook(pet, "say", cmd="say", text=long)
+    assert pet.snapshot()["saying"].startswith("느려터졌더라구우")
+    b = pet._bubble
+    assert b is not None and b.isVisible()
+    # 창보다 커질 수 있어야 하고, 글자가 다 들어갈 만큼 높이가 늘어야 한다
+    assert b.height() > pet.height() / 3

@@ -481,6 +481,81 @@ class Companion(QWidget):
         p.end()
 
 
+class Bubble(QWidget):
+    """크리처가 한 말을 띄우는 작은 창.
+
+    펫 창 안에 그리면 안 된다 — 그 창은 크리처 크기에 맞춰져 있고(물리·도크·
+    퍼치가 그 크기를 그대로 쓴다) 늘릴 수 없어서, 조금만 긴 말도 잘린다.
+    그래서 자기 창을 갖는다. 클릭은 통과시키고 포커스는 절대 가져가지 않는다."""
+
+    MAX_W = 360            # 이보다 넓어지지 않고 줄을 바꾼다
+    PAD = 8
+    GAP = 6                # 크리처 머리와 말풍선 사이
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint
+                            | Qt.WindowType.WindowStaysOnTopHint
+                            | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._text = ""
+        self._rect = QRect(0, 0, 0, 0)     # 계산된 글자 영역
+
+    def _font(self):
+        from PyQt6.QtGui import QFont
+        f = QFont("Sans")
+        f.setPointSizeF(10.0)
+        f.setBold(True)
+        return f
+
+    def say(self, text, anchor_rect):
+        """`anchor_rect`(펫의 화면 좌표) 위에 `text` 를 띄운다."""
+        from PyQt6.QtGui import QFontMetrics
+        self._text = text
+        fm = QFontMetrics(self._font())
+        flags = int(Qt.TextFlag.TextWordWrap)
+        box = fm.boundingRect(QRect(0, 0, self.MAX_W, 10000), flags, text)
+        w, h = box.width() + 2 * self.PAD, box.height() + 2 * self.PAD
+        self._rect = QRect(self.PAD, self.PAD, box.width(), box.height())
+        self.setFixedSize(w, h + 6)        # +6: 아래 꼬리
+        self.move(*self._place(anchor_rect, w, h + 6))
+        self.show()
+        self.raise_()
+        self.update()
+
+    def follow(self, anchor_rect):
+        if self.isVisible():
+            self.move(*self._place(anchor_rect, self.width(), self.height()))
+
+    def _place(self, anchor, w, h):
+        """펫 머리 위 가운데. 화면 밖으로 나가면 안쪽으로 민다."""
+        x = anchor.center().x() - w // 2
+        y = anchor.top() - h - self.GAP
+        screen = QApplication.screenAt(anchor.center()) or QApplication.primaryScreen()
+        g = screen.availableGeometry()
+        x = max(g.left(), min(x, g.right() - w))
+        if y < g.top():                    # 위가 없으면 아래로 뒤집는다
+            y = min(anchor.bottom() + self.GAP, g.bottom() - h)
+        return int(x), int(y)
+
+    def paintEvent(self, _e):
+        from PyQt6.QtGui import QPainter, QPainterPath, QPen
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, self.width(), self.height() - 6), 8, 8)
+        p.fillPath(path, QColor(255, 255, 255, 243))
+        p.fillRect(QRectF(self.width() / 2 - 5, self.height() - 7, 10, 6),
+                   QColor(255, 255, 255, 243))
+        p.setFont(self._font())
+        p.setPen(QPen(QColor("#2A2A30")))
+        p.drawText(self._rect, int(Qt.TextFlag.TextWordWrap), self._text)
+        p.end()
+
+
 class ZoneOverlay(QWidget):
     """One translucent overlay per monitor, for drawing no-go zones.
 
@@ -774,6 +849,7 @@ class Pet(QWidget):
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
+        self._bubble = None                # 말풍선은 자기 창이다 (Bubble)
         self._note_timer = QTimer(self)
         self._note_timer.timeout.connect(self._refresh_notes)
         self._refresh_notes()              # 재시작 전에 남긴 쪽지를 이어받는다
@@ -964,7 +1040,7 @@ class Pet(QWidget):
             if isinstance(text, str) and text.strip():
                 self._say = text.strip()[:outbox.SAY_MAX]
                 self._say_until = time.monotonic() + SAY_SEC
-                self.update()
+                self._show_say()
             return
         if ev.get("cmd") == "restyle":
             # 설정이 바뀌었다 (claudlet-config ui). 재시작 없이 다시 입는다.
@@ -1184,6 +1260,7 @@ class Pet(QWidget):
     def _tick(self):
         self.frame += 1
         now = time.monotonic()
+        self._tick_say()                 # 말풍선은 펫을 따라다닌다
         self.claude_state = self.engine.display_state(now)
         self._auto = self.engine.auto_active()   # keep the visor on across states
         eff = self.claude_state
@@ -2463,10 +2540,6 @@ class Pet(QWidget):
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
         if self._notes:
             self._draw_note(p)
-        if self._say and now < self._say_until:
-            self._draw_say(p)
-        elif self._say:
-            self._say = ""
         p.end()
 
     # 하트 위치/크기의 기본값 (내장 크리처의 22x17 기준, 아트 픽셀 단위).
@@ -2498,44 +2571,22 @@ class Pet(QWidget):
         gw = self.avatar.grid[0]
         return (gw * self.u) / 22.0 if gw else self.u
 
-    def _draw_say(self, p):
-        """크리처가 한 말을 머리 위 말풍선으로. 크리처 패키지의 말풍선(SPEECH)은
-        상태마다 정해진 문구라 임의의 문장을 못 싣는다 — 하트·쪽지와 같은 이유로
-        여기서 위에 얹는다. 창 밖으로는 못 나가므로 폭에 맞춰 줄을 나눈다."""
-        from PyQt6.QtGui import QFont, QPainterPath, QPen
-        u = self._unit()
-        f = QFont("Sans")
-        f.setPointSizeF(max(6.0, 1.3 * u))
-        f.setBold(True)
-        p.setFont(f)
-        fm = p.fontMetrics()
-        pad = max(3.0, 0.6 * u)
-        maxw = max(60.0, self.w - 2 * pad)
-        words, lines, cur = self._say.split(" "), [], ""
-        for word in words:
-            trial = (cur + " " + word).strip()
-            if cur and fm.horizontalAdvance(trial) > maxw:
-                lines.append(cur)
-                cur = word
-            else:
-                cur = trial
-        if cur:
-            lines.append(cur)
-        lines = lines[:2]        # 얼굴을 다 덮지 않을 만큼만
-        tw = max(fm.horizontalAdvance(x) for x in lines)
-        th = fm.height() * len(lines)
-        bx = (self.w - tw) / 2.0
-        by = max(0.0, (PAD_Y * self.u) - th - 2 * pad)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(bx - pad, by, tw + 2 * pad, th + pad), 5, 5)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.fillPath(path, QColor(255, 255, 255, 240))
-        p.fillRect(QRectF(self.w / 2.0 - 0.5 * u, by + th + pad - 1,
-                          1.1 * u, 0.9 * u), QColor(255, 255, 255, 240))
-        p.setPen(QPen(QColor("#2A2A30")))
-        p.drawText(QRectF(bx - pad, by, tw + 2 * pad, th + pad),
-                   int(Qt.AlignmentFlag.AlignCenter), "\n".join(lines))
-        p.setPen(Qt.PenStyle.NoPen)
+    def _show_say(self):
+        if self._bubble is None:
+            self._bubble = Bubble()
+        self._bubble.say(self._say, self.frameGeometry())
+
+    def _tick_say(self):
+        """말풍선은 펫을 따라다니고, 시간이 지나면 사라진다. `_tick` 에서 부른다."""
+        if not self._say:
+            return
+        if time.monotonic() >= self._say_until:
+            self._say = ""
+            if self._bubble is not None:
+                self._bubble.hide()
+            return
+        if self._bubble is not None:
+            self._bubble.follow(self.frameGeometry())
 
     def _draw_note(self, p):
         """아웃박스에 쌓인 것이 있으면 크리처가 쪽지를 물고 있다.
@@ -3395,6 +3446,9 @@ class Pet(QWidget):
         # past QApplication.quit() on Windows; hiding it is a no-op elsewhere.
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
+        if getattr(self, "_bubble", None) is not None:
+            self._bubble.close()
+            self._bubble = None
         for c in getattr(self, "_companions", []) + getattr(self, "_departing", []):
             c.close()
         self._companions = []
