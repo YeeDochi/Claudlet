@@ -30,6 +30,23 @@ def im_module_for(xmodifiers):
     return name or None
 
 
+def windowless(os_name, executable, exists=None):
+    """(실행할 인터프리터, creationflags). 순수.
+
+    윈도우에서 `python.exe` 로 자식을 띄우면 커맨드 창이 하나 뜬다. 사용자가
+    그 창을 닫으면 자식(설정 서버)이 같이 죽어 페이지가 멈춘다 — 실기에서
+    그대로 나왔다. 창 없는 `pythonw.exe` 가 있으면 그것을 쓰고, 없어도
+    CREATE_NO_WINDOW 로 창을 막는다. 다른 OS 에서는 손대지 않는다."""
+    if os_name != "nt":
+        return executable, 0
+    if exists is None:
+        exists = os.path.exists
+    alt = executable[:-len("python.exe")] + "pythonw.exe" \
+        if executable.endswith("python.exe") else ""
+    exe = alt if alt and exists(alt) else executable
+    return exe, getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
 def ask_command(prompt, which=None):
     """한 줄을 물어볼 시스템 대화상자의 argv, 없으면 None. 순수(`which` 주입).
 
@@ -2988,10 +3005,12 @@ class Pet(QWidget):
         별도 프로세스로 detach 한다 — 서버를 이 안에서 돌리면 펫의 이벤트 루프가
         멈춰 크리처가 얼어붙는다. 실패해도 조용히 넘어간다: 설정 창이 안 뜨는
         것이 펫이 죽는 것보다 낫다."""
-        cmd = [sys.executable, "-m", "claudlet.cli.configcli", "ui",
-               "--agent", self.agent]
+        exe, flags = windowless(os.name, sys.executable)
+        cmd = [exe, "-m", "claudlet.cli.configcli", "ui", "--agent", self.agent]
         kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
               "stderr": subprocess.DEVNULL}
+        if flags:
+            kw["creationflags"] = flags     # 윈도우: 커맨드 창을 띄우지 않는다
         if hasattr(os, "setsid"):
             kw["start_new_session"] = True          # POSIX: 펫과 함께 죽지 않게
         env = dict(os.environ)

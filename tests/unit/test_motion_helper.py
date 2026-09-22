@@ -147,3 +147,27 @@ def test_windows_and_mac_ask_qt_rather_than_a_stray_helper(monkeypatch):
     assert pet.ask_command("무슨 말?", which=lambda n: "/opt/homebrew/bin/" + n) is None
     monkeypatch.setattr(pet.sys, "platform", "win32")
     assert pet.ask_command("무슨 말?", which=lambda n: "C:/tools/" + n) is None
+
+
+# ---------- 윈도우: 콘솔 창을 띄우지 않는다 ----------
+
+def test_a_gui_child_is_launched_windowless_on_windows():
+    # python.exe 로 띄우면 커맨드 창이 하나 뜨고, 사용자가 그 창을 닫으면
+    # 자식(설정 서버)이 같이 죽는다. 창 없는 인터프리터와 플래그를 쓴다.
+    from claudlet import pet
+    exe, flags = pet.windowless("nt", "C:/py/python.exe",
+                                exists=lambda p: p.endswith("pythonw.exe"))
+    assert exe.endswith("pythonw.exe")
+    assert flags != 0
+
+
+def test_a_missing_pythonw_still_hides_the_window():
+    from claudlet import pet
+    exe, flags = pet.windowless("nt", "C:/py/python.exe", exists=lambda p: False)
+    assert exe == "C:/py/python.exe"
+    assert flags != 0
+
+
+def test_other_platforms_are_left_alone():
+    from claudlet import pet
+    assert pet.windowless("posix", "/usr/bin/python3") == ("/usr/bin/python3", 0)

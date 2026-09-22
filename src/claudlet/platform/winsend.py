@@ -13,16 +13,42 @@ KDE 쪽 짝은 `konsole.send_text` 인데, 거기서는 Konsole 이 보안상 �
 그대로 쓴다 — 줄바꿈을 접고 끝에 하나만 붙이는 규칙은 OS 와 무관하다.
 konsole.py 는 순수 파이썬이라 윈도우에서 import 해도 안전하다.
 
+**펫 프로세스 안에서 직접 붙지 않는다.** AttachConsole 은 붙는 쪽 프로세스의
+콘솔 상태를 바꾸고, 그 콘솔의 수명·종료 이벤트(CTRL_CLOSE_EVENT)가 우리에게
+딸려온다 — GUI 인 펫이 남의 콘솔에 매이면 그 창이 닫힐 때 같이 얼어붙는다.
+그래서 이 모듈을 **짧게 사는 자식 프로세스로 실행**하고(`__main__`), 펫은
+그 종료 코드만 본다. 창은 CREATE_NO_WINDOW 로 뜨지 않는다.
+
 하드웨어 미검증: 이 파일의 ctypes 경로는 실기에서 확인해야 한다.
 """
 import os
+import subprocess
+import sys
 
 from claudlet.platform.konsole import submit_text
 
 KEY_EVENT = 0x0001
 
 
-def send_text(pid, text):
+def send_text(pid, text, timeout=5):
+    """자식 프로세스를 띄워 거기서 붙여 쓴다. 성공하면 True.
+
+    펫은 콘솔에 손대지 않는다 — 붙는 일은 곧 죽을 프로세스가 대신 한다."""
+    if submit_text(text) is None or os.name != "nt" or not pid:
+        return False
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "claudlet.platform.winsend",
+             str(int(pid)), text],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _write_here(pid, text):
     """`pid` 가 쓰는 콘솔의 입력 버퍼에 `text` 를 넣고 제출한다.
 
     성공하면 True. 콘솔이 없거나(GUI 로 뜬 세션) 권한이 없거나 무엇이든
@@ -84,3 +110,11 @@ def send_text(pid, text):
         return False
     finally:
         k.FreeConsole()
+
+
+if __name__ == "__main__":       # 자식 프로세스로만 쓰인다 (send_text 가 띄운다)
+    try:
+        ok = _write_here(int(sys.argv[1]), sys.argv[2])
+    except Exception:
+        ok = False
+    raise SystemExit(0 if ok else 1)
