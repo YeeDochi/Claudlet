@@ -869,13 +869,17 @@ def test_launch_browser_prefers_an_explicit_app_window(tmp_path, monkeypatch):
     assert calls == [["explicit-app", "http://x/"]]
 
 
+def _fixed_url():
+    return "http://127.0.0.1:%d/" % U.PREFERRED_PORT
+
+
 def test_launch_browser_falls_back_to_the_installed_pwa(monkeypatch):
     calls = []
     monkeypatch.setattr(U, "browser_command", lambda url: None)
     monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: ["installed-pwa"])
     import subprocess
     monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
-    U.launch_browser("http://x/", app_window=False)
+    U.launch_browser(_fixed_url(), app_window=False)
     assert calls == [["installed-pwa"]]
 
 
@@ -898,7 +902,7 @@ def test_launch_browser_explicit_app_window_requested_but_absent_still_checks_pw
     monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: ["installed-pwa"])
     import subprocess
     monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
-    U.launch_browser("http://x/", app_window=True)
+    U.launch_browser(_fixed_url(), app_window=True)
     assert calls == [["installed-pwa"]]
 
 
@@ -924,7 +928,7 @@ def test_launch_browser_opens_windows_pwa_shortcut_with_startfile(monkeypatch):
     monkeypatch.setattr(U.os, "name", "nt")
     monkeypatch.setattr(U.os, "startfile", lambda path: opened.append(path),
                         raising=False)
-    U.launch_browser("http://x/", app_window=False)
+    U.launch_browser(_fixed_url(), app_window=False)
     assert opened == [r"C:\Apps\claudlet.lnk"]
 
 
@@ -1163,3 +1167,47 @@ def test_share_tab_and_sentinel_are_gone():
     assert "share" not in U.TEXT["ko"] and "share" not in U.TEXT["en"]
 
 
+
+
+def test_a_silent_connection_does_not_wedge_the_server(monkeypatch):
+    """Chrome opens speculative sockets and says nothing on them. This server
+    handles one connection at a time, so without a read timeout such a socket
+    blocked every later request forever -- the settings page that never
+    appears."""
+    import socket
+    import threading
+    from http.server import HTTPServer
+    srv = HTTPServer(("127.0.0.1", 0), U._handler_class())
+    srv.timeout = 5
+    srv.last_seen = __import__("time").monotonic()
+    srv.idle_timeout = 5.0
+    srv.pages = {}
+    stop = threading.Event()
+
+    def pump():
+        while not stop.is_set():
+            srv.handle_request()
+
+    t = threading.Thread(target=pump, daemon=True)
+    t.start()
+    silent = socket.create_connection(("127.0.0.1", srv.server_port))
+    try:
+        ctype, body = _get(srv.server_port, "/api/alive")
+        assert json.loads(body)["app"] == U.APP_ID
+    finally:
+        silent.close()
+        stop.set()
+        srv.server_close()
+
+
+def test_the_installed_pwa_is_skipped_when_we_are_not_on_its_origin(monkeypatch):
+    """The PWA is keyed by origin: it always opens PREFERRED_PORT. On a
+    fallback port it would show a dead page, so the ordinary browser gets the
+    real url instead."""
+    opened = []
+    monkeypatch.setattr(U, "browser_command", lambda url: None)
+    monkeypatch.setattr(U, "installed_pwa_command", lambda *a, **kw: ["installed-pwa"])
+    import webbrowser
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
+    U.launch_browser("http://127.0.0.1:41234/", app_window=False)
+    assert opened == ["http://127.0.0.1:41234/"]

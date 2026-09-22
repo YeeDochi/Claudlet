@@ -1309,6 +1309,16 @@ def _handler_class(initial_agent=None, import_token=""):
     from urllib.parse import parse_qs, urlparse
 
     class Handler(BaseHTTPRequestHandler):
+        # This server handles ONE connection at a time (threads would mean a
+        # QApplication off the main thread, see render_png). So a connection
+        # that is opened and never spoken on used to wedge the whole server
+        # forever -- and Chrome routinely opens such speculative sockets before
+        # a navigation. That is the "settings page sometimes never appears":
+        # the port answers nothing, and the next launch's probe then times out
+        # too and starts a second server on a port the installed PWA never
+        # visits. A read timeout keeps a silent socket to a couple of seconds.
+        timeout = 2
+
         def log_message(self, *a):
             pass                        # don't scribble over the user's terminal
 
@@ -1508,7 +1518,10 @@ def launch_browser(url, app_window=False, apps_dir=None):
             os.makedirs(chrome_profile_dir(), exist_ok=True)
         except OSError:
             pass                         # Chrome creates it itself if needed
-    else:
+    elif ":%d/" % PREFERRED_PORT in url:
+        # The PWA is keyed by origin: it always opens PREFERRED_PORT, whatever
+        # `url` says. On a fallback port it would show a dead page, so it is
+        # only the right window when we actually got the fixed port.
         try:
             cmd = installed_pwa_command(manifest()["name"], apps_dir=apps_dir)
         except Exception:
