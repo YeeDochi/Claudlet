@@ -215,9 +215,14 @@ and it knows you mean it; the voice decides how it answers. Creatures ship with
 defaults — the slime drawls, the astronaut sounds like radio comms — and anything
 you write wins.
 
-Works with both Claude Code and Codex. **Ask now** types into a real prompt, so it
-needs a terminal — on KDE it shows up only when Konsole's *Enable the security
-sensitive parts of the DBus API* is on — and elsewhere you get notes only.
+Works with both Claude Code and Codex, but only while they run **in a terminal** —
+**Ask now** types into a real prompt. On KDE it shows up only when Konsole's
+*Enable the security sensitive parts of the DBus API* is on; elsewhere you get
+notes only.
+
+> **Not in the desktop apps.** The Claude desktop app and the Codex app have no
+> prompt to type into — this feature assumes the CLI running in a terminal.
+> On macOS, even in a terminal, there is no **Ask now** yet: notes only.
 
 ## Make it yours
 
