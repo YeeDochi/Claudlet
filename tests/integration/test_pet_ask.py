@@ -1321,3 +1321,13 @@ def test_an_unreadable_transcript_does_not_break_the_window(pet, _hist, monkeypa
         assert win.timeline() == []
     finally:
         win.close()
+
+
+def test_the_pointer_uses_the_windows_the_pet_already_tracks(pet, monkeypatch):  # noqa: F811
+    # 리눅스엔 창을 한 번에 열거해주는 백엔드가 없다 — 대신 펫이 퍼치·포커스를
+    # 위해 이미 KWin 피드로 창 목록을 들고 있다. 포인터가 그걸 쓰면 된다.
+    monkeypatch.setattr(P.sys, "platform", "linux")
+    pet._on_geom("7;konsole;100,100,800,600;4242;Konsole")
+    wins = pet._ask_windows()
+    assert [w.title for w in wins] == ["konsole"]
+    assert P.geom.window_at(200, 200, wins) is not None

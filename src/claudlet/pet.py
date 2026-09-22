@@ -3677,7 +3677,10 @@ class Pet(QWidget):
                 return geom.parse_dump(win32.dump()) if win32.available() else []
         except Exception:
             return []
-        return []
+        # 리눅스: 한 번에 열거해주는 백엔드가 없다. 대신 펫은 퍼치·포커스를
+        # 위해 이미 KWin 이 밀어주는 창 목록을 들고 있다 — 같은 parse_dump
+        # 결과이므로 그대로 쓴다. (CLI 에는 이 피드가 없어 아직 빈 목록이다.)
+        return list(self._wins or [])
 
     def _ask_backend(self):
         """Text reader for this OS, or None. Mirrors cli/askcli.text_backend."""
