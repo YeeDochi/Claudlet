@@ -1432,6 +1432,7 @@ class Pet(QWidget):
         # "이전 말이 나오고 다음 말이 나오는" 것처럼 보인다.
         if ev.get("event") == "UserPromptSubmit":
             self._hush()
+            self._mark_turn_start(ev.get("transcript"))
         # A quit command (claudlet-uninstall teardown) is a shutdown request,
         # not a Claude event: shut down cleanly and stop processing.
         if ev.get("cmd") == "quit":
@@ -3067,6 +3068,19 @@ class Pet(QWidget):
             return
         if self._reply_left <= 0:
             self._reply_timer.stop()
+
+    def _mark_turn_start(self, path):
+        """턴이 시작될 때 transcript 에 이미 있던 대사를 기준점으로 잡는다.
+
+        이것이 없으면 갓 뜬 펫은 기준점이 비어 있어, 지난 대화에 남아 있던 줄을
+        이번 턴 답으로 착각해 띄운다(실측). 그 줄을 미리 '이미 본 것' 으로
+        표시해두면 이번 턴에 새로 나타난 줄만 답이 된다."""
+        if not path:
+            return
+        try:
+            self._said_last = outbox.reply_from_transcript(path) or self._said_last
+        except Exception:
+            pass
 
     def _hush(self):
         """하던 말을 즉시 거두고, 지난 턴 대사를 기다리던 것도 그만둔다.
