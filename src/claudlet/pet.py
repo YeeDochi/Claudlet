@@ -3618,6 +3618,10 @@ class Pet(QWidget):
             else:
                 reader = backend.read_window
         ctx = inspectmod.build_context(win, question, read_text=reader)
+        # 답을 못 받은 채 다시 물었다면 앞의 것을 대신하겠다는 뜻이다. 쌓아두면
+        # 다음 턴에 묵은 질문들이 한꺼번에 쏟아진다.
+        if self._notes:
+            outbox.drop(self.session_id)
         # 배달은 아웃박스로 한다. 우편함(.ask.json)은 세션이 스스로 집어가지
         # 않아 사용자가 "답해줘" 라고 시켜야 했다 — 아웃박스는 훅이 다음 경계
         # (일하는 중이면 다음 툴콜, 놀고 있으면 다음 프롬프트)에서 자동으로
@@ -3642,7 +3646,10 @@ class Pet(QWidget):
         # 사용자는 "물어봤는데 아무 일도 안 일어난다" 로 겪는다. 그래서 짧은
         # 질문만 프롬프트에 쳐서 그 턴을 만든다. 방금 쌓은 창 정보는 그 제출이
         # 부르는 UserPromptSubmit 에 보이지 않게 딸려 간다.
-        self._konsole_send(question)
+        if not self._konsole_send(question):
+            # 바로 못 보냈으면 우리 쪽지 체계로 들어간다 — 펫이 물고 있는 것이
+            # 보이고 우클릭으로 버릴 수 있어야 "물어봤는데 어디 갔지" 가 안 생긴다.
+            self._refresh_notes()
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
         return ctx

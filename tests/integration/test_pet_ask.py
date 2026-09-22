@@ -1353,3 +1353,25 @@ def test_it_stays_a_note_where_nothing_can_be_typed(pet, monkeypatch):  # noqa: 
     monkeypatch.setattr(pet, "_konsole_send", lambda t: False)
     pet.ask_about((200, 200), "이 창 뭐야?")
     assert _posted(pet) is not None          # 그래도 쪽지는 남는다
+
+
+def test_a_pointer_question_that_waits_is_a_note_the_pet_holds(pet, monkeypatch):  # noqa: F811
+    # 바로 못 보내면 우리 쪽지 체계로 들어간다 — 펫이 물고 있는 것이 보이고,
+    # 우클릭으로 버릴 수 있어야 "물어봤는데 어디 갔지" 가 안 생긴다.
+    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
+    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: False)   # 타이핑 불가
+    pet.ask_about((200, 200), "이 창 뭐야?")
+    assert pet.snapshot()["notes"] == 1
+
+
+def test_only_the_latest_pointer_question_waits(pet, monkeypatch):  # noqa: F811
+    # 같은 것을 여러 번 물으면 세션에 한꺼번에 쏟아진다. 답을 못 받은 채 다시
+    # 물었다는 건 앞의 것을 대신하겠다는 뜻이다.
+    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
+    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: False)
+    pet.ask_about((200, 200), "첫 질문")
+    pet.ask_about((200, 200), "둘째 질문")
+    assert pet.snapshot()["notes"] == 1
+    assert "둘째 질문" in _posted(pet)["prompt"]
