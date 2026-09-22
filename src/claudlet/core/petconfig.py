@@ -218,7 +218,9 @@ def _clean_creatures(raw):
             continue
         out[name] = {"palette": clean_palette_opt(v.get("palette")),
                      "scale": clean_scale_opt(v.get("scale")),
-                     "visor": clean_visor(v.get("visor"))}
+                     "visor": clean_visor(v.get("visor")),
+                     # 말투도 크리처의 것이다 — 슬라임과 claudlet 은 다르게 말한다
+                     "persona": clean_persona(v.get("persona"))}
     return out
 
 

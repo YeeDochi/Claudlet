@@ -295,3 +295,12 @@ def test_an_empty_persona_clears_the_setting():
 def test_a_persona_is_one_line():
     # 여러 줄이 그대로 들어가면 주입되는 컨텍스트의 모양이 망가진다
     assert petconfig.clean_persona("짧게\n반말로") == "짧게 반말로"
+
+
+def test_a_saved_persona_survives_a_reload_per_creature():
+    # 저장은 되는데 읽을 때 버려지면 아무 일도 안 한 것과 같다.
+    cfg = petconfig._clean({"creatures": {
+        "slime": {"persona": "느릿하게"},
+        "claudlet": {"persona": "퉁명스럽게"}}})
+    assert petconfig.for_creature(cfg, "slime", object())["persona"] == "느릿하게"
+    assert petconfig.for_creature(cfg, "claudlet", object())["persona"] == "퉁명스럽게"
