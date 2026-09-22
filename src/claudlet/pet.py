@@ -766,6 +766,7 @@ class Pet(QWidget):
 
         self._persona = getattr(self, "_persona", "")
         self._notes = 0                    # 물고 있는 쪽지 수
+        self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
         self._note_timer = QTimer(self)
         self._note_timer.timeout.connect(self._refresh_notes)
         self._refresh_notes()              # 재시작 전에 남긴 쪽지를 이어받는다
@@ -3044,9 +3045,15 @@ class Pet(QWidget):
             # 확인할 방법이 없으므로(확인 = 실제로 써보기) 띄워두고, 실패하면
             # 쪽지로 강등한다.
             return bool(self._claude_pid)
-        return bool(sys.platform.startswith("linux") and self._ancestor_pids
-                    and "konsole" in [c.lower() for c in (self.host_classes or [])]
-                    and konsole.can_send_text())
+        if not (sys.platform.startswith("linux") and self._ancestor_pids
+                and "konsole" in [c.lower() for c in (self.host_classes or [])]):
+            return False
+        # 한 번만 찔러보고 기억한다(우클릭마다 qdbus 를 띄울 일은 아니다).
+        # 사용자가 나중에 스위치를 켜면 펫을 다시 띄우면 된다.
+        if self._send_ok is None:
+            self._send_ok = konsole.can_send_text(self._ancestor_pids,
+                                                  self._qdbus_run)
+        return self._send_ok
 
     def _ask_text(self):
         """말할 내용을 묻는다.
@@ -3087,6 +3094,11 @@ class Pet(QWidget):
         self._refresh_notes()
         self._play_motion("jump", 1.5)              # 받았다
 
+    def _qdbus_run(self, *args):
+        return subprocess.check_output(
+            [qdbus_bin(), *args], text=True, timeout=3,
+            stderr=subprocess.DEVNULL)
+
     def _konsole_send(self, text):
         """이 세션의 프롬프트에 직접 써 넣는다. 실패는 False — 호출자가
         쪽지로 강등한다. 윈도우는 콘솔 입력 버퍼, KDE 는 Konsole 의 D-Bus."""
@@ -3098,14 +3110,8 @@ class Pet(QWidget):
                 return winsend.send_text(self._claude_pid, text)
             except Exception:
                 return False
-        qdbus = qdbus_bin()
-
-        def run(*args):
-            return subprocess.check_output(
-                [qdbus, *args], text=True, timeout=3, stderr=subprocess.DEVNULL)
-
         try:
-            return konsole.send_text(self._ancestor_pids, run, text)
+            return konsole.send_text(self._ancestor_pids, self._qdbus_run, text)
         except Exception:
             return False
 

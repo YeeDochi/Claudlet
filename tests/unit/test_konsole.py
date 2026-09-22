@@ -174,25 +174,39 @@ def test_send_text_sends_nothing_for_an_empty_message():
 
 
 # ---------- Konsole 이 sendText 를 아예 막아두었는지 ----------
+# 설정 파일을 읽어 판단하면 틀린다(사용자가 켠 직후에도 KDE 가 파일 쓰기를
+# 미룬다). 빈 문자열을 실제로 보내 본다 — 아무것도 타이핑되지 않는다.
 
-def test_sensitive_dbus_is_off_unless_the_user_turned_it_on():
-    # introspection 에는 sendText 가 보이지만 호출은 AccessDenied 로 막힌다
-    # ("보안에 민감한 DBus API가 비활성화되어 있습니다"). 기본값은 꺼짐.
-    assert konsole.dbus_api_enabled("[General]\nConfigVersion=1\n") is False
-    assert konsole.dbus_api_enabled("") is False
-    assert konsole.dbus_api_enabled(None) is False
+def _probe_bus(allowed, calls):
+    def run(*args):
+        if not args:
+            return " org.kde.konsole-6931"
+        if len(args) == 1:
+            return "/Sessions/3\n/Windows/2"
+        if args[2] == "org.kde.konsole.Session.sendText":
+            calls.append(args[3])
+            if not allowed:
+                raise RuntimeError("AccessDenied")
+            return ""
+        raise AssertionError("unexpected %s" % args[2])
+    return run
 
 
-def test_sensitive_dbus_is_on_when_the_setting_says_so():
-    text = "[General]\nEnableSecuritySensitiveDBusAPI=true\n"
-    assert konsole.dbus_api_enabled(text) is True
+def test_sending_is_allowed_when_the_probe_goes_through():
+    calls = []
+    assert konsole.can_send_text({6931}, _probe_bus(True, calls)) is True
+    assert calls == [""]              # 아무것도 타이핑하지 않는 probe
 
 
-def test_the_setting_is_read_case_insensitively():
-    assert konsole.dbus_api_enabled("[General]\nEnableSecuritySensitiveDBusAPI=True\n") is True
-    assert konsole.dbus_api_enabled("[General]\nEnableSecuritySensitiveDBusAPI=false\n") is False
+def test_sending_is_refused_when_konsole_blocks_the_api():
+    assert konsole.can_send_text({6931}, _probe_bus(False, [])) is False
 
 
-def test_a_setting_in_another_group_does_not_count():
-    text = "[UiSettings]\nEnableSecuritySensitiveDBusAPI=true\n"
-    assert konsole.dbus_api_enabled(text) is False
+def test_a_foreign_konsole_is_not_probed():
+    assert konsole.can_send_text({999}, _probe_bus(True, [])) is False
+
+
+def test_no_ancestors_means_no_probe():
+    def run(*a):
+        raise AssertionError("버스를 건드리면 안 된다")
+    assert konsole.can_send_text(set(), run) is False
