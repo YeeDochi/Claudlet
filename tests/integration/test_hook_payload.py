@@ -397,3 +397,22 @@ def test_a_broken_outbox_never_fails_the_hook(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod.outbox, "take", boom)
     assert _run_event(monkeypatch, "UserPromptSubmit") == ""
+
+
+def test_an_unmeasured_agent_gets_no_hook_output_and_keeps_its_note(tmp_path, monkeypatch):
+    # 이 stdout 형식은 Claude Code 의 스키마다. 코덱스가 같은 모양을 읽는다는
+    # 근거는 아직 없으므로 쓰지 않고, 쪽지는 버리지도 않는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    outbox.append("s1", "기다리는 쪽지")
+    monkeypatch.setattr(mod.hostinfo, "pet_alive", lambda sid: True)
+    monkeypatch.setattr(mod, "_launch_pet", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_send", lambda port, payload: None)
+    monkeypatch.setattr(mod.sys, "argv",
+                        ["claudlet-hook", "UserPromptSubmit", "--agent", "codex"])
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(json.dumps(
+        {"session_id": "s1", "hook_event_name": "UserPromptSubmit"})))
+    out = io.StringIO()
+    monkeypatch.setattr(mod.sys, "stdout", out)
+    mod.main()
+    assert out.getvalue() == ""
+    assert outbox.pending("s1") == 1

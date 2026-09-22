@@ -368,7 +368,7 @@ def main():
         except Exception:
             pass  # pet not running / not ready — ignore silently
 
-    deliver_outbox(event, session_id)
+    deliver_outbox(event, session_id, agent)
 
 
 # 펫이 말할 수 있는 유일한 경계. 에이전트가 일하는 중이면 PostToolUse 에서,
@@ -378,12 +378,18 @@ def main():
 OUTBOX_EVENTS = ("UserPromptSubmit", "PostToolUse")
 
 
-def deliver_outbox(event, session_id):
+def deliver_outbox(event, session_id, agent=None):
     """펫이 쌓아둔 쪽지를 에이전트에게 실어 보낸다. 없으면 한 글자도 쓰지 않는다.
 
     훅의 stdout 은 에이전트가 파싱하므로, 여기서 나는 어떤 사고도 밖으로
     나가면 안 된다 — 늦게 배달되는 쪽지가 깨진 훅보다 싸다."""
     if outbox is None or event not in OUTBOX_EVENTS:
+        return
+    # 이 stdout 형식은 Claude Code 의 훅 출력 스키마다. 다른 에이전트가 같은
+    # 모양을 읽는다는 근거가 아직 없으므로(코덱스 어휘는 실측해서 정정한 적이
+    # 있다), 확인되기 전에는 아무것도 쓰지 않는다. 쪽지는 아웃박스에 그대로
+    # 남아 있다 — 버려지지 않는다.
+    if agent is not None and agent != agents.DEFAULT:
         return
     try:
         payload = outbox.payload(event, outbox.take(session_id))
