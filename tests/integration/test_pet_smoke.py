@@ -2334,3 +2334,17 @@ def test_what_you_say_through_the_menu_is_in_the_history_too(pet, monkeypatch, t
     pet._talk(immediate=False)
     recs = history.load(pet.session_id)
     assert any("이거 왜 느려?" in (r.get("question") or "") for r in recs)
+
+
+def test_an_answer_attaches_to_a_question_asked_from_the_menu(pet, monkeypatch, tmp_path):
+    # 메뉴로 물어본 것도 답이 붙어야 내역이 "물었는데 답이 없다" 를 제대로 말한다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import history
+    monkeypatch.setattr(pet, "_ask_text", lambda label=None: "이거 왜 느려?")
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    pet._talk(immediate=False)
+    assert [r for r in history.load(pet.session_id) if r.get("answer") is None]
+    send_hook(pet, "say", cmd="say", text="인덱스가 없어서 그렇다")
+    asked = [r for r in history.load(pet.session_id)
+             if "이거 왜 느려?" in (r.get("question") or "")]
+    assert asked and asked[-1].get("answer") == "인덱스가 없어서 그렇다"

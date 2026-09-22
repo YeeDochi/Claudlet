@@ -3025,16 +3025,20 @@ class Pet(QWidget):
     def _show_say(self):
         """크리처가 한 줄 말한다.
 
-        포인터 질문을 기다리던 중이었다면 이것이 그 답이다 — 세션이 훅을 통해
-        보낸 것이든 `claudlet-ask --answer` 로 보낸 것이든 사용자에게는 같은
-        답이므로, 기다림을 풀고 내역에도 같이 남긴다."""
+        이것은 물어본 것에 대한 답이다 — 포인터로 물었든 메뉴(💬/📝)로 물었든,
+        훅이 실어 왔든 `claudlet-ask --answer` 로 왔든 마찬가지다. 그래서 내역에
+        **언제나** 붙인다. 기다리던 중일 때만 붙였더니 메뉴로 물어본 것은 답이
+        안 달려서, 내역이 전부 "답 없음" 으로 보였다.
+
+        record_answer 는 그 세션의 가장 최근 '답 없는 질문' 에 붙이고, 붙을 것이
+        없으면 단독으로 남긴다 — 어느 쪽이든 거짓말을 하지 않는다."""
         answered = self._ask_waiting
         if answered:
             self._end_thinking()
-            try:
-                askhistory.record_answer(self.session_id, self._say)
-            except Exception:
-                pass
+        try:
+            askhistory.record_answer(self.session_id, self._say)
+        except Exception:
+            pass
         self.say(self._say, reply=answered)
 
     # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
