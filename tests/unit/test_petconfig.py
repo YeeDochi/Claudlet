@@ -253,3 +253,75 @@ def test_avatar_map_entries_must_be_strings():
     assert cleaned == {"claude": "claudlet"}
     assert petconfig.clean_avatar("slime") == "slime"
     assert petconfig.clean_avatar(17) is None
+
+
+# ---------- 성격: 크리처가 기본 말투를 들고 오고 사용자가 덮어쓴다 ----------
+
+class _PersonaSlime:
+    persona = "느릿하고 물컹하게"
+
+
+def test_a_creature_brings_its_own_persona():
+    got = petconfig.for_creature({}, "slime", _PersonaSlime())
+    assert got["persona"] == "느릿하고 물컹하게"
+
+
+def test_the_user_overrides_the_creature_s_persona():
+    cfg = {"creatures": {"slime": {"persona": "아주 퉁명스럽게"}}}
+    assert petconfig.for_creature(cfg, "slime", _PersonaSlime())["persona"] == "아주 퉁명스럽게"
+
+
+def test_a_creature_without_a_persona_has_none():
+    assert petconfig.for_creature({}, "plain", object())["persona"] == ""
+
+
+def test_a_persona_is_not_borrowed_from_another_creature():
+    cfg = {"creatures": {"slime": {"persona": "물컹"}}}
+    assert petconfig.for_creature(cfg, "claudlet", object())["persona"] == ""
+
+
+def test_a_persona_is_trimmed_and_capped():
+    assert petconfig.clean_persona("  짧게  ") == "짧게"
+    assert len(petconfig.clean_persona("가" * 500)) == petconfig.PERSONA_MAX
+
+
+def test_an_empty_persona_clears_the_setting():
+    # 빈 값은 "빈 문자열을 저장"이 아니라 "지운다" — 그래야 크리처 기본값이 산다
+    assert petconfig.clean_persona("") is None
+    assert petconfig.clean_persona("   ") is None
+    assert petconfig.clean_persona(None) is None
+
+
+def test_a_persona_is_one_line():
+    # 여러 줄이 그대로 들어가면 주입되는 컨텍스트의 모양이 망가진다
+    assert petconfig.clean_persona("짧게\n반말로") == "짧게 반말로"
+
+
+def test_a_saved_persona_survives_a_reload_per_creature():
+    # 저장은 되는데 읽을 때 버려지면 아무 일도 안 한 것과 같다.
+    cfg = petconfig._clean({"creatures": {
+        "slime": {"persona": "느릿하게"},
+        "claudlet": {"persona": "퉁명스럽게"}}})
+    assert petconfig.for_creature(cfg, "slime", object())["persona"] == "느릿하게"
+    assert petconfig.for_creature(cfg, "claudlet", object())["persona"] == "퉁명스럽게"
+
+
+# ---------- 이름: 크리처마다 따로 붙인다 ----------
+
+def test_a_nickname_is_stored_per_creature():
+    cfg = petconfig._clean({"creatures": {
+        "slime": {"nickname": "라임"}, "claudlet": {"nickname": "클로"}}})
+    assert petconfig.for_creature(cfg, "slime", object())["nickname"] == "라임"
+    assert petconfig.for_creature(cfg, "claudlet", object())["nickname"] == "클로"
+    assert petconfig.for_creature(cfg, "codex", object())["nickname"] == ""
+
+
+def test_an_empty_nickname_clears_it():
+    assert petconfig.clean_nickname("  ") is None
+    assert petconfig.clean_nickname(None) is None
+
+
+def test_a_nickname_is_one_short_line():
+    assert petconfig.clean_nickname(" 라임 ") == "라임"
+    assert petconfig.clean_nickname("라 임\n이") == "라 임 이"
+    assert len(petconfig.clean_nickname("가" * 100)) == petconfig.NICKNAME_MAX

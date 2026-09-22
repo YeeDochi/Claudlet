@@ -17,6 +17,7 @@ The parsing/decision logic here is pure and tested with a fake runner
 any missing method, non-Konsole host, or bus error returns None so the caller
 falls back to the plain window raise.
 """
+import os
 import re
 
 _SERVICE_PREFIX = "org.kde.konsole-"
@@ -117,3 +118,65 @@ def focus(ancestor_pids, run):
     except Exception:
         return None
     return (svc, wpath, sid)
+
+
+def submit_text(text):
+    """실제로 제출되는 한 줄로 다듬는다. 빈 메시지면 None. 순수.
+
+    sendText 는 받은 문자열을 그대로 키 입력처럼 밀어 넣으므로, 줄바꿈이 든
+    문장을 그대로 보내면 줄마다 프롬프트가 하나씩 제출된다. 줄바꿈은 공백으로
+    접고 끝에 하나만 붙인다 — 그 하나가 "엔터"다.
+
+    그 하나는 LF 가 아니라 **CR** 이다. 터미널에서 Enter 키가 보내는 것이 CR
+    이고, raw 모드로 도는 TUI(Claude Code 가 그렇다)는 CR 만 제출로 읽는다.
+    LF 를 보내면 글자는 찍히는데 엔터가 안 쳐진다(실측)."""
+    one = " ".join((text or "").split())
+    return one + "\r" if one else None
+
+
+def send_text(ancestor_pids, run, text):
+    """이 세션의 Konsole 탭 프롬프트에 직접 써 넣고 제출한다.
+
+    탭을 고르는 일은 focus() 가 이미 한다 — 여기서 새로 푸는 것은 없다.
+    우리 Konsole 이 아니거나 보낼 것이 없으면 False (호출자는 귓속말로
+    강등한다)."""
+    payload = submit_text(text)
+    if payload is None:
+        return False
+    got = focus(ancestor_pids, run)
+    if not got:
+        return False
+    svc, _window, sid = got
+    try:
+        run(svc, "/Sessions/%d" % sid, "org.kde.konsole.Session.sendText", payload)
+    except Exception:
+        return False
+    return True
+
+
+# Konsole 은 sendText/runCommand 를 **기본으로 막아둔다**. introspection 에는
+# 메서드가 그대로 보이는데 호출하면 AccessDenied
+# ("보안에 민감한 DBus API가 비활성화되어 있습니다")가 돌아온다 — 있으니까
+# 된다고 넘겨짚으면 안 되는 자리였다. 켜는 곳은
+# 설정 -> Konsole 설정 -> 일반 -> "보안에 민감한 DBus API 활성화".
+#
+# 켜졌는지는 **찔러봐서** 안다. konsolerc 를 읽는 방법도 써 봤는데 틀린 답을
+# 낸다: 사용자가 방금 체크해서 호출이 이미 되는데도 KDE 가 파일 쓰기를 미뤄
+# 키가 없는 상태가 실제로 관찰됐다(2026-09-22). 빈 문자열을 보내는 것은 아무
+# 것도 타이핑하지 않으므로, 이 probe 자체에는 부작용이 없다.
+def can_send_text(ancestor_pids, run):
+    """이 Konsole 이 sendText 를 받아주나. 빈 문자열을 실제로 보내 확인한다."""
+    if not ancestor_pids:
+        return False
+    try:
+        services = [x.strip() for x in run().splitlines() if x.strip()]
+        svc = pick_service(services, ancestor_pids)
+        if not svc:
+            return False
+        for path in (x.strip() for x in run(svc).splitlines()):
+            if _SESSION_PATH.match(path or ""):
+                run(svc, path, "org.kde.konsole.Session.sendText", "")
+                return True
+    except Exception:
+        return False
+    return False

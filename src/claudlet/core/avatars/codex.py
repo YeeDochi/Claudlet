@@ -83,6 +83,8 @@ class Codex:
     states = STATES
     hats = C.HAT_KINDS
     palette = "#7C86E8"            # periwinkle, until the user picks
+    nickname = "코디"
+    persona = "간결하고 기계적인 말투. 군더더기 없이 한 줄."
     foot_row = FLOOR
 
     def set_lang(self, lang):

@@ -186,7 +186,7 @@ def test_page_carries_every_creatures_settings(tmp_path, monkeypatch):
     s = U.state_payload()
     assert set(s["looks"]) == set(a["name"] for a in s["avatars"])
     for look in s["looks"].values():
-        assert set(look) == {"palette", "scale", "visor"}
+        assert set(look) == {"palette", "scale", "visor", "persona", "nickname"}
 
 
 def test_the_server_stops_once_the_page_stops_saying_it_is_open():
@@ -1211,3 +1211,16 @@ def test_the_installed_pwa_is_skipped_when_we_are_not_on_its_origin(monkeypatch)
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url))
     U.launch_browser("http://127.0.0.1:41234/", app_window=False)
     assert opened == ["http://127.0.0.1:41234/"]
+
+
+def test_reload_tells_pets_to_re_read_without_saving(tmp_path, monkeypatch):
+    # rebuilding a creature changes no setting, so there is nothing to save —
+    # but the pets still have to be told, and told it is not the ordinary
+    # restyle they skip when the creature's name has not changed
+    path = _cfg(tmp_path, monkeypatch)
+    before = path.read_text(encoding="utf-8")
+    sent = []
+    out = U.apply({"reload": True}, broadcast=lambda line: sent.append(line) or 2)
+    assert json.loads(sent[0]) == {"cmd": "restyle", "reload": True}
+    assert out["pets"] == 2 and out["applied"] == []
+    assert path.read_text(encoding="utf-8") == before      # nothing written

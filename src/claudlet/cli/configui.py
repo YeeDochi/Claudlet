@@ -424,6 +424,10 @@ def clean_creature_updates(body, fractional=False):
     if "visor" in body:
         v = body.get("visor")
         out["visor"] = None if v is None else petconfig.clean_visor(v)
+    if "persona" in body:
+        out["persona"] = petconfig.clean_persona(body.get("persona"))
+    if "nickname" in body:
+        out["nickname"] = petconfig.clean_nickname(body.get("nickname"))
     return out
 
 
@@ -530,9 +534,19 @@ def apply(body, broadcast=None):
         petconfig.save_keys(updates)
     send = hostinfo.broadcast if broadcast is None else broadcast
     told = 0
-    if updates:
+    # `reload` is the page's "다시 불러오기": the creature package on disk was
+    # rebuilt under the same name. Nothing in the config changed, so there is
+    # nothing to save, but the pets still have to be told — and told that this
+    # one is not an ordinary restyle, which they skip when the name matches.
+    want_reload = bool(body.get("reload"))
+    if updates or want_reload:
+        # the key is only carried when it is true: an ordinary restyle stays
+        # the same line on the wire it has always been
+        msg = {"cmd": "restyle"}
+        if want_reload:
+            msg["reload"] = True
         try:
-            told = send(json.dumps({"cmd": "restyle"}))
+            told = send(json.dumps(msg))
         except Exception:
             told = 0            # nothing running is not an error
     payload = state_payload(agent=agent)
@@ -631,10 +645,17 @@ TEXT = {
         "refresh": "새로고침",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
+        "redress": "다시 불러오기",
+        "redress_tip": "크리처 그림을 디스크에서 다시 읽는다 (다시 구웠을 때)",
+        "redressed": "%s 를 디스크에서 다시 읽었다.",
         "reset": "기본으로", "worn": "착용 중", "notworn": "미착용",
         "stale_page": "이 페이지는 예전 설정 서버의 것입니다 — 새로고침한 뒤 다시 시도하세요",
         "settings_of": "%s 설정",
         "visor_auto": "오토모드일 때", "visor_on": "항상", "visor_off": "안 함",
+        "nickname": "이름", "nickname_ph": "예: 라임",
+        "nickname_help": "이 이름으로 부르면 자기를 부르는 줄 안다",
+        "persona": "말투", "persona_ph": "예: 짧고 퉁명스럽게, 반말로",
+        "persona_help": "펫에게 말을 걸면 이 말투로 답한다",
         "named": "지금은 %s — 색을 고르면 바뀝니다",
         "saved": "%s 설정을 저장했습니다", "switched": "%s 로 갈아입혔습니다",
         "reverted": "%s 를 기본으로 되돌렸습니다",
@@ -657,10 +678,17 @@ TEXT = {
         "refresh": "Refresh",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
+        "redress": "Reload art",
+        "redress_tip": "Re-read the creature from disk (after rebuilding it)",
+        "redressed": "Re-read %s from disk.",
         "reset": "Defaults", "worn": "worn", "notworn": "not worn",
         "stale_page": "This page came from an earlier settings server — refresh and try again",
         "settings_of": "%s settings",
         "visor_auto": "When unattended", "visor_on": "Always", "visor_off": "Never",
+        "nickname": "Name", "nickname_ph": "e.g. Lime",
+        "nickname_help": "what to call it, so it knows when it is addressed",
+        "persona": "Voice", "persona_ph": "e.g. short and blunt",
+        "persona_help": "how it answers when you talk to the pet",
         "named": "currently %s — pick a colour to change it",
         "saved": "Saved %s", "switched": "Now wearing %s",
         "reverted": "%s back to defaults",
@@ -879,6 +907,8 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <span id="wornBadge"></span>
         <button id="save">__T_save__</button>
         <button id="wear" class="ghost">__T_wear__</button>
+        <button id="redress" class="ghost"
+                title="__T_redress_tip__">__T_redress__</button>
         <button id="reset" class="ghost">__T_reset__</button>
         <span id="said"></span>
       </div>
@@ -894,6 +924,16 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <label>__T_special__</label>
         <div id="visor" class="seg"></div>
         <span id="isnamed" class="sr-only"></span>
+      </div>
+      <div class="row" id="nameRow">
+        <label for="nickname">__T_nickname__</label>
+        <input type="text" id="nickname" maxlength="24"
+               placeholder="__T_nickname_ph__" title="__T_nickname_help__">
+      </div>
+      <div class="row" id="personaRow">
+        <label for="persona">__T_persona__</label>
+        <input type="text" id="persona" maxlength="200"
+               placeholder="__T_persona_ph__" title="__T_persona_help__">
       </div>
       <div id="shots"></div>
     </section>
@@ -971,6 +1011,8 @@ function showCreature(name) {
   const isHex = typeof pal === "string" && pal.startsWith("#");
   $("col").value = isHex ? pal : "#D97757";
   $("scale").value = look.scale || S.scale;
+  $("nickname").value = look.nickname || "";
+  $("persona").value = look.persona || "";
   $("visor").innerHTML = S.visor_modes.map((v) =>
     `<button data-v="${v}" aria-pressed="${v === (look.visor || "auto")}">` +
     `${VISOR_LABEL[v] || v}</button>`).join("");
@@ -1097,24 +1139,32 @@ for (const ev of ["input", "change"]) {
   $("scale").addEventListener(ev, redraw);
 }
 async function post(body, note) {
-  for (const b of ["save", "reset", "wear"]) $(b).disabled = true;
+  for (const b of ["save", "reset", "wear", "redress"]) $(b).disabled = true;
   const r = await fetch("/api/config", {method: "POST",
     headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
   const out = await r.json();
   $("said").textContent = note + (out.pets
       ? T.applied_pets.replace("%d", out.pets) : T.applied_next);
-  for (const b of ["save", "reset", "wear"]) $(b).disabled = false;
+  for (const b of ["save", "reset", "wear", "redress"]) $(b).disabled = false;
   return out;
 }
 $("save").addEventListener("click", async () =>
   fill(await post({agent: S.agent, creature: editing, palette: $("col").value,
-                   scale: +$("scale").value, visor: visorNow()},
+                   scale: +$("scale").value, visor: visorNow(),
+                   persona: $("persona").value,
+                   nickname: $("nickname").value},
                   T.saved.replace("%s", editing))));
 async function doWear() {
   return fill(await post({agent: S.agent, avatar: editing},
                          T.switched.replace("%s", editing)));
 }
 $("wear").addEventListener("click", doWear);
+// The creature package on disk was rebuilt under the same name. Nothing to
+// save — this only tells the running pets to drop what they are wearing and
+// read it again, which they otherwise skip because the name did not change.
+$("redress").addEventListener("click", async () =>
+  fill(await post({agent: S.agent, reload: true},
+                  T.redressed.replace("%s", editing))));
 $("reset").addEventListener("click", async () =>
   // null clears the setting so the creature's own default applies again
   fill(await post({agent: S.agent, creature: editing, palette: null, scale: null,

@@ -218,7 +218,11 @@ def _clean_creatures(raw):
             continue
         out[name] = {"palette": clean_palette_opt(v.get("palette")),
                      "scale": clean_scale_opt(v.get("scale")),
-                     "visor": clean_visor(v.get("visor"))}
+                     "visor": clean_visor(v.get("visor")),
+                     # 말투도 크리처의 것이다 — 슬라임과 claudlet 은 다르게 말한다
+                     "persona": clean_persona(v.get("persona")),
+                     # 이름도 마찬가지다. 슬라임은 "라임", claudlet 은 다른 이름.
+                     "nickname": clean_nickname(v.get("nickname"))}
     return out
 
 
@@ -254,8 +258,39 @@ def for_creature(cfg, name, avatar=None):
     else:
         want = getattr(avatar, "scale", None)
         scale = clamp_scale(want, fine) if want is not None else DEFAULT_SCALE
+    # 말투는 크리처가 들고 온다 — 슬라임을 내보내면 슬라임 말투도 따라간다.
+    # 사용자가 적어둔 것이 있으면 그것이 이긴다(색·크기와 같은 규칙).
+    persona = mine.get("persona")
+    if persona is None:
+        persona = getattr(avatar, "persona", None)
+    nickname = mine.get("nickname")
+    if nickname is None:
+        nickname = getattr(avatar, "nickname", None)
     return {"palette": palette, "scale": scale,
-            "visor": mine.get("visor") or DEFAULT_VISOR}
+            "visor": mine.get("visor") or DEFAULT_VISOR,
+            "persona": str(persona or "").strip(),
+            "nickname": str(nickname or "").strip()}
+
+
+NICKNAME_MAX = 24          # 부르는 이름이다. 문장이 아니라.
+
+
+def clean_nickname(raw):
+    """저장할 펫 이름, 또는 지우라는 뜻의 None. 순수."""
+    one = " ".join(str(raw or "").split())
+    return one[:NICKNAME_MAX] if one else None
+
+
+PERSONA_MAX = 200          # 한 줄 지시면 충분하다. 주입되는 컨텍스트이기도 하고.
+
+
+def clean_persona(raw):
+    """저장할 말투 한 줄, 또는 지우라는 뜻의 None. 순수.
+
+    빈 값은 빈 문자열로 저장하지 않고 지운다 — 그래야 크리처가 들고 온 기본
+    말투가 다시 산다(색·크기의 reset 과 같은 규칙)."""
+    one = " ".join(str(raw or "").split())
+    return one[:PERSONA_MAX] if one else None
 
 
 def clamp_scale(value, fractional=False):

@@ -13,8 +13,54 @@ import sys
 # On Linux, force XWayland (xcb): native Wayland forbids clients positioning
 # their own windows, which a roaming pet needs. On macOS/Windows keep Qt's
 # native platform (cocoa/windows) — forcing xcb there would fail to start.
+def im_module_for(xmodifiers):
+    """XMODIFIERS 가 가리키는 입력기 이름, 없으면 None. 순수.
+
+    xcb 를 강제한 대가다. 네이티브 Wayland 앱은 text-input 프로토콜로 입력기가
+    붙지만, XWayland(xcb) 위의 Qt 는 `QT_IM_MODULE` 이 없으면 compose 플러그인을
+    올리고 끝낸다 — 그러면 알파벳만 들어오고 한글은 한 글자도 안 써진다.
+    플라즈마가 이 변수를 내보내지 않는 세션에서도 XMODIFIERS 는 서 있으므로,
+    거기서 입력기 이름을 읽어 우리가 채운다."""
+    name = (xmodifiers or "").strip()
+    if not name.startswith("@im="):
+        return None
+    name = name[4:].strip()
+    if name in ("fcitx", "fcitx5"):
+        return "fcitx"                 # fcitx5 플러그인도 "fcitx" 로 등록된다
+    return name or None
+
+
+def ask_command(prompt, which=None):
+    """한 줄을 물어볼 시스템 대화상자의 argv, 없으면 None. 순수(`which` 주입).
+
+    우리 창으로 묻지 않는 이유: pip/pipx 로 깔린 PyQt6 는 자기 Qt 를 통째로
+    안고 오는데 그 안에는 compose 와 ibus 입력컨텍스트뿐이라, fcitx 사용자는
+    우리 대화상자에 한글을 한 글자도 못 친다. 시스템 플러그인을 빌려오는 것도
+    안 된다 — 시스템 Qt 6.10 플러그인이 wheel Qt 6.11 위에서 private 심볼
+    (`QtPrivate_6_10_2`)을 못 찾고 로드에 실패한다(실측).
+
+    그래서 입력기가 이미 붙어 있는 남의 프로세스에 묻는다. kdialog/zenity 는
+    시스템 Qt/GTK 로 빌드돼 있어 한글이 그냥 된다."""
+    if which is None:
+        which = shutil.which
+    if not sys.platform.startswith("linux"):
+        # 윈도우/맥의 Qt 는 입력기를 플랫폼 플러그인 안에서 직접 다룬다 —
+        # 빌려올 것이 없고, brew 로 깔린 zenity 가 가로채서도 안 된다.
+        return None
+    exe = which("kdialog")
+    if exe:
+        return [exe, "--title", "claudlet", "--inputbox", prompt]
+    exe = which("zenity")
+    if exe:
+        return [exe, "--entry", "--title=claudlet", "--text=" + prompt]
+    return None
+
+
 if sys.platform.startswith("linux"):
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+    _im = im_module_for(os.environ.get("XMODIFIERS"))
+    if _im:
+        os.environ.setdefault("QT_IM_MODULE", _im)
     # Silence the harmless "Could not register app ID 'claudlet'" portal warning:
     # Qt tries to register with the XDG desktop portal but there's no .desktop
     # file for our app ID. Cosmetic only — has no effect on the pet.
@@ -44,6 +90,7 @@ from claudlet.platform import konsole
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
 from claudlet.core import hostinfo
+from claudlet.core import outbox
 from claudlet.core import petconfig
 from claudlet.core import dock as dockgeom
 from claudlet.core import dockslot
@@ -155,6 +202,9 @@ UI = {
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
+           "talk_now": "💬 지금 물어보기…", "talk_note": "📝 쪽지 남기기…",
+           "talk_drop": "물고 있는 쪽지 버리기 (%d장)",
+           "talk_prompt": "펫에게 전할 말", "talk_sent": "전달했다",
            "settings": "🎨 크리처 설정…",
            "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
            "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
@@ -164,6 +214,9 @@ UI = {
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
+           "talk_now": "💬 Ask now…", "talk_note": "📝 Leave a note…",
+           "talk_drop": "Drop the note it holds (%d)",
+           "talk_prompt": "What to tell the pet", "talk_sent": "delivered",
            "settings": "🎨 Creature settings…",
            "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
            "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
@@ -174,6 +227,10 @@ UI = {
 # 촘촘하게 만든다. 잠금 파일 몇 개를 열어보는 게 전부라 자주 돌려도 싸지만,
 # 새 펫이 뜨자마자 자리를 빼앗는 것처럼 보이지 않을 만큼은 느긋하게.
 DOCK_REPACK_MS = 2000
+
+# 크리처가 한 말이 말풍선에 머무는 시간(초). 읽을 만큼은 있고, 화면에 눌러앉지는
+# 않을 만큼.
+SAY_SEC = 12.0
 
 # transient motions offered in the menus: (name, seconds, {lang: label})
 MOTION_MENU = [
@@ -424,6 +481,84 @@ class Companion(QWidget):
         p.end()
 
 
+class Bubble(QWidget):
+    """크리처가 한 말을 띄우는 작은 창.
+
+    펫 창 안에 그리면 안 된다 — 그 창은 크리처 크기에 맞춰져 있고(물리·도크·
+    퍼치가 그 크기를 그대로 쓴다) 늘릴 수 없어서, 조금만 긴 말도 잘린다.
+    그래서 자기 창을 갖는다. 클릭은 통과시키고 포커스는 절대 가져가지 않는다."""
+
+    MAX_W = 360            # 이보다 넓어지지 않고 줄을 바꾼다
+    PAD = 8
+    GAP = 6                # 크리처 머리와 말풍선 사이
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint
+                            | Qt.WindowType.WindowStaysOnTopHint
+                            | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._text = ""
+        self._rect = QRect(0, 0, 0, 0)     # 계산된 글자 영역
+
+    def _font(self):
+        from PyQt6.QtGui import QFont
+        f = QFont("Sans")
+        f.setPointSizeF(10.0)
+        f.setBold(True)
+        return f
+
+    def say(self, text, anchor_rect):
+        """`anchor_rect`(펫의 화면 좌표) 위에 `text` 를 띄운다."""
+        from PyQt6.QtGui import QFontMetrics
+        self._text = text
+        fm = QFontMetrics(self._font())
+        flags = int(Qt.TextFlag.TextWordWrap)
+        box = fm.boundingRect(QRect(0, 0, self.MAX_W, 10000), flags, text)
+        w, h = box.width() + 2 * self.PAD, box.height() + 2 * self.PAD
+        self._rect = QRect(self.PAD, self.PAD, box.width(), box.height())
+        self.setFixedSize(w, h + 6)        # +6: 아래 꼬리
+        self.move(*self._place(anchor_rect, w, h + 6))
+        self.show()
+        self.raise_()
+        self.update()
+
+    def follow(self, anchor_rect):
+        if not self.isVisible():
+            return
+        x, y = self._place(anchor_rect, self.width(), self.height())
+        if (x, y) != (self.x(), self.y()):     # 매 프레임 move 는 낭비다
+            self.move(x, y)
+
+    def _place(self, anchor, w, h):
+        """펫 머리 위 가운데. 화면 밖으로 나가면 안쪽으로 민다."""
+        x = anchor.center().x() - w // 2
+        y = anchor.top() - h - self.GAP
+        screen = QApplication.screenAt(anchor.center()) or QApplication.primaryScreen()
+        g = screen.availableGeometry()
+        x = max(g.left(), min(x, g.right() - w))
+        if y < g.top():                    # 위가 없으면 아래로 뒤집는다
+            y = min(anchor.bottom() + self.GAP, g.bottom() - h)
+        return int(x), int(y)
+
+    def paintEvent(self, _e):
+        from PyQt6.QtGui import QPainter, QPainterPath, QPen
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, self.width(), self.height() - 6), 8, 8)
+        p.fillPath(path, QColor(255, 255, 255, 243))
+        p.fillRect(QRectF(self.width() / 2 - 5, self.height() - 7, 10, 6),
+                   QColor(255, 255, 255, 243))
+        p.setFont(self._font())
+        p.setPen(QPen(QColor("#2A2A30")))
+        p.drawText(self._rect, int(Qt.TextFlag.TextWordWrap), self._text)
+        p.end()
+
+
 class ZoneOverlay(QWidget):
     """One translucent overlay per monitor, for drawing no-go zones.
 
@@ -630,6 +765,7 @@ class Pet(QWidget):
         # 0을 그대로 넘기면 빈 집합이 나오고, 그러면 _konsole_focus_tab도
         # _update_host_wid도 조기 반환해 클릭이 "창은 올라오는데 탭은 그대로"가
         # 된다. 펫을 띄운 셸이 곧 그 탭의 셸이므로 자기 조상이 정확히 맞다.
+        self._claude_pid = claude_pid or 0   # 콘솔 입력 버퍼에 붙을 때 쓴다
         self._ancestor_pids = self._proc_ancestors(claude_pid or os.getpid())
         self._host_wid = None                # internalId of our host window (focus)
         # Terminal tab title, refreshed by every hook event. On Windows this is
@@ -710,6 +846,20 @@ class Pet(QWidget):
         self._vel_samples = []
         self._click_times = []
 
+        self._persona = getattr(self, "_persona", "")
+        self._nickname = getattr(self, "_nickname", "")
+        self._notes = 0                    # 물고 있는 쪽지 수
+        self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
+        self._say = ""                     # 크리처가 지금 하는 말
+        self._say_until = 0.0
+        self._bubble = None                # 말풍선은 자기 창이다 (Bubble)
+        self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
+        self._reply_path = ""
+        self._reply_left = 0
+        self._said_last = ""               # 직전에 띄운 대사 (같은 줄 = 아직 안 써짐)
+        self._note_timer = QTimer(self)
+        self._note_timer.timeout.connect(self._refresh_notes)
+        self._refresh_notes()              # 재시작 전에 남긴 쪽지를 이어받는다
         self._init_socket()
         self._init_tray()
 
@@ -883,6 +1033,11 @@ class Pet(QWidget):
             self._handle_event(ev)
 
     def _handle_event(self, ev):
+        # 새 턴이 시작되면 지난 대사는 치운다. 말풍선은 12초 떠 있는데, 그 사이
+        # 사용자가 다음 말을 걸면 옛 대사가 남아 있다가 새 대사로 바뀌어
+        # "이전 말이 나오고 다음 말이 나오는" 것처럼 보인다.
+        if ev.get("event") == "UserPromptSubmit":
+            self._hush()
         # A quit command (claudlet-uninstall teardown) is a shutdown request,
         # not a Claude event: shut down cleanly and stop processing.
         if ev.get("cmd") == "quit":
@@ -890,9 +1045,29 @@ class Pet(QWidget):
             return
         # 형제 펫이 드래그로 대열을 옮겼다는 통지. 같은 offset을 공유해야 간격이
         # 유지되므로 받은 값을 그대로 반영한다(config는 옮긴 쪽이 이미 저장했다).
+        if ev.get("cmd") == "turn_end":
+            # 턴이 끝났다. 이번 턴의 대사가 transcript 에 나타날 때까지 잠깐
+            # 지켜본다 — 훅이 읽던 시절에는 아직 flush 되기 전이라 지난 턴
+            # 대사를 물어왔다. 기다리는 일은 블록하면 안 되는 훅이 아니라
+            # 이벤트 루프를 가진 펫이 한다.
+            path = ev.get("transcript")
+            if isinstance(path, str) and path:
+                self._await_reply(path)
+            return
+        if ev.get("cmd") == "say":
+            # 크리처가 한 줄 말한다. 에이전트의 설명은 터미널에 그대로 있고,
+            # 여기 뜨는 것은 펫의 목소리뿐이다.
+            text = ev.get("text")
+            if isinstance(text, str) and text.strip():
+                self._say = text.strip()[:outbox.SAY_MAX]
+                self._say_until = time.monotonic() + SAY_SEC
+                self._show_say()
+            return
         if ev.get("cmd") == "restyle":
             # 설정이 바뀌었다 (claudlet-config ui). 재시작 없이 다시 입는다.
-            self._restyle()
+            # reload: 같은 크리처를 다시 구웠다. 이름이 그대로라 평소의
+            # 비교로는 새 그림이 안 들어오므로 무조건 다시 읽는다.
+            self._restyle(reload=bool(ev.get("reload")))
             return
         if ev.get("cmd") == "dock":
             off = ev.get("offset")
@@ -1005,11 +1180,19 @@ class Pet(QWidget):
             os.environ.get("CLAUDLET_SCALE") or look["scale"],
             bool(getattr(self.avatar, "fractional_scale", False)))
         self._visor_mode = look["visor"]
+        self._persona = look.get("persona", "")
+        self._nickname = look.get("nickname", "")
 
-    def _restyle(self):
+    def _restyle(self, reload=False):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
         without restarting: colour applies on the next paint, a new scale needs
-        the window resized and the pet nudged back inside the screen."""
+        the window resized and the pet nudged back inside the screen.
+
+        `reload` is for a creature whose PACKAGE changed under the same name —
+        someone rebuilt the one being worn. `avatars.get()` already re-reads
+        the directory every call, so the art is fresh; what stopped it landing
+        was this method only accepting the result when the NAME differed.
+        Switching to another creature and back was the workaround."""
         cfg = petconfig.load_config()
         before = (self.u, self.avatar.name)
         want = _avatar_name(cfg, self.agent)
@@ -1021,10 +1204,12 @@ class Pet(QWidget):
         # restyle forever instead of settling once resolved.
         if want:
             resolved = avatars.get(want)
-            if resolved.name != self.avatar.name:
+            if reload or resolved.name != self.avatar.name:
                 self.avatar = resolved          # 크리처를 갈아입는다
         self._apply_style(cfg)
-        if (self.u, self.avatar.name) != before:
+        if reload or (self.u, self.avatar.name) != before:
+            # a rebuild can change the grid as well as the art, and the window
+            # is sized from the grid
             self._resize_to_avatar()
         # Companions are re-dressed ALWAYS, not only when the size or creature
         # changed: a colour-only change left the sidekicks in the old colour.
@@ -1069,6 +1254,8 @@ class Pet(QWidget):
             "floating": self._floating,
             "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
+            "notes": self._notes,                # 에이전트에게 전하려고 물고 있는 쪽지 수
+            "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
             "tab_title": self._tab_title,        # terminal tab we click-focus
@@ -1094,6 +1281,7 @@ class Pet(QWidget):
     def _tick(self):
         self.frame += 1
         now = time.monotonic()
+        self._tick_say()                 # 말풍선은 펫을 따라다닌다
         self.claude_state = self.engine.display_state(now)
         self._auto = self.engine.auto_active()   # keep the visor on across states
         eff = self.claude_state
@@ -2371,12 +2559,120 @@ class Pet(QWidget):
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
+        if self._notes:
+            self._draw_note(p)
         p.end()
 
     # 하트 위치/크기의 기본값 (내장 크리처의 22x17 기준, 아트 픽셀 단위).
     # 그리드가 훨씬 촘촘한 크리처에서는 이 숫자가 그대로면 하트가 얼굴 위에
     # 좁쌀만 하게 찍힌다 — 크리처가 `hearts`로 자기 기준을 알려줄 수 있다.
     HEARTS_DEFAULT = (4.5, 3.0, 1.6)      # (좌우 간격, 머리 높이, 크기)
+
+    # 물고 있는 쪽지의 자리/크기. 하트는 내장 크리처의 22x17 을 기준으로 숫자를
+    # 박아두는 바람에 그리드가 촘촘한 크리처에서 좁쌀이 됐다(그래서 `hearts`
+    # 탈출구가 생겼다). 여기서는 처음부터 **그리드 비율**로 둔다 — 176x128 짜리
+    # 스프라이트든 22x17 내장이든 같은 비율로 커진다. 크리처가 `note` 로
+    # (옆, 높이, 크기)를 아트 픽셀로 직접 줄 수도 있다.
+    NOTE_FRAC = (0.23, 0.53, 0.18)        # (gw 대비 옆, gh 대비 높이, gw 대비 크기)
+
+    def _note_anchor(self):
+        override = getattr(self.avatar, "note", None)
+        if override:
+            return override
+        gw, gh = self.avatar.grid
+        fs, fh, fz = self.NOTE_FRAC
+        return (gw * fs, gh * fh, gw * fz)
+
+    # 내장 크리처의 22 유닛 폭을 기준으로 잰 "한 유닛" — 화면에 실제로 그려지는
+    # 크기에서 나온다. `self.u` 를 그대로 쓰면 그리드가 촘촘한 크리처에서
+    # 글씨가 좁쌀이 된다: 176 dot 짜리 스프라이트는 같은 화면 크기를 u=1.3 으로
+    # 내므로 `1.3 * u` 가 1.7pt 가 되어 하한 6pt 에 눌려 있었다. 하트가 좁쌀이
+    # 됐던 것과 같은 실수이고, 쪽지(NOTE_FRAC)가 이미 쓰는 것과 같은 해법이다.
+    def _unit(self):
+        gw = self.avatar.grid[0]
+        return (gw * self.u) / 22.0 if gw else self.u
+
+    def _show_say(self):
+        if self._bubble is None:
+            self._bubble = Bubble()
+        self._bubble.say(self._say, self.frameGeometry())
+
+    # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
+    REPLY_POLL_MS = 200
+    REPLY_TRIES = 25
+
+    def _await_reply(self, path):
+        """transcript 에 **새** 대사가 나타나면 말풍선을 띄운다.
+
+        직전에 띄운 것과 같은 줄은 아직 이번 턴이 안 써졌다는 뜻이므로 넘긴다.
+        시간 안에 안 나타나면 그냥 포기한다 — 말풍선은 없어도 되는 것이다."""
+        self._reply_path = path
+        self._reply_left = self.REPLY_TRIES
+        if self._reply_timer is None:
+            self._reply_timer = QTimer(self)
+            self._reply_timer.timeout.connect(self._poll_reply)
+        self._reply_timer.start(self.REPLY_POLL_MS)
+        self._poll_reply()
+
+    def _poll_reply(self):
+        line = None
+        try:
+            line = outbox.reply_from_transcript(self._reply_path)
+        except Exception:
+            line = None
+        self._reply_left -= 1
+        if line and line != self._said_last:
+            self._said_last = line
+            self._reply_timer.stop()
+            self._handle_event({"cmd": "say", "text": line})
+            return
+        if self._reply_left <= 0:
+            self._reply_timer.stop()
+
+    def _hush(self):
+        """하던 말을 즉시 거두고, 지난 턴 대사를 기다리던 것도 그만둔다.
+
+        타이머를 멈추지 않으면 새 턴이 시작된 뒤에 지난 턴 대사가 뒤늦게 떠서,
+        고치려던 "한 턴 늦음"이 그대로 재현된다."""
+        self._say = ""
+        self._say_until = 0.0
+        self._reply_left = 0
+        if self._reply_timer is not None:
+            self._reply_timer.stop()
+        if self._bubble is not None:
+            self._bubble.hide()
+
+    def _tick_say(self):
+        """말풍선은 펫을 따라다니고, 시간이 지나면 사라진다. `_tick` 에서 부른다."""
+        if not self._say:
+            return
+        if time.monotonic() >= self._say_until:
+            self._say = ""
+            if self._bubble is not None:
+                self._bubble.hide()
+            return
+        if self._bubble is not None:
+            self._bubble.follow(self.frameGeometry())
+
+    def _draw_note(self, p):
+        """아웃박스에 쌓인 것이 있으면 크리처가 쪽지를 물고 있다.
+
+        무엇이 언제 에이전트에 들어가는지 늘 보여야 한다 — 30분 전에 넣어둔
+        말이 조용히 딸려 가는 일이 없도록. 크리처마다 그리는 법이 다르므로
+        패키지의 그림이 아니라 여기서 위에 얹는다(하트와 같은 방식)."""
+        side, high, size = self._note_anchor()
+        u = self.u
+        w = size * u
+        h = w * 0.78
+        x = self.w / 2 + side * u * self.facing - w / 2
+        y = (PAD_Y + high) * u
+        p.setPen(Qt.PenStyle.NoPen)
+        p.fillRect(QRectF(x, y, w, h), QColor(250, 248, 235))
+        p.fillRect(QRectF(x, y, w, max(1.0, h * 0.18)), QColor(212, 205, 180))
+        line = QColor(120, 115, 100)
+        for i in (1, 2):                   # 글씨 두 줄 — 내용은 읽히지 않아도 된다
+            ly = y + h * (0.3 + 0.25 * i)
+            p.fillRect(QRectF(x + w * 0.18, ly, w * 0.64, max(1.0, h * 0.1)), line)
 
     def _draw_hearts(self, p, age):
         # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
@@ -2606,6 +2902,17 @@ class Pet(QWidget):
             a_comp_del = QAction(self.ui["comp_del"], m)
             m.addAction(a_comp_del)
         m.addSeparator()
+        a_talk_now = None
+        if self._can_talk_now():
+            a_talk_now = QAction(self.ui["talk_now"], m)
+            m.addAction(a_talk_now)
+        a_talk_note = QAction(self.ui["talk_note"], m)
+        m.addAction(a_talk_note)
+        a_talk_drop = None
+        if self._notes:
+            a_talk_drop = QAction(self.ui["talk_drop"] % self._notes, m)
+            m.addAction(a_talk_drop)
+        m.addSeparator()
         a_settings = QAction(self.ui["settings"], m)
         m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
@@ -2620,7 +2927,14 @@ class Pet(QWidget):
         chosen = m.exec(gpos)
         if chosen is None:
             return
-        if chosen == a_follow:
+        if chosen == a_talk_now:
+            self._talk(immediate=True)
+        elif chosen == a_talk_note:
+            self._talk(immediate=False)
+        elif chosen == a_talk_drop:
+            outbox.drop(self.session_id)
+            self._refresh_notes()
+        elif chosen == a_follow:
             self._toggle_follow()
         elif chosen == a_roam:
             self._toggle_dock()
@@ -2909,6 +3223,123 @@ class Pet(QWidget):
                 except OSError:
                     pass
 
+    # ---------- 펫에게 말 걸기 ----------
+    # 펫이 에이전트에게 말할 수 있는 통로는 두 가지다. "지금 물어보기"는 이
+    # 세션의 프롬프트에 직접 써 넣어 실제로 제출하고(호스트가 그럴 수 있을
+    # 때만), "쪽지 남기기"는 아웃박스에 쌓아 다음 훅 경계에서 배달한다.
+    #
+    # ponytail: 입력은 일단 QInputDialog 다. 펫 옆에 붙는 한 줄 입력이 더
+    # 어울리지만, 프레임리스 always-on-top 창에 포커스 가능한 위젯을 얹는 일은
+    # XWayland 에서 만져보기 전까지 글로 정해봐야 모른다. 여기가 갈아끼울 자리.
+    def _can_talk_now(self):
+        """이 호스트에서 프롬프트에 직접 써 넣을 수 있나. 지금은 KDE/Konsole 뿐 —
+        다른 호스트는 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        # 메서드가 있다고 되는 게 아니다: Konsole 은 sendText 를 기본으로 막아둔다
+        # (AccessDenied). 막혀 있으면 이 항목을 아예 띄우지 않는다 — 눌렀더니
+        # 조용히 쪽지가 되는 것보다 없는 편이 정직하다.
+        if os.name == "nt":
+            # 콘솔 입력 버퍼에 붙어 쓴다 — 전역 스위치가 필요 없다. 미리
+            # 확인할 방법이 없으므로(확인 = 실제로 써보기) 띄워두고, 실패하면
+            # 쪽지로 강등한다.
+            return bool(self._claude_pid)
+        if not (sys.platform.startswith("linux") and self._ancestor_pids
+                and "konsole" in [c.lower() for c in (self.host_classes or [])]):
+            return False
+        # 한 번만 찔러보고 기억한다(우클릭마다 qdbus 를 띄울 일은 아니다).
+        # 사용자가 나중에 스위치를 켜면 펫을 다시 띄우면 된다.
+        if self._send_ok is None:
+            self._send_ok = konsole.can_send_text(self._ancestor_pids,
+                                                  self._qdbus_run)
+        return self._send_ok
+
+    def _ask_text(self):
+        """말할 내용을 묻는다.
+
+        부모를 펫으로 두면 안 된다. 펫 창은 Tool + WA_ShowWithoutActivating 이라
+        절대 활성화되지 않고, 그 밑에 달린 대화상자는 입력기(IME)를 못 잡는다 —
+        알파벳은 들어오는데 한글이 한 글자도 안 써지는 게 그 증상이다.
+        독립 창으로 띄우고 직접 활성화한다."""
+        argv = ask_command(self.ui["talk_prompt"])
+        if argv:
+            try:
+                out = subprocess.run(argv, capture_output=True, text=True,
+                                     timeout=300)
+                return out.stdout.strip() if out.returncode == 0 else ""
+            except Exception:
+                pass                   # 시스템 대화상자가 없거나 죽었다 — Qt 로
+        from PyQt6.QtWidgets import QInputDialog
+        d = QInputDialog(None)
+        d.setWindowFlags(Qt.WindowType.Dialog
+                         | Qt.WindowType.WindowStaysOnTopHint)
+        d.setWindowTitle("claudlet")
+        d.setLabelText(self.ui["talk_prompt"])
+        d.setInputMode(QInputDialog.InputMode.TextInput)
+        d.show()
+        d.raise_()
+        d.activateWindow()                  # 이게 있어야 입력기가 붙는다
+        ok = d.exec()
+        return d.textValue().strip() if ok else ""
+
+    def _talk(self, immediate):
+        text = self._ask_text()
+        if not text:
+            return
+        # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
+        # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
+        if immediate and (self._persona or self._nickname):
+            outbox.append_voice(self.session_id, self._persona, self._nickname)
+        # 프롬프트에는 질문만 찍는다. 말투·이름은 위에서 아웃박스에 넣었고,
+        # 이 제출이 부르는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다.
+        if immediate and self._konsole_send(text):
+            self._play_motion("jump", 1.5)          # 바로 전했다
+            return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
+        outbox.append(self.session_id, text, persona=self._persona,
+                      nickname=self._nickname)
+        self._refresh_notes()
+        self._play_motion("jump", 1.5)              # 받았다
+
+    def _qdbus_run(self, *args):
+        return subprocess.check_output(
+            [qdbus_bin(), *args], text=True, timeout=3,
+            stderr=subprocess.DEVNULL)
+
+    def _konsole_send(self, text):
+        """이 세션의 프롬프트에 직접 써 넣는다. 실패는 False — 호출자가
+        쪽지로 강등한다. 윈도우는 콘솔 입력 버퍼, KDE 는 Konsole 의 D-Bus."""
+        if not self._can_talk_now():
+            return False
+        if os.name == "nt":
+            from claudlet.platform import winsend
+            try:
+                return winsend.send_text(self._claude_pid, text)
+            except Exception:
+                return False
+        try:
+            return konsole.send_text(self._ancestor_pids, self._qdbus_run, text)
+        except Exception:
+            return False
+
+    def _refresh_notes(self):
+        """몇 장을 물고 있는지 다시 센다. 훅이 가져가는 것은 이 프로세스 밖에서
+        일어나므로, 물고 있는 동안에만 느긋하게 되묻는다 — 빈 아웃박스에는
+        파일이 없어 평소엔 디스크를 건드리지도 않는다.
+
+        쪽지가 사라진 순간이 곧 "에이전트가 방금 그 말을 들었다"는 유일한 신호다.
+        그것이 그냥 그림이 지워지는 것으로 끝나면 펫이 아니라 표시등이다 —
+        전하고 왔다는 몸짓을 한 번 한다."""
+        before = self._notes
+        try:
+            self._notes = outbox.pending(self.session_id)
+        except Exception:
+            self._notes = 0
+        if self._notes and not self._note_timer.isActive():
+            self._note_timer.start(1000)
+        elif not self._notes:
+            self._note_timer.stop()
+            if before:
+                self._play_motion("wave", 2.0)      # 전하고 왔다
+        self.update()
+
     # ---------- bring the Claude Code terminal forward ----------
     def _konsole_focus_tab(self):
         """Best-effort: select THIS session's Konsole tab over Konsole's D-Bus.
@@ -3082,6 +3513,9 @@ class Pet(QWidget):
         # past QApplication.quit() on Windows; hiding it is a no-op elsewhere.
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
+        if getattr(self, "_bubble", None) is not None:
+            self._bubble.close()
+            self._bubble = None
         for c in getattr(self, "_companions", []) + getattr(self, "_departing", []):
             c.close()
         self._companions = []

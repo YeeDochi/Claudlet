@@ -28,9 +28,11 @@ utf8_streams(sys.stdin, sys.stdout, sys.stderr)
 try:
     from claudlet.core import hostinfo
     from claudlet.core import agents
+    from claudlet.core import outbox
 except Exception:
     hostinfo = None
     agents = None
+    outbox = None
 
 
 def agent_arg(argv):
@@ -365,6 +367,54 @@ def main():
                   .encode())
         except Exception:
             pass  # pet not running / not ready — ignore silently
+
+    say_reply(event, session_id, data)
+    deliver_outbox(event, session_id, agent)
+
+
+# 펫이 말할 수 있는 유일한 경계. 에이전트가 일하는 중이면 PostToolUse 에서,
+# 놀고 있었으면 다음 UserPromptSubmit 에서 도착한다. 두 이벤트만 stdout 의
+# additionalContext 를 이런 형태로 받는다 (Claude Code 2.1.278 의 훅 출력
+# 스키마를 바이너리에서 직접 확인했다).
+OUTBOX_EVENTS = ("UserPromptSubmit", "PostToolUse")
+
+
+def say_reply(event, session_id, data):
+    """턴이 끝났다고 펫에게 알린다. 읽는 일은 펫이 한다.
+
+    여기서 transcript 를 읽었더니 이번 턴 답이 아직 파일에 없어서 지난 턴
+    대사를 물어왔다(말풍선이 한 턴씩 늦었다). 훅은 기다릴 수 없고 — 기다리면
+    턴 종료가 그만큼 늦어진다 — 펫은 기다릴 수 있다. 그래서 경로만 넘긴다."""
+    if outbox is None or event not in ("Stop", "SubagentStop"):
+        return
+    path = data.get("transcript_path")
+    if not path:
+        return
+    try:
+        _send(hostinfo.read_session_port(session_id),
+              (json.dumps({"cmd": "turn_end", "transcript": str(path),
+                           "session": session_id}) + "\n").encode())
+    except Exception:
+        pass
+
+
+def deliver_outbox(event, session_id, agent=None):
+    """펫이 쌓아둔 쪽지를 에이전트에게 실어 보낸다. 없으면 한 글자도 쓰지 않는다.
+
+    훅의 stdout 은 에이전트가 파싱하므로, 여기서 나는 어떤 사고도 밖으로
+    나가면 안 된다 — 늦게 배달되는 쪽지가 깨진 훅보다 싸다."""
+    if outbox is None or event not in OUTBOX_EVENTS:
+        return
+    # Claude Code 와 Codex 는 이 부분의 와이어 포맷이 같다. 둘 다 바이너리에
+    # 박힌 스키마로 확인했다 (Codex 0.1xx 의 UserPromptSubmitHookSpecificOutputWire
+    # / PostToolUseHookSpecificOutputWire 가 {hookEventName, additionalContext}
+    # 를 hookSpecificOutput 아래에 그대로 받는다). 그래서 에이전트를 가르지 않는다.
+    try:
+        payload = outbox.payload(event, outbox.take(session_id))
+        if payload:
+            sys.stdout.write(json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 def _cli():

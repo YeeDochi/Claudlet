@@ -112,3 +112,38 @@ def test_send_ignores_malformed_port_file(tmp_path, monkeypatch):
 
     assert n == 0
     assert bad.exists()
+
+
+# ---------- 말할 내용을 어느 창에서 받을 것인가 ----------
+
+def test_a_system_dialog_is_preferred_when_one_is_installed():
+    # pip 으로 깔린 PyQt6 는 자기 Qt 를 안고 오고 그 안에 fcitx 플러그인이 없다.
+    # 한글을 받으려면 입력기가 붙는 프로세스(시스템 Qt/GTK)에 물어야 한다.
+    from claudlet import pet
+    argv = pet.ask_command("무슨 말?", which=lambda n: "/usr/bin/" + n
+                           if n == "kdialog" else None)
+    assert argv[0] == "/usr/bin/kdialog"
+    assert "무슨 말?" in argv
+
+
+def test_zenity_is_the_fallback_off_kde():
+    from claudlet import pet
+    argv = pet.ask_command("무슨 말?", which=lambda n: "/usr/bin/zenity"
+                           if n == "zenity" else None)
+    assert argv[0] == "/usr/bin/zenity"
+    assert "무슨 말?" in " ".join(argv)
+
+
+def test_no_system_dialog_means_we_ask_qt_ourselves():
+    from claudlet import pet
+    assert pet.ask_command("무슨 말?", which=lambda n: None) is None
+
+
+def test_windows_and_mac_ask_qt_rather_than_a_stray_helper(monkeypatch):
+    # brew 로 깔린 zenity 가 macOS 입력을 가로채면 안 된다. 두 OS 의 Qt 는
+    # 입력기를 플랫폼 플러그인 안에서 직접 다루므로 빌려올 것이 없다.
+    from claudlet import pet
+    monkeypatch.setattr(pet.sys, "platform", "darwin")
+    assert pet.ask_command("무슨 말?", which=lambda n: "/opt/homebrew/bin/" + n) is None
+    monkeypatch.setattr(pet.sys, "platform", "win32")
+    assert pet.ask_command("무슨 말?", which=lambda n: "C:/tools/" + n) is None

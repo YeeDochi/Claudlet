@@ -220,3 +220,24 @@ def test_pet_alive_false_and_removes_stale_file_on_refused(tmp_path, monkeypatch
 def test_pet_alive_false_without_port_file(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     assert hostinfo.pet_alive("nope") is False
+
+
+# ---------- xcb 를 강제한 대가: 입력기를 우리가 붙여야 한다 ----------
+
+def test_the_input_method_is_read_from_xmodifiers():
+    from claudlet import pet
+    assert pet.im_module_for("@im=fcitx") == "fcitx"
+    assert pet.im_module_for("@im=ibus") == "ibus"
+
+
+def test_fcitx5_still_registers_its_plugin_as_fcitx():
+    from claudlet import pet
+    assert pet.im_module_for("@im=fcitx5") == "fcitx"
+
+
+def test_no_input_method_means_we_set_nothing():
+    from claudlet import pet
+    assert pet.im_module_for(None) is None
+    assert pet.im_module_for("") is None
+    assert pet.im_module_for("@im=") is None
+    assert pet.im_module_for("garbage") is None

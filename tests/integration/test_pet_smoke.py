@@ -2205,3 +2205,120 @@ def test_the_tray_zone_clear_entry_appears_with_the_zones():
         assert p._act_zone_clear.isVisible() is True
     finally:
         p._cleanup()
+
+
+# ---------- 펫에게 말 걸기: 물고 있는 쪽지가 보인다 ----------
+
+def test_a_note_left_for_the_agent_is_something_the_pet_holds(pet):
+    from claudlet.core import outbox
+    assert pet.snapshot()["notes"] == 0
+    outbox.append(pet.session_id, "이거 왜 느려?")
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 1
+
+
+def test_the_pet_stops_holding_what_the_hook_delivered(pet):
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "배달될 쪽지")
+    pet._refresh_notes()
+    outbox.take(pet.session_id)              # 훅이 가져갔다 (다른 프로세스에서)
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 0
+
+
+def test_dropping_a_note_stops_it_from_ever_being_delivered(pet):
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "실수")
+    pet._refresh_notes()
+    outbox.drop(pet.session_id)
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 0
+    assert outbox.take(pet.session_id) == []
+
+
+def test_the_pet_moves_when_it_takes_a_note(pet):
+    # 받아든 것이 그림만 바뀌고 끝나면 펫이 아니라 표시등이다.
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "이거 왜 느려?")
+    pet._refresh_notes()
+    pet._play_motion("jump", 1.5)
+    assert pet.snapshot()["motion"] == "jump"
+
+
+def test_the_pet_reports_back_when_the_note_is_delivered(pet):
+    from claudlet.core import outbox
+    outbox.append(pet.session_id, "전할 말")
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 1
+    outbox.take(pet.session_id)               # 훅이 가져갔다
+    pet._refresh_notes()
+    assert pet.snapshot()["notes"] == 0
+    assert pet.snapshot()["motion"] == "wave"  # 전하고 왔다는 몸짓
+
+
+def test_nothing_is_acted_out_when_there_was_nothing_to_deliver(pet):
+    pet._refresh_notes()
+    assert pet.snapshot()["motion"] is None
+
+
+def test_the_creature_says_its_line_when_the_hook_sends_one(pet):
+    send_hook(pet, "say", cmd="say", text="느려터졌더라구우…")
+    assert pet.snapshot()["saying"] == "느려터졌더라구우…"
+
+
+def test_an_empty_line_is_not_spoken(pet):
+    send_hook(pet, "say", cmd="say", text="   ")
+    assert pet.snapshot()["saying"] == ""
+
+
+def test_a_long_line_is_not_cut_off_by_the_pet_window(pet):
+    # 말풍선을 펫 창 안에 그리면 창 크기(물리·도크가 쓰는 값)에 갇혀 잘린다.
+    long = "느려터졌더라구우… 인덱스가 없어가 풀스캔을 돌고 있었다 아이가 " * 2
+    send_hook(pet, "say", cmd="say", text=long)
+    assert pet.snapshot()["saying"].startswith("느려터졌더라구우")
+    b = pet._bubble
+    assert b is not None and b.isVisible()
+    # 창보다 커질 수 있어야 하고, 글자가 다 들어갈 만큼 높이가 늘어야 한다
+    assert b.height() > pet.height() / 3
+
+
+def test_the_last_line_is_cleared_when_a_new_turn_starts(pet):
+    # 12초 동안 떠 있는 말풍선이 다음 대화까지 남아 있으면 "이전 말이 나오고
+    # 다음 말이 나오는" 것처럼 보인다.
+    send_hook(pet, "say", cmd="say", text="또 왔나~")
+    assert pet.snapshot()["saying"] == "또 왔나~"
+    send_hook(pet, "UserPromptSubmit", session="a")
+    assert pet.snapshot()["saying"] == ""
+
+
+def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet, tmp_path):
+    # 턴이 끝난 순간 transcript 에는 아직 지난 턴 대사밖에 없을 수 있다.
+    # 그것을 그대로 띄우면 말풍선이 한 턴씩 늦는다.
+    import json as _json
+    tr = tmp_path / "t.jsonl"
+
+    def write(line):
+        tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "설명\n🗨 " + line}]}}), encoding="utf-8")
+
+    write("지난 턴 대사")
+    send_hook(pet, "say", cmd="say", text="지난 턴 대사")   # 이미 띄운 적 있다
+    pet._said_last = "지난 턴 대사"
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    assert pet.snapshot()["saying"] == "지난 턴 대사"        # 새 대사는 아직 없다
+    write("이번 턴 대사")                                    # 이제 써졌다
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "이번 턴 대사"
+
+
+def test_a_new_turn_cancels_the_wait_for_the_last_one(pet, tmp_path):
+    # 기다리던 타이머를 멈추지 않으면, 새 턴이 시작된 뒤 지난 턴 대사가 뒤늦게
+    # 떠서 고치려던 "한 턴 늦음"이 그대로 재현된다.
+    import json as _json
+    tr = tmp_path / "t.jsonl"
+    tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "🗨 지난 턴 대사"}]}}), encoding="utf-8")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    pet._hush()                                  # 사용자가 다음 말을 쳤다
+    pet._poll_reply()                            # 남아 있던 대기가 돌아도
+    assert pet.snapshot()["saying"] == ""        # 지난 대사는 뜨지 않는다
