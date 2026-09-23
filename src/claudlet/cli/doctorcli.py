@@ -47,6 +47,33 @@ def check_hooks():
     return False, ""
 
 
+def _skill_links():
+    """설치된 스킬 링크 자리들 (에이전트마다 하나)."""
+    home = os.path.expanduser("~")
+    out = []
+    for name in agents.detected() or [agents.DEFAULT]:
+        try:
+            out.append(os.path.join(agents.skills_path(name, home), "claudlet"))
+        except Exception:
+            continue
+    return out
+
+
+def check_skill():
+    """`/claudlet` 스킬 링크가 살아 있나.
+
+    끊어진 링크는 조용한 실패의 전형이다 — 슬래시 명령이 그냥 안 뜨고, 왜인지
+    알 방법이 없다. 설치 방식을 바꾸면(예: editable 로 다시 깔면) 생긴다."""
+    dead = [p for p in _skill_links()
+            if os.path.lexists(p) and not os.path.exists(os.path.join(p, "SKILL.md"))]
+    missing = [p for p in _skill_links() if not os.path.lexists(p)]
+    if dead:
+        return False, "끊어짐: " + ", ".join(dead)
+    if missing:
+        return False, "없음: " + ", ".join(missing)
+    return True, ""
+
+
 def check_konsole_send(ancestor_pids=None):
     """Konsole 이 sendText 를 받아주나 (즉시 전송의 전제)."""
     if not sys.platform.startswith("linux"):
@@ -168,6 +195,7 @@ def check_ax_trusted():
 
 ORDER = [
     ("hooks", check_hooks),
+    ("skill", check_skill),
     ("konsole_send", check_konsole_send),
     ("input_dialog", check_input_dialog),
     ("atspi_daemon", check_atspi_daemon),

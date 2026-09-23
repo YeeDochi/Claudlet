@@ -108,3 +108,24 @@ def test_appending_the_java_line_is_idempotent(tmp_path, monkeypatch):
 def test_a_fix_we_do_not_own_is_refused():
     from claudlet.cli import doctorcli
     assert doctorcli.apply_fix("atspi_gi") is False            # sudo 는 우리 몫이 아니다
+
+
+def test_a_dangling_skill_link_is_caught(tmp_path, monkeypatch):
+    # 끊어진 스킬 링크는 조용한 실패의 전형이다 — /claudlet 이 그냥 안 뜬다.
+    from claudlet.cli import doctorcli
+    link = tmp_path / "claudlet"
+    link.symlink_to(tmp_path / "gone")
+    monkeypatch.setattr(doctorcli, "_skill_links", lambda: [str(link)])
+    ok, detail = doctorcli.check_skill()
+    assert ok is False and "claudlet" in detail
+
+
+def test_a_live_skill_link_passes(tmp_path, monkeypatch):
+    from claudlet.cli import doctorcli
+    real = tmp_path / "skill"
+    real.mkdir()
+    (real / "SKILL.md").write_text("x", encoding="utf-8")
+    link = tmp_path / "claudlet"
+    link.symlink_to(real)
+    monkeypatch.setattr(doctorcli, "_skill_links", lambda: [str(link)])
+    assert doctorcli.check_skill()[0] is True

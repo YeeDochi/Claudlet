@@ -19,6 +19,7 @@ Check = namedtuple("Check", "id feature fix")
 # id -> (그것이 없으면 못 하는 일, 켜는 법). 언어별 문구는 아래 TEXT 에 있다.
 CHECKS = {
     "hooks": Check("hooks", "reactive", "install_hooks"),
+    "skill": Check("skill", "slash_command", "reinstall_skill"),
     "konsole_send": Check("konsole_send", "ask_now", "konsole_switch"),
     "input_dialog": Check("input_dialog", "hangul_input", "install_kdialog"),
     "atspi_daemon": Check("atspi_daemon", "read_screen", "start_atspi"),
@@ -45,6 +46,7 @@ TEXT = {
         "file_remove": "%(path)s 에서 그 한 줄 삭제",
         "feature": {
             "reactive": "펫이 에이전트 활동에 반응하기",
+            "slash_command": "/claudlet 스킬 (띄우기·설정·크리처 만들기·점검)",
             "ask_now": "💬 지금 물어보기 (프롬프트에 바로 제출)",
             "hangul_input": "펫 입력창에 한글 치기",
             "read_screen": "🎯 포인터로 가리킨 창의 **글자** 읽기 (창 제목·크기는 읽힘)",
@@ -52,6 +54,8 @@ TEXT = {
         },
         "fix": {
             "install_hooks": "claudlet-install-hooks 를 실행한 뒤 세션을 다시 여세요.",
+            "reinstall_skill": "스킬 링크가 끊어져 있습니다(설치 방식이 바뀌면"
+                               " 생깁니다). claudlet-install 을 다시 실행하세요.",
             "konsole_switch": "Konsole 설정 → 일반 → '보안에 민감한 DBus API 활성화'"
                               " 를 켜세요 (창마다 따로 적용되니 이미 열려 있던 창은"
                               " 새로 여세요).",
@@ -91,6 +95,7 @@ TEXT = {
         "file_remove": "remove that line from %(path)s",
         "feature": {
             "reactive": "the pet reacting to agent activity",
+            "slash_command": "the /claudlet skill (launch, configure, make a creature, check up)",
             "ask_now": "💬 Ask now (typed straight into the prompt)",
             "hangul_input": "typing non-ASCII into the pet's input box",
             "read_screen": "reading the **text** of the window you point at"
@@ -99,6 +104,8 @@ TEXT = {
         },
         "fix": {
             "install_hooks": "Run claudlet-install-hooks, then restart the session.",
+            "reinstall_skill": "The skill link is dangling (this happens when the"
+                               " install method changes). Run claudlet-install again.",
             "konsole_switch": "Konsole → Settings → General → 'Enable the security"
                               " sensitive parts of the DBus API'. It applies per"
                               " running Konsole, so reopen windows that were"
@@ -138,6 +145,7 @@ FIXES = {
     "java_bridge": (["__append__", "~/.accessibility.properties", JAVA_PROP],
                     ["__remove__", "~/.accessibility.properties", JAVA_PROP]),
     "hooks": (["claudlet-install-hooks"], ["claudlet-install-hooks", "--remove"]),
+    "skill": (["claudlet-install"], ["claudlet-uninstall"]),
 }
 
 
