@@ -298,7 +298,7 @@ also the one thing that shouldn't happen silently mid-session. Steps:
 
    | | release | latest (`develop`) |
    |---|---|---|
-   | **pipx** | `! pipx install --force claudlet && claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install` |
+   | **pipx** | `! pipx install --force --pip-args=--no-cache-dir claudlet && claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install` |
    | **source checkout** | `! git -C ~/claudlet pull --ff-only && claudlet-install` | (same — a checkout already tracks its branch) |
 
    On **Windows** the session's shell is PowerShell, where `&&` is a parse
@@ -307,8 +307,13 @@ also the one thing that shouldn't happen silently mid-session. Steps:
 
    | | release | latest (`develop`) |
    |---|---|---|
-   | **pipx** | `! pipx install --force claudlet`<br>`! claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop"`<br>`! claudlet-install` |
+   | **pipx** | `! pipx install --force --pip-args=--no-cache-dir claudlet`<br>`! claudlet-install` | `! pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop"`<br>`! claudlet-install` |
    | **source checkout** | `! git -C $HOME\claudlet pull --ff-only`<br>`! claudlet-install` | (same — a checkout already tracks its branch) |
+
+   `--pip-args=--no-cache-dir` matters right after a release: pip caches both
+   the index page and the wheel, so an update run minutes after a new version
+   ships can quietly reinstall the OLD one and look like "the update did
+   nothing". Observed in real use.
 
    (Use `pipx install --force` for both pipx rows, NOT `pipx upgrade`: `upgrade`
    re-fetches from whatever source the user first installed from, so a user on
