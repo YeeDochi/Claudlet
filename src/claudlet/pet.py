@@ -3704,6 +3704,9 @@ class Pet(QWidget):
             if sys.platform.startswith("win"):
                 from claudlet.platform import uiatree
                 return uiatree
+            if sys.platform.startswith("linux"):
+                from claudlet.platform import atspi
+                return atspi if atspi.available() else None
         except Exception:
             return None
         return None
