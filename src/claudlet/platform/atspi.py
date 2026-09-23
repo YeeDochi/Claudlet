@@ -71,6 +71,16 @@ def take(node, depth):
             return
     except Exception:
         pass
+    # 화면에 보이지 않는 것은 "화면 내용" 이 아니다. 접힌 도크 패널, 뒤쪽 탭,
+    # 숨은 검색바가 그대로 딸려 와서 사용자가 보고 있지도 않은 것이 질문에
+    # 실려 갔다(실사용 보고). 안 보이는 노드는 그 아래까지 통째로 건너뛴다 —
+    # 숨은 컨테이너의 자식도 숨어 있다.
+    if depth > 1:
+        try:
+            if not node.get_state_set().contains(Atspi.StateType.SHOWING):
+                return
+        except Exception:
+            pass
     try:
         name = node.get_name() or ""
     except Exception:

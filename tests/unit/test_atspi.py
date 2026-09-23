@@ -64,3 +64,14 @@ def test_the_four_function_surface_matches_the_other_backends():
     # core/inspect.py 는 어느 OS 인지 몰라야 한다.
     for name in ("available", "trusted", "install_hint", "read_window"):
         assert callable(getattr(atspi, name))
+
+
+def test_the_reader_skips_what_is_not_on_screen():
+    # 접힌 도크 패널·뒤쪽 탭·숨은 검색바가 딸려 와서, 사용자가 보고 있지도 않은
+    # 것이 질문에 실려 갔다(실사용 보고). 실측: 179줄 → 41줄.
+    assert "STATE" in atspi.READ_PY or "SHOWING" in atspi.READ_PY
+
+
+def test_the_reader_skips_the_app_furniture():
+    # 메뉴가 190여 줄을 차지해 정작 화면 내용이 잘려 나갔다.
+    assert "menu item" in atspi.READ_PY and "tool bar" in atspi.READ_PY
