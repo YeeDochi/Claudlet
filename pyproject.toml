@@ -31,6 +31,7 @@ claudlet-config = "claudlet.cli.configcli:_cli"
 claudlet-version = "claudlet.cli.versioncli:_cli"
 claudlet-macos-diag = "claudlet.cli.macos_diag:main"
 claudlet-ask = "claudlet.cli.askcli:_cli"
+claudlet-doctor = "claudlet.cli.doctorcli:_cli"
 
 [tool.setuptools.dynamic]
 version = { attr = "claudlet.__version__" }

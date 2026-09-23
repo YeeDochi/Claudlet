@@ -26,7 +26,7 @@ def test_windows_gets_the_uia_backend():
 
 
 def test_other_platforms_get_no_backend():
-    assert askcli.text_backend("linux") is None
+    # 리눅스는 이제 AT-SPI 가 있다(아래 별도 테스트). 그 외는 여전히 없다.
     assert askcli.text_backend("freebsd7") is None
 
 
@@ -203,3 +203,9 @@ def test_pull_hands_over_every_waiting_note_at_once(tmp_path, monkeypatch):
     assert askcli.main(["--pull", "--session", "s1"], out=out) == 0
     text = out.getvalue()
     assert "첫 질문" in text and "둘째 질문" in text
+
+
+def test_linux_now_has_a_text_backend():
+    # 여기가 None 이면 포인터는 리눅스에서 영영 창 제목만 읽는다.
+    from claudlet.platform import atspi
+    assert askcli.text_backend("linux") is atspi

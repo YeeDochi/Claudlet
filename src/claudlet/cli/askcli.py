@@ -47,6 +47,9 @@ def text_backend(platform=None):
     if platform.startswith("win"):
         from claudlet.platform import uiatree
         return uiatree
+    if platform.startswith("linux"):
+        from claudlet.platform import atspi
+        return atspi
     return None
 
 

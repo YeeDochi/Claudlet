@@ -396,6 +396,26 @@ def _print_readme(was_installed):
         print(_link_line("\U0001F195", "What's new:", RELEASES))
 
 
+def _check_up():
+    """설치 끝에 한 번 점검한다 — 문제가 있을 때만 말한다.
+
+    이 프로젝트가 되풀이해 물린 자리는 바깥 스위치가 꺼져 조용히 아무 일도 안
+    일어나는 것이었다(Konsole DBus, 입력기, 툴킷 접근성, 자바 브리지). 설치
+    직후가 그걸 알려줄 가장 좋은 때다. 점검이 실패해도 설치를 망치지 않는다."""
+    try:
+        from claudlet.cli import doctorcli
+        from claudlet.core import doctor, petconfig
+        facts = doctorcli.gather()
+        if not doctor.problems(facts):
+            return
+        head("check-up")
+        lang = petconfig.resolve_lang((petconfig.load_config() or {}).get("lang"))
+        print(doctor.render(facts, lang).rstrip())
+        print("\n" + _c("1", "claudlet-doctor") + " 로 언제든 다시 볼 수 있습니다.")
+    except Exception:
+        pass
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     from claudlet.cli import install_hooks
@@ -424,6 +444,8 @@ def main(argv=None):
         ok("desktop entry", d_path)
     if d_note:
         warn(d_note)
+
+    _check_up()
 
     head("done")
     print("Restart Claude Code sessions to pick up the hooks (new sessions")
