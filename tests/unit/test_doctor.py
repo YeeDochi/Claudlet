@@ -66,3 +66,45 @@ def test_checks_that_do_not_apply_here_are_left_out():
     from claudlet.cli import doctorcli
     facts = doctorcli.gather([("ax_trusted", lambda: (None, ""))])
     assert facts == []
+
+
+# ---------- 켜주기: 무엇을 우리가 켤 수 있고 무엇은 못 켜나 ----------
+
+def test_we_can_turn_on_what_belongs_to_the_user():
+    # 사용자 자기 설정이고 되돌리기 쉬운 것만 우리가 켠다.
+    assert doctor.fix_command("atspi_toolkit")
+    assert doctor.fix_command("java_bridge")
+    assert doctor.fix_command("hooks")
+
+
+def test_we_do_not_touch_what_is_not_ours_to_touch():
+    # apt 설치(sudo)와 Konsole 의 보안 스위치는 사용자가 직접 결정할 일이다.
+    assert doctor.fix_command("atspi_gi") is None
+    assert doctor.fix_command("konsole_send") is None
+    assert doctor.fix_command("ax_trusted") is None
+
+
+def test_turning_something_on_comes_with_how_to_undo_it():
+    # 남의 데스크톱 전역 설정을 건드리는 것이니, 끄는 법을 같이 보여준다.
+    assert "false" in " ".join(doctor.undo_command("atspi_toolkit"))
+
+
+def test_the_offer_says_what_it_will_run():
+    ask = doctor.offer_text("atspi_toolkit", "ko")
+    assert "toolkit-accessibility true" in ask     # 실행할 명령 그대로
+    assert "포인터" in ask or "글자" in ask         # 그래서 되는 일
+
+
+def test_appending_the_java_line_is_idempotent(tmp_path, monkeypatch):
+    from claudlet.cli import doctorcli
+    prop = tmp_path / ".accessibility.properties"
+    monkeypatch.setattr(doctorcli.os.path, "expanduser",
+                        lambda p: str(prop) if p.startswith("~/.access") else p)
+    assert doctorcli.apply_fix("java_bridge") is True
+    assert doctorcli.apply_fix("java_bridge") is True          # 두 번 켜도 한 줄
+    assert prop.read_text(encoding="utf-8").count("AtkWrapper") == 1
+
+
+def test_a_fix_we_do_not_own_is_refused():
+    from claudlet.cli import doctorcli
+    assert doctorcli.apply_fix("atspi_gi") is False            # sudo 는 우리 몫이 아니다

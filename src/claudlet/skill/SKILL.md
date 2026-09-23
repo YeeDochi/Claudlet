@@ -59,6 +59,11 @@ Look at the argument the user passed after `/claudlet`:
   to turn it on. Most "claudlet is broken" reports are one of these switches:
   toolkit accessibility (Linux), Konsole's sensitive D-Bus API, Java Access
   Bridge, kdialog/zenity for non-ASCII input. Check here before debugging code.
+  `cpet doctor --fix` offers to turn on the ones that are the user's own
+  reversible settings (toolkit accessibility, the Java bridge line, our hooks),
+  asking first and showing both the command and how to undo it. It never
+  installs packages and never flips Konsole's security switch — those are the
+  user's call.
 - `update` (or `업데이트`) → **Update** (release channel). `update latest`
   (or `edge` / `develop`) → **Update** to the latest `develop` branch.
 - `make` / `만들기` (usually with a description: `/claudlet make 검은 고양이`)

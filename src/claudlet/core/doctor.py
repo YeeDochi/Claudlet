@@ -36,7 +36,13 @@ TEXT = {
         "ok": "정상",
         "off": "꺼짐",
         "affected": "안 되는 것",
+        "offer": ("%(feature)s 를 하려면 설정을 하나 켜야 합니다.\n\n"
+                  "  실행할 명령: %(run)s\n"
+                  "  되돌리려면:  %(undo)s\n\n"
+                  "켤까요?"),
         "howto": "켜는 법",
+        "file_append": "%(path)s 에 `%(line)s` 한 줄 추가",
+        "file_remove": "%(path)s 에서 그 한 줄 삭제",
         "feature": {
             "reactive": "펫이 에이전트 활동에 반응하기",
             "ask_now": "💬 지금 물어보기 (프롬프트에 바로 제출)",
@@ -76,7 +82,13 @@ TEXT = {
         "ok": "ok",
         "off": "off",
         "affected": "what stops working",
+        "offer": ("%(feature)s needs one setting turned on.\n\n"
+                  "  will run: %(run)s\n"
+                  "  undo it:  %(undo)s\n\n"
+                  "Turn it on?"),
         "howto": "how to turn it on",
+        "file_append": "add the line `%(line)s` to %(path)s",
+        "file_remove": "remove that line from %(path)s",
         "feature": {
             "reactive": "the pet reacting to agent activity",
             "ask_now": "💬 Ask now (typed straight into the prompt)",
@@ -112,6 +124,58 @@ TEXT = {
         },
     },
 }
+
+
+# 우리가 **켜줘도 되는 것**: 사용자 자기 설정이고, 되돌리기 쉽고, 관리자 권한이
+# 필요 없는 것만. apt 설치(sudo)와 Konsole 의 보안 스위치는 뺐다 — 전자는 시스템을
+# 건드리는 일이고, 후자는 "아무 프로세스나 내 터미널에 타이핑할 수 있게" 여는
+# 스위치라 사용자가 직접 결정해야 한다.
+JAVA_PROP = "assistive_technologies=org.GNOME.Accessibility.AtkWrapper"
+_GS = ["gsettings", "set", "org.gnome.desktop.interface", "toolkit-accessibility"]
+
+FIXES = {
+    "atspi_toolkit": (_GS + ["true"], _GS + ["false"]),
+    "java_bridge": (["__append__", "~/.accessibility.properties", JAVA_PROP],
+                    ["__remove__", "~/.accessibility.properties", JAVA_PROP]),
+    "hooks": (["claudlet-install-hooks"], ["claudlet-install-hooks", "--remove"]),
+}
+
+
+def fix_command(check_id):
+    """이 항목을 켜는 명령, 우리가 켜면 안 되는 것이면 None. 순수."""
+    pair = FIXES.get(check_id)
+    return list(pair[0]) if pair else None
+
+
+def undo_command(check_id):
+    """되돌리는 명령. 켜주기 전에 이것을 같이 보여준다. 순수."""
+    pair = FIXES.get(check_id)
+    return list(pair[1]) if pair else None
+
+
+def describe_command(cmd, lang="ko"):
+    """실행할 일을 사람 말로. 순수.
+
+    파일 한 줄을 더하고 빼는 것은 셸 명령이 아니라서 argv 를 그대로 보여주면
+    `__append__` 같은 내부 표기가 사용자 눈에 나온다."""
+    t = TEXT[lang_of(lang)]
+    if not cmd:
+        return ""
+    if cmd[0] in ("__append__", "__remove__"):
+        return t["file_" + cmd[0].strip("_")] % {"path": cmd[1], "line": cmd[2]}
+    return " ".join(cmd)
+
+
+def offer_text(check_id, lang="ko"):
+    """켜도 되겠냐고 물을 때 보여줄 글. 실행할 명령을 숨기지 않는다. 순수."""
+    t = TEXT[lang_of(lang)]
+    check = CHECKS.get(check_id)
+    if check is None or check_id not in FIXES:
+        return ""
+    run = describe_command(fix_command(check_id), lang)
+    undo = describe_command(undo_command(check_id), lang)
+    return t["offer"] % {"feature": t["feature"][check.feature],
+                         "run": run, "undo": undo}
 
 
 def lang_of(value):

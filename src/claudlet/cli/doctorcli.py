@@ -190,6 +190,62 @@ def gather(order=None):
     return facts
 
 
+def apply_fix(check_id, run=None):
+    """이 항목을 켠다. 우리가 켤 수 있는 것만, 확인은 호출자가 이미 받았다.
+
+    파일 한 줄을 더하는 것(`__append__`)은 서브프로세스 없이 여기서 한다 — 같은
+    줄이 이미 있으면 다시 쓰지 않으므로 몇 번을 켜도 한 줄이다."""
+    cmd = doctor.fix_command(check_id)
+    if not cmd:
+        return False
+    if cmd[0] in ("__append__", "__remove__"):
+        path = os.path.expanduser(cmd[1])
+        line = cmd[2]
+        try:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    body = f.read()
+            except OSError:
+                body = ""
+            lines = [x for x in body.splitlines() if x.strip() != line]
+            if cmd[0] == "__append__":
+                lines.append(line)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + ("\n" if lines else ""))
+            return True
+        except OSError:
+            return False
+    try:
+        r = (run or subprocess.run)(cmd, capture_output=True, timeout=20)
+        return getattr(r, "returncode", 1) == 0
+    except Exception:
+        return False
+
+
+def _ask(prompt, stream=None):
+    stream = stream or sys.stdin
+    try:
+        return (stream.readline() or "").strip().lower() in ("y", "yes", "예", "ㅇ")
+    except Exception:
+        return False
+
+
+def fix_all(facts, lang="ko", out=None, stream=None):
+    """켤 수 있는 것을 하나씩 물어보고 켠다. 켠 개수를 돌려준다."""
+    done = 0
+    for check, _detail in doctor.problems(facts):
+        ask = doctor.offer_text(check.id, lang)
+        if not ask:
+            continue                       # 우리가 켤 것이 아니다 — 안내는 이미 했다
+        _out("\n" + ask + " [y/N] ", out)
+        if not _ask(ask, stream):
+            continue
+        ok = apply_fix(check.id)
+        _out(("  → 켰습니다.\n" if ok else "  → 실패했습니다.\n"), out)
+        done += int(ok)
+    return done
+
+
 def main(argv=None, out=None):
     utf8_output()
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -199,6 +255,10 @@ def main(argv=None, out=None):
     if quiet and not doctor.problems(facts):
         return 0
     _out(doctor.render(facts, lang), out)
+    if "--fix" in argv and doctor.problems(facts):
+        fix_all(facts, lang, out)
+        _out("\n다시 점검하려면: claudlet-doctor\n", out)
+        return 0
     return 1 if doctor.problems(facts) else 0
 
 
