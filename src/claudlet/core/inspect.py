@@ -83,6 +83,50 @@ def describe_window(win):
         name, win.w, win.h, win.x, win.y, win.pid)
 
 
+# 창 제목이 "무엇을 열어놨는지" 를 말해주는 앱들. 에디터 본문은 접근성 트리에
+# 나오지 않는다 — IntelliJ 를 깊이 30까지 1243 노드 훑어도 텍스트 인터페이스가
+# 하나도 없었다(실측). 그렇다고 DLL 을 붙이고 픽셀을 긁는 것은 과하다: 에이전트는
+# 파일을 디스크에서 직접 읽으면 되고, 어떤 파일인지는 제목에 이미 적혀 있다.
+IDE_CLASSES = ("jetbrains", "idea", "pycharm", "webstorm", "goland", "clion",
+               "rubymine", "phpstorm", "android-studio", "code", "vscodium",
+               "sublime_text")
+# 제목에 적히는 앱 이름들 — 이것은 파일이 아니다.
+_APP_NAMES = ("IntelliJ IDEA", "PyCharm", "WebStorm", "GoLand", "CLion",
+              "RubyMine", "PhpStorm", "Android Studio", "Visual Studio Code",
+              "VSCodium", "Sublime Text")
+_SEPS = ("\u2013", "\u2014", " - ")        # en dash, em dash, 하이픈
+
+
+def _is_ide(win):
+    cls = (getattr(win, "title", "") or "").lower()
+    return any(k in cls for k in IDE_CLASSES)
+
+
+def open_file(win):
+    """이 IDE 창이 열어놓은 {project, file}, 알 수 없으면 None. 순수.
+
+    제목 형식이 두 갈래다:
+      JetBrains  "<프로젝트> – <파일>"
+      VS Code    "<파일> - <폴더> - Visual Studio Code"
+    끝이 앱 이름이면 열린 파일이 아니라 그냥 IDE 가 떠 있는 것이다."""
+    if win is None or not _is_ide(win):
+        return None
+    caption = (getattr(win, "caption", "") or "").strip()
+    if not caption:
+        return None
+    parts = [p.strip() for p in re.split(r"\s+[\u2013\u2014]\s+|\s+-\s+", caption)
+             if p.strip()]
+    app = next((a for a in _APP_NAMES if parts and parts[-1] == a), None)
+    if app:
+        parts = parts[:-1]
+        if len(parts) < 2:
+            return None                # "<프로젝트> - IntelliJ IDEA": 파일 없음
+        return {"file": parts[0], "project": parts[1]}
+    if len(parts) < 2:
+        return None
+    return {"project": parts[0], "file": parts[-1]}
+
+
 def build_context(win, question, read_text=None):
     """What we would send, as a reviewable dict. Sends nothing itself.
 
@@ -108,6 +152,7 @@ def build_context(win, question, read_text=None):
     return {
         "question": question,
         "target": target,
+        "open": open_file(win),
         "pid": None if win is None else win.pid,
         "text": body,
         "note": note,
@@ -137,6 +182,15 @@ def render_prompt(ctx):
              "창: " + ctx["target"]]
     if ctx["text"]:
         parts += ["", "창에서 읽은 내용:", ctx["text"]]
+    elif ctx.get("open"):
+        # IDE 는 에디터 본문을 접근성 트리에 내놓지 않는다. 대신 무엇을 열어놨는지는
+        # 알 수 있으니, 내용은 디스크에서 직접 읽으라고 알려준다 — 화면을 긁는 것보다
+        # 정확하다.
+        parts += ["", "이 창은 편집기이고 본문은 읽을 수 없습니다."
+                      " 열려 있는 것은 아래와 같으니, 필요하면 파일을 직접 열어"
+                      " 확인하세요.",
+                  "프로젝트: %s" % ctx["open"]["project"],
+                  "열린 파일: %s" % ctx["open"]["file"]]
     elif ctx["note"]:
         parts += ["", "(" + ctx["note"] + ")"]
     parts += ["", "질문: " + ctx["question"]]
