@@ -1116,7 +1116,54 @@ def test_picking_a_profile_saves_it(pet, _pcfg, monkeypatch):  # noqa: F811
 # ---------- the pet's own conversation log ----------
 
 def test_the_menu_offers_the_conversation_log(pet, _pcfg):  # noqa: F811
-    assert _find(_menu_tree(pet), "🗒 대화 내역") is not None
+    assert _find(_menu_tree(pet), "💬 대화 시작") is not None
+
+
+def test_talking_lives_in_the_conversation_window_not_the_menu(pet, _pcfg):  # noqa: F811
+    texts = [i["text"] for i in _menu_tree(pet)]
+    assert pet.ui["talk_note"] not in texts
+    assert pet.ui["ask"] not in texts
+
+
+def test_a_note_left_from_the_window_shows_up_in_it(pet, _hist, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "_ask_text", lambda *a: "left from the window")
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    win = pet.show_history()
+    try:
+        win._note.click()
+        assert "left from the window" in win.html()
+    finally:
+        win.close()
+
+
+def test_an_answer_lands_in_the_open_window_instead_of_a_bubble(pet, _hist):  # noqa: F811
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "what is it?")
+    win = pet.show_history()
+    try:
+        askbox.post_answer(pet.session_id, "a text editor")
+        pet._poll_answer()
+        assert pet._bubble is None
+        assert "a text editor" in win.html()
+    finally:
+        win.close()
+
+
+def test_clicking_a_standalone_pet_opens_the_conversation(pet, _hist):  # noqa: F811
+    """No session console to raise -- the click opens the window instead."""
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    pet._claude_pid = 0
+    for kind in (QMouseEvent.Type.MouseButtonPress, QMouseEvent.Type.MouseButtonRelease):
+        ev = QMouseEvent(kind, QPointF(5, 5), QPointF(5, 5),
+                         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier)
+        (pet.mousePressEvent if kind == QMouseEvent.Type.MouseButtonPress
+         else pet.mouseReleaseEvent)(ev)
+    try:
+        assert pet._chat_open() is not None
+    finally:
+        pet._history_win.close()
 
 
 def test_the_log_shows_this_pets_exchanges(pet, _hist):  # noqa: F811

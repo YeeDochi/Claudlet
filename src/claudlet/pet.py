@@ -252,7 +252,7 @@ UI = {
            "ptr_pick_dir": "세션이 쓸 CLAUDE_CONFIG_DIR",
            "ptr_saved": "포인터 설정을 저장했어요",
            "ptr_bad_image": "그 파일은 이미지로 읽을 수 없어요",
-           "history": "🗒 대화 내역…"},
+           "history": "💬 대화 시작…"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
@@ -283,7 +283,7 @@ UI = {
            "ptr_pick_dir": "CLAUDE_CONFIG_DIR for started sessions",
            "ptr_saved": "Pointer settings saved",
            "ptr_bad_image": "That file could not be read as an image",
-           "history": "🗒 Conversation log…"},
+           "history": "💬 Start a conversation…"},
 }
 
 # 도크 재정렬 주기(ms): 앞자리 펫이 종료해 생긴 구멍을 뒷펫이 메워 대열을 다시
@@ -749,13 +749,14 @@ class HistoryWindow(QDialog):
     so "what did I ask this creature" is the question being answered. The CLI
     (`claudlet-ask --history --all-sessions`) is where you go to see everything.
     """
-    def __init__(self, session_id, lang="ko", parent=None):
+    def __init__(self, session_id, lang="ko", parent=None, pet=None):
         super().__init__(parent)
         self._session = session_id
+        self._pet = pet
         self._lang = lang
         self._full = False
         self.setWindowTitle("claudlet — %s"
-                            % ("conversation" if lang == "en" else "대화 내역"))
+                            % ("conversation" if lang == "en" else "대화"))
         self.resize(560, 460)
 
         self._view = QTextBrowser(self)
@@ -792,7 +793,35 @@ class HistoryWindow(QDialog):
         box = QVBoxLayout(self)
         box.addWidget(self._tabs)
         box.addWidget(self._view)
+        if pet is not None:
+            box.addLayout(self._talk_row(pet))
         box.addLayout(row)
+        self.refresh()
+
+    def _talk_row(self, pet):
+        """Talking lives here too, so the log is also where you start a
+        conversation -- no trip through the right-click menu for each line.
+
+        Typing still goes through Pet._ask_text (kdialog/zenity on Linux): the
+        wheel Qt has no fcitx input context, so an inline QLineEdit here takes
+        no Hangul at all (measured, ibus-shim included)."""
+        ui = pet.ui
+        row = QHBoxLayout()
+        self._now = QPushButton(ui["talk_now"], self)
+        self._now.clicked.connect(lambda: self._after(pet._talk, True))
+        self._note = QPushButton(ui["talk_note"], self)
+        self._note.clicked.connect(lambda: self._after(pet._talk, False))
+        self._point = QPushButton(ui["ask"], self)
+        self._point.clicked.connect(pet._start_ask)
+        self._again = QPushButton(ui["ask_again"], self)
+        self._again.clicked.connect(lambda: self._after(pet._reply_to_bubble))
+        for b in (self._now, self._note, self._point, self._again):
+            row.addWidget(b)
+        row.addStretch(1)
+        return row
+
+    def _after(self, fn, *args):
+        fn(*args)
         self.refresh()
 
     def view(self):
@@ -825,6 +854,12 @@ class HistoryWindow(QDialog):
             return []
 
     def refresh(self):
+        pet = self._pet
+        if pet is not None:
+            # 되묻기는 포인터로 고른 영역이 있을 때만, 지금 보내기는 호스트가
+            # 프롬프트에 직접 써 넣을 수 있을 때만 — 메뉴에서 하던 판단 그대로.
+            self._now.setVisible(pet._can_talk_now())
+            self._again.setVisible(pet._ask_target is not None)
         if self.view() == "session":
             # The transcript is Claude Code's file; we only read it, so the
             # controls that write have nothing to act on here.
@@ -3208,7 +3243,10 @@ class Pet(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)          # 놓으면 다시 펼친 손
         if not self._moved:
             self._note_click(time.monotonic())
-            self._activate_claude()
+            if self._claude_pid:
+                self._activate_claude()
+            else:
+                self.show_history()        # 띄울 콘솔이 없다 — 대화창을 연다
             self.mode = "roam"
             if self._docked:
                 self._dock_snap()          # 클릭만으로 1~2px 밀렸어도 칸에 되맞춘다
@@ -3354,20 +3392,15 @@ class Pet(QWidget):
             a_comp_del = QAction(self.ui["comp_del"], m)
             m.addAction(a_comp_del)
         m.addSeparator()
-        a_talk_now = None
-        if self._can_talk_now():
-            a_talk_now = QAction(self.ui["talk_now"], m)
-            m.addAction(a_talk_now)
-        a_talk_note = QAction(self.ui["talk_note"], m)
-        m.addAction(a_talk_note)
+        # 말 걸기·쪽지·포인터·내역은 전부 대화창 안에 있다 — 메뉴에는 여는
+        # 항목 하나만 둔다.
+        a_hist = QAction(self.ui["history"], m)
+        m.addAction(a_hist)
         a_talk_drop = None
         if self._notes:
             a_talk_drop = QAction(self.ui["talk_drop"] % self._notes, m)
             m.addAction(a_talk_drop)
         m.addSeparator()
-        a_ask = QAction(self.ui["ask"], m)
-        m.addAction(a_ask)
-
         pcfg = self._pointer_cfg()
         psub = m.addMenu(self.ui["ptr_menu"])
         cursor_sub = psub.addMenu(self.ui["ptr_cursor"])
@@ -3392,9 +3425,6 @@ class Pet(QWidget):
             a_pdir_clear = QAction(self.ui["ptr_dir_clear"], psub)
             psub.addAction(a_pdir_clear)
 
-        a_hist = QAction(self.ui["history"], m)
-        m.addAction(a_hist)
-
         a_settings = QAction(self.ui["settings"], m)
         m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
@@ -3409,11 +3439,7 @@ class Pet(QWidget):
         chosen = m.exec(gpos)
         if chosen is None:
             return
-        if chosen == a_talk_now:
-            self._talk(immediate=True)
-        elif chosen == a_talk_note:
-            self._talk(immediate=False)
-        elif chosen == a_talk_drop:
+        if chosen == a_talk_drop:
             outbox.drop(self.session_id)
             self._refresh_notes()
         elif chosen == a_follow:
@@ -3435,8 +3461,6 @@ class Pet(QWidget):
             self._spawn_test_companion(+1)
         elif a_comp_del is not None and chosen == a_comp_del:
             self._spawn_test_companion(-1)
-        elif chosen == a_ask:
-            self._start_ask()
         elif chosen in cursor_acts:
             # Picking a shape clears a custom image: otherwise the image keeps
             # winning and the shape they just ticked does nothing.
@@ -3473,9 +3497,25 @@ class Pet(QWidget):
                 return win
             except RuntimeError:
                 pass          # the window was closed and destroyed; remake it
-        self._history_win = HistoryWindow(self.session_id, self.lang)
+        self._history_win = HistoryWindow(self.session_id, self.lang, pet=self)
+        # 펫 창은 절대 활성화되지 않는 Tool 창이라 그 밑에 달면 안 된다(_ask_text
+        # 참고). 독립 창으로 두되 펫처럼 위에 떠 있게 한다.
+        self._history_win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
         self._history_win.show()
         return self._history_win
+
+    def _chat_open(self):
+        """The conversation window, when it is showing; else None."""
+        win = getattr(self, "_history_win", None)
+        try:
+            return win if win is not None and win.isVisible() else None
+        except RuntimeError:
+            return None                # closed and destroyed
+
+    def _refresh_chat(self):
+        win = self._chat_open()
+        if win is not None:
+            win.refresh()
 
     def _save_pointer(self, updates, notify=True):
         """Merge into the `pointer` config section and confirm it.
@@ -3652,6 +3692,7 @@ class Pet(QWidget):
             self._refresh_notes()
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
+        self._refresh_chat()
         return ctx
 
     def _begin_thinking(self):
@@ -3821,6 +3862,9 @@ class Pet(QWidget):
                 askhistory.record_answer(self.session_id, text)
             except Exception:
                 pass
+            if self._chat_open() is not None:
+                self._refresh_chat()   # 대화창이 떠 있으면 답은 거기에 쌓인다
+                return
             self.say(text, reply=True)
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
@@ -3998,6 +4042,9 @@ class Pet(QWidget):
             # the tray is the pet's menu for people who can't catch a roaming
             # creature, so it carries the same entries rather than a subset
             m.addSeparator()
+            act_chat = QAction(self.ui["history"], m)
+            m.addAction(act_chat)
+            act_chat.triggered.connect(self.show_history)
             act_settings = QAction(self.ui["settings"], m)
             m.addAction(act_settings)
             act_settings.triggered.connect(self._open_settings)
