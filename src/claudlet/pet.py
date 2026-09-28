@@ -1830,7 +1830,8 @@ class Pet(QWidget):
         # "이전 말이 나오고 다음 말이 나오는" 것처럼 보인다.
         if ev.get("event") == "UserPromptSubmit":
             self._hush()
-            self._mark_turn_start(ev.get("transcript"))
+            self._mark_turn_start(ev.get("transcript"),
+                                  whole=bool(self._codex_pipe))
         # A quit command (claudlet-uninstall teardown) is a shutdown request,
         # not a Claude event: shut down cleanly and stop processing.
         if ev.get("cmd") == "quit":
@@ -1847,7 +1848,9 @@ class Pet(QWidget):
             # 답이 아니다 — 띄우지도, 내역에 남기지도 않는다.
             path = ev.get("transcript")
             if isinstance(path, str) and path and self._question_pending():
-                self._await_reply(path)
+                # 코덱스 앱 모델은 🗨 지시를 따르지 않는다 — 앱에서는 훅이
+                # 불려도 최종 답 전체가 펫의 답이다
+                self._await_reply(path, whole=bool(self._codex_pipe))
             return
         if ev.get("cmd") == "say":
             # 크리처가 한 줄 말한다. 에이전트의 설명은 터미널에 그대로 있고,

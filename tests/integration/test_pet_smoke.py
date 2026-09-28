@@ -2478,3 +2478,26 @@ def test_a_codex_app_thread_gets_just_what_was_said_and_its_answer_comes_back(
         f.write(said("코드 보는 중이야!", "final_answer"))
     pet._poll_reply()
     assert pet.snapshot()["saying"] == "코드 보는 중이야!"
+
+
+def test_a_codex_app_answer_still_lands_when_the_turn_s_hooks_do_fire(
+        pet, monkeypatch, tmp_path):
+    # 앱이 넣은 턴에도 훅이 불리면 UserPromptSubmit 이 지켜보던 것을 끊고
+    # turn_end 가 다시 기다린다 — 그때도 🗨 없는 최종 답이 말풍선이 돼야 한다.
+    import json
+    from claudlet.platform import codexapp
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    roll = tmp_path / "r.jsonl"
+    roll.write_text("")
+    monkeypatch.setattr(codexapp, "rollout_path", lambda t, env=None: str(roll))
+    monkeypatch.setattr(codexapp, "send_message", lambda *a, **k: True)
+    pet._codex_pipe = "/fake.sock"
+    pet._talk(immediate=True, text="test")
+    send_hook(pet, "UserPromptSubmit", session=pet.session_id, transcript_path=str(roll))
+    roll.write_text(json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "assistant", "phase": "final_answer",
+        "content": [{"type": "output_text", "text": "정상 수신했습니다"}]}}) + "\n")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(roll),
+              session=pet.session_id)
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "정상 수신했습니다"
