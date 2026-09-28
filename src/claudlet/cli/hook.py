@@ -457,7 +457,7 @@ def rewake_wait(session_id, poll=REWAKE_POLL, sleep=None, alive=None):
             notes = outbox.take(session_id)
             if notes:
                 try:
-                    sys.stderr.write(outbox.render(notes))
+                    sys.stderr.write(outbox.render_short(notes))
                     sys.stderr.flush()
                     return 2
                 except Exception:

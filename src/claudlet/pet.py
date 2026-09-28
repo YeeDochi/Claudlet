@@ -3457,13 +3457,13 @@ class Pet(QWidget):
     REPLY_POLL_MS = 200
     REPLY_TRIES = 25
 
-    def _await_reply(self, path):
+    def _await_reply(self, path, tries=None):
         """transcript 에 **새** 대사가 나타나면 말풍선을 띄운다.
 
         직전에 띄운 것과 같은 줄은 아직 이번 턴이 안 써졌다는 뜻이므로 넘긴다.
         시간 안에 안 나타나면 그냥 포기한다 — 말풍선은 없어도 되는 것이다."""
         self._reply_path = path
-        self._reply_left = self.REPLY_TRIES
+        self._reply_left = tries or self.REPLY_TRIES
         if self._reply_timer is None:
             self._reply_timer = QTimer(self)
             self._reply_timer.timeout.connect(self._poll_reply)
@@ -4630,7 +4630,7 @@ class Pet(QWidget):
         코덱스 앱은 앱의 도구 파이프, 윈도우는 콘솔 입력 버퍼, KDE 는
         Konsole 의 D-Bus."""
         if self._codex_pipe:
-            return codexapp.send_message(self._codex_pipe, self.session_id, text)
+            return self._codex_app_send(text)
         if not self._can_type_now():
             return False
         split = self.agent != agents.DEFAULT
@@ -4658,6 +4658,30 @@ class Pet(QWidget):
         if ok and split:
             QTimer.singleShot(ENTER_DELAY_MS, self._send_enter)
         return ok
+
+    # 코덱스 앱의 턴은 몇 초로 안 끝난다 — 답을 2분까지 지켜본다.
+    CODEX_APP_REPLY_TRIES = 600
+
+    def _codex_app_send(self, text):
+        """코덱스 앱 스레드에 말을 넣는다. 앱이 넣은 메시지는 위임 입력이라
+        훅이 불리지 않는다 — 말투 지시(와 포인터로 고른 창 정보)를 메시지에
+        직접 싣고, 답도 훅 대신 rollout 을 지켜봐서 받는다."""
+        notes = outbox.take(self.session_id)
+        notes = [n for n in notes if not n.get("wake")]
+        if not any(text in (n.get("text") or "") for n in notes):
+            notes.append({"text": text})
+        path = codexapp.rollout_path(self.session_id)
+        if path:
+            self._mark_turn_start(path)
+        if not codexapp.send_message(self._codex_pipe, self.session_id,
+                                     outbox.render_short(notes)):
+            for note in notes:
+                if note.get("text") != text:
+                    outbox.restore(self.session_id, note)
+            return False
+        if path:
+            self._await_reply(path, tries=self.CODEX_APP_REPLY_TRIES)
+        return True
 
     def _send_enter(self):
         try:

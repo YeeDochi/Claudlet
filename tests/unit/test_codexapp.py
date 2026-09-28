@@ -68,3 +68,13 @@ def test_send_reports_what_the_app_answered(success):
 def test_no_app_listening_is_just_false(tmp_path):
     assert codexapp.send_message(str(tmp_path / "none.sock"), "t", "x") is False
     assert codexapp.send_message(None, "t", "x") is False
+
+
+def test_the_thread_s_rollout_is_found_by_its_id(tmp_path):
+    d = tmp_path / "sessions" / "2026" / "09" / "28"
+    d.mkdir(parents=True)
+    f = d / "rollout-2026-09-28T12-47-13-01a0e61f-b782-7903-98e7-92f725e082b3.jsonl"
+    f.write_text("")
+    env = {"CODEX_HOME": str(tmp_path)}
+    assert codexapp.rollout_path("01a0e61f-b782-7903-98e7-92f725e082b3", env) == str(f)
+    assert codexapp.rollout_path("nope", env) is None

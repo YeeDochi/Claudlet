@@ -2437,7 +2437,7 @@ def test_asking_now_wakes_an_idle_session_the_pet_cannot_type_into(pet, monkeypa
     code = hook.rewake_wait(pet.session_id, sleep=lambda _: None,
                             alive=lambda: next(ticks, None) is not None)
     assert code == 2
-    assert "- 지금 뭐 해?" in capsys.readouterr().err
+    assert "지금 뭐 해?" in capsys.readouterr().err
 
 
 def test_a_note_does_not_wake_the_session(pet, monkeypatch, tmp_path):
@@ -2445,3 +2445,27 @@ def test_a_note_does_not_wake_the_session(pet, monkeypatch, tmp_path):
     from claudlet.core import outbox
     pet._talk(immediate=False, text="나중에 봐")
     assert not outbox.wants_wake(pet.session_id)
+
+
+def test_a_codex_app_thread_gets_the_voice_in_the_message_and_the_reply_comes_back(
+        pet, monkeypatch, tmp_path):
+    # 코덱스 앱이 넣은 메시지는 위임 입력이라 훅이 안 불린다(실측). 말투 지시가
+    # 메시지에 실려 가야 크리처가 답하고, 턴 끝도 rollout 을 지켜봐서 받아야 한다.
+    import json
+    from claudlet.platform import codexapp
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    rollout = tmp_path / "rollout.jsonl"
+    rollout.write_text("")
+    sent = []
+    monkeypatch.setattr(codexapp, "rollout_path", lambda tid, env=None: str(rollout))
+    monkeypatch.setattr(codexapp, "send_message",
+                        lambda path, tid, text, timeout=5: sent.append(text) or True)
+    pet._codex_pipe = "/fake.sock"          # 앱 세션 아래에서 떴다
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    assert sent and sent[0].startswith("[claudlet]") and "지금 뭐 해?" in sent[0]
+    assert "🗨" in sent[0]                   # 크리처로 답하라는 지시가 실렸다
+    rollout.write_text(json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "assistant",
+        "content": [{"type": "output_text", "text": "🗨 코드 보는 중!"}]}}) + "\n")
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "코드 보는 중!"

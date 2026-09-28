@@ -25,7 +25,7 @@ def test_a_wake_hands_the_notes_to_the_session_and_exits_2(capsys):
     outbox.wake("s1")
     assert _wait("s1") == 2
     err = capsys.readouterr().err
-    assert "- 지금 뭐 해?" in err and "말투: 반말" in err
+    assert "지금 뭐 해?" in err and "말투: 반말" in err
     assert outbox.take("s1") == []                  # 한 번만 배달된다
 
 

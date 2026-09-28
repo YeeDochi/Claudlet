@@ -339,3 +339,13 @@ def test_a_session_can_be_woken_once_a_waiter_has_stood():
     assert outbox.can_wake("s1") is True
     assert outbox.waiter_owner("s1") == 42
     assert outbox.can_wake("s2") is False
+
+
+def test_the_short_form_leads_with_what_the_user_said():
+    notes = [{"voice": "반말", "name": "클로디"},
+             {"text": "지금 뭐 해?", "persona": "반말", "name": "클로디"},
+             {"wake": True}]
+    first, rule = outbox.render_short(notes).splitlines()
+    assert first == "[claudlet] 펫 '클로디'에게 건 말: 지금 뭐 해?"
+    assert outbox.MARK in rule and "말투: 반말" in rule
+    assert outbox.HEADER not in outbox.render_short(notes)    # 긴 지시문은 안 싣는다

@@ -379,6 +379,27 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
         tail_bytes = min(tail_bytes * 4, tail_max)
 
 
+def render_short(notes):
+    """사람 눈에 보이는 자리(깨운 턴의 훅 피드백, 코덱스 앱 스레드의 메시지)에
+    싣는 짧은 판. 순수.
+
+    render() 의 긴 지시문은 에이전트만 보는 additionalContext 용이다. 깨운 턴과
+    코덱스 앱 메시지는 세션 기록에 그대로 남아 사용자가 다시 보게 되므로(실사용에서
+    "부끄럽다" 가 나왔다), 사용자가 한 말을 맨 앞에 두고 지시는 한 줄로 줄인다."""
+    said = [n["text"] for n in notes if n.get("text")]
+    name = next((n["name"] for n in notes if n.get("name")), "")
+    persona = next((n.get("persona") or n.get("voice") for n in notes
+                    if n.get("persona") or n.get("voice")), "")
+    who = "펫 '%s'" % name if name else "데스크톱 펫"
+    head = "[claudlet] %s에게 건 말: %s" % (who, said[0]) if said else \
+        "[claudlet] %s을 통해 들어온 턴" % who
+    rule = ("답 끝에 펫 목소리로 '%s ' 로 시작하는 한 줄을 붙여라(잡담이면 그 줄만)."
+            % MARK)
+    if persona:
+        rule += " 말투: " + persona
+    return "\n".join([head, rule] + ["- " + t for t in said[1:]])
+
+
 def payload(event, notes):
     """훅이 stdout 으로 뱉을 dict, 또는 전할 것이 없으면 None. 순수."""
     if not notes:
