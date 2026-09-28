@@ -1010,6 +1010,120 @@ def _pcfg(tmp_path, monkeypatch):
     return tmp_path
 
 
+def _ptr_menu(pet):  # noqa: F811
+    """The chat window's ⚙ menu as a data tree (same shape as _menu_tree)."""
+    from PyQt6.QtWidgets import QMenu
+
+    def snap(menu):
+        return [{"text": a.text(), "checked": a.isChecked(),
+                 "sub": snap(a.menu()) if a.menu() else None}
+                for a in menu.actions() if not a.isSeparator()]
+    return snap(pet._fill_pointer_menu(QMenu()))
+
+
+def test_every_cursor_shape_is_offered(pet, _pcfg):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    shapes = _find(_ptr_menu(pet), "커서 모양")["sub"]
+    assert [i["text"] for i in shapes] == list(PC.POINTER_CURSORS)
+
+
+def test_the_active_cursor_is_ticked(pet, _pcfg):  # noqa: F811
+    pet._save_pointer({"cursor": "arrow"}, notify=False)
+    shapes = _find(_ptr_menu(pet), "커서 모양")["sub"]
+    assert [i["text"] for i in shapes if i["checked"]] == ["arrow"]
+
+
+def test_no_shape_is_ticked_while_an_image_is_set(pet, _pcfg):  # noqa: F811
+    """The image wins, so ticking a shape as well would misreport what is used."""
+    pet._save_pointer({"image": "/tmp/x.png"}, notify=False)
+    shapes = _find(_ptr_menu(pet), "커서 모양")["sub"]
+    assert not any(i["checked"] for i in shapes)
+
+
+def test_clear_entries_appear_only_when_there_is_something_to_clear(pet, _pcfg):  # noqa: F811
+    assert _find(_ptr_menu(pet), "커서 이미지 지우기") is None
+    assert _find(_ptr_menu(pet), "세션 프로필 해제") is None
+    pet._save_pointer({"image": "/tmp/x.png", "claude_config_dir": "/p"}, notify=False)
+    assert _find(_ptr_menu(pet), "커서 이미지 지우기") is not None
+    assert _find(_ptr_menu(pet), "세션 프로필 해제") is not None
+
+
+def test_the_chat_window_carries_the_pointer_settings(pet, _pcfg):  # noqa: F811
+    win = pet.show_history()
+    try:
+        assert win._ptr.menu() is not None
+    finally:
+        win.close()
+
+
+def test_saving_a_setting_keeps_the_others(pet, _pcfg):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    pet._save_pointer({"claude_config_dir": "/profiles/dev"}, notify=False)
+    pet._save_pointer({"cursor": "arrow"}, notify=False)
+    saved = PC.load_config()["pointer"]
+    assert saved["claude_config_dir"] == "/profiles/dev"
+    assert saved["cursor"] == "arrow"
+
+
+def test_saving_confirms_in_a_bubble(pet, _pcfg):  # noqa: F811
+    pet._save_pointer({"cursor": "arrow"})
+    assert pet._bubble is not None
+
+
+def test_a_failed_save_does_not_crash(pet, _pcfg, monkeypatch):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    monkeypatch.setattr(PC, "save_keys",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("read-only")))
+    assert pet._save_pointer({"cursor": "arrow"}, notify=False) is None
+
+
+def test_picking_an_image_that_is_not_one_is_refused(pet, _pcfg, monkeypatch):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    bad = _pcfg / "notreally.png"
+    bad.write_text("this is not a png")
+    monkeypatch.setattr(P.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(bad), "")))
+    assert pet._pick_pointer_image() is None
+    assert PC.load_config()["pointer"]["image"] is None
+
+
+def test_cancelling_the_image_picker_changes_nothing(pet, _pcfg, monkeypatch):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    monkeypatch.setattr(P.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: ("", "")))
+    assert pet._pick_pointer_image() is None
+    assert PC.load_config()["pointer"]["image"] is None
+
+
+def test_picking_a_real_image_saves_it(pet, _pcfg, monkeypatch):  # noqa: F811
+    from PyQt6.QtGui import QPixmap, QColor
+    from claudlet.core import petconfig as PC
+    good = _pcfg / "cur.png"
+    pm = QPixmap(16, 16)
+    pm.fill(QColor("red"))
+    pm.save(str(good))
+    monkeypatch.setattr(P.QFileDialog, "getOpenFileName",
+                        staticmethod(lambda *a, **k: (str(good), "")))
+    pet._pick_pointer_image()
+    assert PC.load_config()["pointer"]["image"] == str(good)
+
+
+def test_cancelling_the_profile_picker_changes_nothing(pet, _pcfg, monkeypatch):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    monkeypatch.setattr(P.QFileDialog, "getExistingDirectory",
+                        staticmethod(lambda *a, **k: ""))
+    assert pet._pick_pointer_dir() is None
+    assert PC.load_config()["pointer"]["claude_config_dir"] is None
+
+
+def test_picking_a_profile_saves_it(pet, _pcfg, monkeypatch):  # noqa: F811
+    from claudlet.core import petconfig as PC
+    monkeypatch.setattr(P.QFileDialog, "getExistingDirectory",
+                        staticmethod(lambda *a, **k: "/profiles/dev"))
+    pet._pick_pointer_dir()
+    assert PC.load_config()["pointer"]["claude_config_dir"] == "/profiles/dev"
+
+
 # ---------- the pet's own conversation log ----------
 
 def test_the_menu_offers_the_conversation_log(pet, _pcfg):  # noqa: F811
