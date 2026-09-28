@@ -96,7 +96,8 @@ import time
 from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                              QToolTip, QInputDialog, QLineEdit,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
-                             QHBoxLayout, QTabBar)
+                             QHBoxLayout, QTabBar, QLabel, QScrollArea,
+                             QStackedWidget, QToolButton, QFrame)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
                          QRegion, QPainterPath, QFont, QPen)
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
@@ -719,11 +720,54 @@ def pointer_cursor(cfg, load=None):
     return QCursor(pm, hx, hy)
 
 
+# 설정 페이지(configui)와 같은 팔레트. 창 테마를 따르지 않고 박아둔다 — 풍선
+# 색이 시스템 테마에 따라 흐려지면 "누가 한 말인지" 가 다시 안 보인다.
+CHAT_QSS = """
+QDialog#chat { background:#16161a; }
+QTabBar { qproperty-drawBase:0; }
+QTabBar::tab { background:transparent; color:#9A9AA8; border:none;
+               border-bottom:2px solid transparent; padding:8px 14px;
+               font-weight:600; }
+QTabBar::tab:selected { color:#ECECF0; border-bottom-color:#6B8AFF; }
+QToolButton#more { color:#9A9AA8; background:transparent; border:none;
+                   font-size:18px; padding:0 8px; }
+QToolButton#more:hover { color:#ECECF0; }
+QToolButton#more::menu-indicator { image:none; }
+QScrollArea, QWidget#log { background:#16161a; border:none; }
+QTextBrowser { background:#16161a; color:#ECECF0; border:none; }
+QLabel[role="me"] { background:#6B8AFF; color:#ffffff; border-radius:14px;
+                    padding:8px 12px; }
+QLabel[role="pet"] { background:#2A2A33; color:#ECECF0; border-radius:14px;
+                     padding:8px 12px; }
+QLabel[role="meta"] { color:#6E6E7C; font-size:11px; }
+QLabel[role="wait"] { color:#D9975F; font-style:italic; padding:2px 4px; }
+QLabel[role="seen"] { background:#0e0e12; color:#9A9AA8; border-radius:8px;
+                      padding:6px 8px; font-size:11px; }
+QLabel[role="empty"] { color:#6E6E7C; }
+QPushButton#chip { background:#1F2A4D; color:#B9C8FF; border:1px solid #6B8AFF;
+                   border-radius:11px; padding:3px 10px; text-align:left; }
+QFrame#bar { background:#212128; border:1px solid #33333d; border-radius:20px; }
+QLineEdit#input { background:transparent; border:none; color:#ECECF0;
+                  padding:6px 4px; selection-background-color:#6B8AFF; }
+QToolButton#send { background:#6B8AFF; color:#ffffff; border:none;
+                   border-radius:15px; min-width:30px; min-height:30px;
+                   font-size:14px; }
+QToolButton#send:hover { background:#8AA3FF; }
+QToolButton#point { background:transparent; color:#9A9AA8; border:none;
+                    border-radius:15px; min-width:30px; min-height:30px;
+                    font-size:15px; }
+QToolButton#point:hover { background:#2A2A33; }
+QMenu { background:#212128; color:#ECECF0; border:1px solid #33333d; }
+QMenu::item:selected { background:#33333d; }
+"""
+
+
 class HistoryWindow(QDialog):
-    """This pet's own conversation log.
+    """This pet's conversation: the log, and a line to talk from.
 
     A real window rather than a bubble: a bubble holds one answer, and the
-    point here is to scan several exchanges and find the one you half remember.
+    point here is to scan several exchanges and find the one you half remember
+    -- and to keep talking without a trip through the right-click menu.
 
     Scoped to THIS pet's session -- each pet is paired with one agent session,
     so "what did I ask this creature" is the question being answered. The CLI
@@ -731,51 +775,70 @@ class HistoryWindow(QDialog):
     """
     def __init__(self, session_id, lang="ko", parent=None, pet=None):
         super().__init__(parent)
+        en = lang == "en"
         self._session = session_id
-        self._pet = pet
         self._lang = lang
+        self._pet = pet
         self._full = False
-        self.setWindowTitle("claudlet — %s"
-                            % ("conversation" if lang == "en" else "대화"))
-        self.resize(560, 460)
-
-        self._view = QTextBrowser(self)
-        self._view.setOpenExternalLinks(False)
+        self._bubbles = []
+        self.setObjectName("chat")
+        self.setStyleSheet(CHAT_QSS)
+        self.setWindowTitle("claudlet — %s" % ("conversation" if en else "대화"))
+        self.resize(440, 580)
 
         # Two views, because they answer different questions: "what did I ask
         # the creature" (the pet's own mailbox) and "what has this session been
         # doing" (the agent's transcript). Merging them would bury the handful
         # of pet exchanges under hundreds of tool calls.
         self._tabs = QTabBar(self)
-        self._tabs.addTab("펫과의 대화" if lang != "en" else "With the pet")
-        self._tabs.addTab("세션 활동" if lang != "en" else "Session activity")
+        self._tabs.addTab("With the pet" if en else "펫과의 대화")
+        self._tabs.addTab("Session activity" if en else "세션 활동")
         self._tabs.currentChanged.connect(lambda _i: self.refresh())
 
-        self._toggle = QPushButton(self)
+        # 자주 안 쓰는 둘은 ⋯ 메뉴로 — 대화 밑에 버튼 줄로 늘어놓으면 입력칸보다
+        # 눈에 먼저 띈다.
+        more = QToolButton(self)
+        more.setObjectName("more")
+        more.setText("⋯")
+        more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(more)
+        self._toggle = menu.addAction("Show what was sent" if en
+                                      else "보낸 화면 내용 보기")
         self._toggle.setCheckable(True)
-        self._toggle.setText("보낸 화면 내용 보기" if lang != "en"
-                             else "Show what was sent")
         self._toggle.toggled.connect(self._set_full)
+        self._clear = menu.addAction("Clear" if en else "내역 지우기")
+        self._clear.triggered.connect(self._clear_history)
+        more.setMenu(menu)
 
-        self._clear = QPushButton("내역 지우기" if lang != "en" else "Clear",
-                                  self)
-        self._clear.clicked.connect(self._clear_history)
+        head = QHBoxLayout()
+        head.setContentsMargins(8, 4, 8, 0)
+        head.addWidget(self._tabs)
+        head.addStretch(1)
+        head.addWidget(more)
 
-        close = QPushButton("닫기" if lang != "en" else "Close", self)
-        close.clicked.connect(self.close)
-
-        row = QHBoxLayout()
-        row.addWidget(self._toggle)
-        row.addWidget(self._clear)
-        row.addStretch(1)
-        row.addWidget(close)
+        self._log = QWidget()
+        self._log.setObjectName("log")
+        self._rows = QVBoxLayout(self._log)
+        self._rows.setContentsMargins(14, 10, 14, 10)
+        self._rows.setSpacing(4)
+        self._scroll = QScrollArea(self)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(self._log)
+        self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._view = QTextBrowser(self)          # the session tab
+        self._view.setOpenExternalLinks(False)
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self._scroll)
+        self._stack.addWidget(self._view)
 
         box = QVBoxLayout(self)
-        box.addWidget(self._tabs)
-        box.addWidget(self._view)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(0)
+        box.addLayout(head)
+        box.addWidget(self._stack, 1)
         if pet is not None:
             box.addLayout(self._talk_row(pet))
-        box.addLayout(row)
         self.refresh()
 
     def _talk_row(self, pet):
@@ -791,25 +854,39 @@ class HistoryWindow(QDialog):
         """
         ui = pet.ui
         self._chip = QPushButton(self)
-        self._chip.setFlat(True)
+        self._chip.setObjectName("chip")
         self._chip.clicked.connect(self._drop_target)
-        self._input = QLineEdit(self)
+
+        bar = QFrame(self)
+        bar.setObjectName("bar")
+        self._point = QToolButton(bar)
+        self._point.setObjectName("point")
+        self._point.setText("🎯")
+        self._point.setToolTip(ui["ask"])
+        self._point.clicked.connect(pet._start_ask)
+        self._input = QLineEdit(bar)
+        self._input.setObjectName("input")
         self._input.setPlaceholderText(ui["chat_ph"])
         self._input.returnPressed.connect(lambda: self.send(True))
-        self._send = QPushButton(ui["chat_send"], self)
+        self._send = QToolButton(bar)
+        self._send.setObjectName("send")
+        self._send.setText("➤")
+        self._send.setToolTip(ui["chat_send"])
         self._send.clicked.connect(lambda: self.send(True))
         self._send.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._send.customContextMenuRequested.connect(self._send_menu)
-        self._point = QPushButton(ui["ask"], self)
-        self._point.clicked.connect(pet._start_ask)
-
-        line = QHBoxLayout()
+        line = QHBoxLayout(bar)
+        line.setContentsMargins(6, 4, 5, 4)
+        line.setSpacing(4)
+        line.addWidget(self._point)
         line.addWidget(self._input, 1)
         line.addWidget(self._send)
-        line.addWidget(self._point)
+
         col = QVBoxLayout()
+        col.setContentsMargins(12, 6, 12, 12)
+        col.setSpacing(6)
         col.addWidget(self._chip, 0, Qt.AlignmentFlag.AlignLeft)
-        col.addLayout(line)
+        col.addWidget(bar)
         return col
 
     def _send_menu(self, pos):
@@ -879,27 +956,121 @@ class HistoryWindow(QDialog):
             win = pet._ask_target
             self._chip.setVisible(win is not None)
             if win is not None:
-                self._chip.setText(pet.ui["chat_about"]
-                                   % inspectmod.describe_window(win))
+                name = win.title or win.caption or "?"
+                if len(name) > 40:
+                    name = name[:39] + "…"
+                self._chip.setText(pet.ui["chat_about"] % name)
         if self.view() == "session":
             # The transcript is Claude Code's file; we only read it, so the
             # controls that write have nothing to act on here.
+            self._stack.setCurrentWidget(self._view)
             self._view.setHtml(transcript.render_html(self.timeline(), self._lang))
             self._toggle.setEnabled(False)
             self._clear.setEnabled(False)
             return
+        self._stack.setCurrentWidget(self._scroll)
         recs = self.records()
-        # 채팅처럼 최신이 아래, 입력칸 바로 위에 온다.
-        self._view.setHtml(askhistory.render_html(recs[::-1], self._lang,
-                                                  self._full))
-        bar = self._view.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._fill(recs[::-1])             # 채팅처럼 최신이 아래, 입력칸 바로 위
         self._toggle.setEnabled(True)
         self._clear.setEnabled(bool(recs))
 
+    def _label(self, text, role):
+        lab = QLabel(text)
+        lab.setProperty("role", role)
+        # 화면에서 긁어 온 글자다 — 마크업으로 해석하면 안 된다
+        lab.setTextFormat(Qt.TextFormat.PlainText)
+        lab.setWordWrap(role != "meta")
+        lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        return lab
+
+    def _add(self, lab, right):
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        if right:
+            row.addStretch(1)
+        row.addWidget(lab)
+        if not right:
+            row.addStretch(1)
+        self._rows.addLayout(row)
+        if lab.property("role") in ("me", "pet", "seen"):
+            self._bubbles.append(lab)
+
+    def _fill(self, recs):
+        while self._rows.count():
+            item = self._rows.takeAt(0)
+            lay = item.layout()
+            if lay is not None:
+                while lay.count():
+                    w = lay.takeAt(0).widget()
+                    if w is not None:
+                        w.hide()            # deleteLater 는 다음 루프에서야 치운다
+                        w.deleteLater()
+            elif item.widget() is not None:
+                item.widget().deleteLater()
+        self._bubbles = []
+        en = self._lang == "en"
+        if not recs:
+            self._add(self._label("No conversations recorded yet" if en
+                                  else "아직 기록된 대화가 없어요", "empty"), False)
+        for rec in recs:
+            meta = askhistory.ago(rec.get("ts"), None, self._lang)
+            if rec.get("target"):
+                meta += " · " + rec["target"]
+            self._rows.addSpacing(8)
+            self._add(self._label(meta, "meta"), True)
+            if rec.get("question"):
+                self._add(self._label(rec["question"], "me"), True)
+            if self._full and rec.get("text"):
+                self._add(self._label(rec["text"], "seen"), True)
+            if rec.get("answer"):
+                self._add(self._label(rec["answer"], "pet"), False)
+            else:
+                self._add(self._label("waiting for an answer…" if en
+                                      else "답을 기다리는 중…", "wait"), False)
+        self._rows.addStretch(1)
+        self._fit_bubbles()
+        QTimer.singleShot(0, self._to_bottom)
+
+    def _to_bottom(self):
+        bar = self._scroll.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
+    def _fit_bubbles(self):
+        # 줄바꿈하는 QLabel 은 폭 상한이 없으면 한 줄로 늘어나 창 끝까지 간다.
+        # 채팅 풍선처럼 창 폭의 3/4 에서 접히게 한다.
+        # 상한만 주면 레이아웃이 풍선을 최소 폭으로 접어버리니, 글자가 한 줄에
+        # 들어갈 폭(상한까지)으로 딱 맞춘다.
+        cap = max(160, int(self._scroll.viewport().width() * 0.75))
+        for lab in self._bubbles:
+            lab.ensurePolished()     # 스타일시트 글꼴·패딩이 먹은 뒤에 잰다
+            fm = lab.fontMetrics()
+            natural = max((fm.horizontalAdvance(ln)
+                           for ln in lab.text().splitlines() or [""]), default=0)
+            w = min(cap, natural + 30)                  # 30 = 좌우 padding + 여유
+            lab.setFixedWidth(w)
+            lab.setFixedHeight(lab.heightForWidth(w))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit_bubbles()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._fit_bubbles()          # 처음 채울 땐 뷰포트 폭이 아직 0 이다
+        QTimer.singleShot(0, self._to_bottom)
+
     def html(self):
-        """What is displayed -- what tests assert on."""
-        return self._view.toHtml()
+        """What is displayed, as text -- what tests assert on."""
+        if self.view() == "session":
+            return self._view.toHtml()
+        out = []
+        for i in range(self._rows.count()):
+            lay = self._rows.itemAt(i).layout()
+            for j in range(lay.count() if lay is not None else 0):
+                w = lay.itemAt(j).widget()
+                if isinstance(w, QLabel):
+                    out.append(w.text())
+        return "\n".join(out)
 
 
 class PointerOverlay(QWidget):

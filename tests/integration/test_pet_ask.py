@@ -1330,3 +1330,15 @@ def test_only_the_latest_pointer_question_waits(pet, monkeypatch):  # noqa: F811
     pet.ask_about((200, 200), "둘째 질문")
     assert pet.snapshot()["notes"] == 1
     assert "둘째 질문" in _posted(pet)["prompt"]
+
+
+def test_markup_read_off_the_screen_is_shown_as_text(pet, _hist):  # noqa: F811
+    """Records hold text scraped off the user's screen; it is data, not markup."""
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "<b>bold</b>")
+    win = pet.show_history()
+    try:
+        labels = [w for w in win.findChildren(P.QLabel) if w.text() == "<b>bold</b>"]
+        assert labels and labels[0].textFormat() == P.Qt.TextFormat.PlainText
+    finally:
+        win.close()
