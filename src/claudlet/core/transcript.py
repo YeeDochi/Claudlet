@@ -17,6 +17,7 @@ parsing is testable from a fixture without a real session.
 import glob
 import json
 import os
+import re
 
 # Entry kinds the timeline can contain. Deliberately coarse -- the point is a
 # readable history, not a faithful replay of the protocol.
@@ -34,15 +35,23 @@ _NOISE_PREFIXES = (
     "<local-command-caveat>", "<command-name>", "<command-message>",
     "<command-args>", "<local-command-stdout>", "<system-reminder>",
     "Caveat: The messages below",
+    # Codex puts its injected context in user-role messages too
+    "# AGENTS.md instructions", "<environment_context>", "<INSTRUCTIONS>",
+    "<user_instructions>", "<permissions", "<skills_instructions>",
+    "<turn_aborted>", "<user_shell_command>",
 )
 
 
-def find_transcript(session_id, roots=None):
+def find_transcript(session_id, roots=None, codex_home=None):
     """The transcript file for `session_id`, or None.
 
     Searched by glob across every known root: a session started under a
     CLAUDE_CONFIG_DIR profile lives under THAT profile, not ~/.claude, and
     looking only in the default location silently finds nothing.
+
+    A Codex session keeps its record as a rollout under CODEX_HOME instead —
+    without looking there the session tab of every Codex pet stayed empty.
+    Explicit `roots` without `codex_home` looks at the given roots only.
     """
     if not session_id:
         return None
@@ -50,7 +59,17 @@ def find_transcript(session_id, roots=None):
         hits = glob.glob(os.path.join(root, "*", "%s.jsonl" % session_id))
         if hits:
             return hits[0]
+    if roots is None or codex_home is not None:
+        return codex_rollout(session_id, codex_home)
     return None
+
+
+def codex_rollout(session_id, home=None):
+    """A Codex session's rollout (CODEX_HOME/sessions/Y/M/D/rollout-*-<id>.jsonl)."""
+    home = home or os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+    hits = glob.glob(os.path.join(home, "sessions", "*", "*", "*",
+                                  "rollout-*-%s.jsonl" % session_id))
+    return max(hits, key=os.path.getmtime) if hits else None
 
 
 def transcript_roots(env=None):
@@ -151,6 +170,65 @@ def _command_gist(command):
     return text or str(command or "").strip()
 
 
+def _codex_text(content):
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(str(b.get("text") or "") for b in content
+                     if isinstance(b, dict)
+                     and b.get("type") in ("input_text", "output_text", "text"))
+
+
+_CODEX_CMD = re.compile(r'"(?:cmd|command)"\s*:\s*("(?:[^"\\]|\\.)*"|\[[^\]]*\])')
+
+
+def _codex_tool(pay, ts):
+    """A Codex tool call. `exec` wraps the real call in a script
+    (`tools.exec_command({"cmd": ...})`), so the command is dug out of it."""
+    name = str(pay.get("name") or "?")
+    raw = pay.get("input") if pay.get("type") == "custom_tool_call" else pay.get("arguments")
+    raw = raw if isinstance(raw, str) else json.dumps(raw or {})
+    detail = ""
+    m = _CODEX_CMD.search(raw)
+    if m:
+        try:
+            val = json.loads(m.group(1))
+            detail = " ".join(val) if isinstance(val, list) else str(val)
+        except ValueError:
+            detail = m.group(1)
+        detail = _command_gist(_clip(detail))
+    elif name == "apply_patch":
+        files = re.findall(r"\*\*\* (?:Update|Add|Delete) File: (\S+)", raw)
+        detail = ", ".join(files)
+    return {"kind": TOOL, "ts": ts, "name": name, "detail": _clip(detail)}
+
+
+def _codex_entries(rec, ts):
+    """Timeline entries for one Codex rollout record."""
+    pay = rec.get("payload")
+    if rec.get("type") != "response_item" or not isinstance(pay, dict):
+        return []
+    kind = pay.get("type")
+    if kind == "message":
+        text = _codex_text(pay.get("content"))
+        if not text.strip() or _is_noise(text):
+            return []
+        if pay.get("role") == "user":
+            return [{"kind": USER, "ts": ts, "text": _clip(text)}]
+        if pay.get("role") == "assistant":
+            return [{"kind": AGENT, "ts": ts, "text": _clip(text)}]
+        return []                       # developer: instructions, not the talk
+    if kind in ("custom_tool_call", "function_call", "local_shell_call"):
+        return [_codex_tool(pay, ts)]
+    if kind == "function_call_output":
+        # what the Codex app (or the pet through it) put into the thread
+        m = re.search(r"<input>(.*?)</input>", str(pay.get("output") or ""), re.S)
+        if m and str(pay.get("output")).startswith("<codex_delegation>"):
+            return [{"kind": USER, "ts": ts, "text": _clip(m.group(1))}]
+    return []
+
+
 def parse(lines):
     """A timeline from transcript lines (an iterable of JSON strings).
 
@@ -170,6 +248,9 @@ def parse(lines):
         if not isinstance(rec, dict):
             continue
         kind = rec.get("type")
+        if kind == "response_item":                 # Codex rollout
+            out.extend(_codex_entries(rec, rec.get("timestamp")))
+            continue
         if kind not in ("user", "assistant"):
             continue
         message = rec.get("message")

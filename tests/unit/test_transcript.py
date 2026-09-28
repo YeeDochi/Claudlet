@@ -204,3 +204,44 @@ def test_markup_in_a_tool_detail_is_escaped():
     html = T.render_html([{"kind": T.TOOL, "name": "Bash",
                            "detail": "grep '<b>' file"}])
     assert "<b>" not in html.replace("<b>Bash</b>", "")
+
+
+# ---------- Codex rollout ----------
+
+def _ri(payload):
+    import json
+    return json.dumps({"type": "response_item", "timestamp": "2026-09-28T06:00:00Z",
+                       "payload": payload})
+
+
+def test_a_codex_rollout_reads_as_the_same_timeline():
+    lines = [
+        _ri({"type": "message", "role": "developer",
+             "content": [{"type": "input_text", "text": "<permissions instructions>"}]}),
+        _ri({"type": "message", "role": "user",
+             "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /x"}]}),
+        _ri({"type": "message", "role": "user",
+             "content": [{"type": "input_text", "text": "pwd 실행해줘"}]}),
+        _ri({"type": "custom_tool_call", "name": "exec",
+             "input": 'const r = await tools.exec_command({"cmd":"FOO=1 pwd","workdir":"/x"});'}),
+        _ri({"type": "message", "role": "assistant", "phase": "final_answer",
+             "content": [{"type": "output_text", "text": "/x"}]}),
+    ]
+    got = [(e["kind"], e.get("text") or e.get("detail")) for e in T.parse(lines)]
+    assert got == [("user", "pwd 실행해줘"), ("tool", "pwd"), ("agent", "/x")]
+
+
+def test_what_the_codex_app_put_in_shows_as_the_user_talking():
+    lines = [_ri({"type": "function_call_output",
+                  "output": "<codex_delegation>\n<input>[claudlet · 라임] 안녕</input>\n</codex_delegation>"})]
+    assert T.parse(lines)[0]["text"] == "[claudlet · 라임] 안녕"
+
+
+def test_a_codex_session_s_record_is_found_under_codex_home(tmp_path):
+    d = tmp_path / "sessions" / "2026" / "09" / "28"
+    d.mkdir(parents=True)
+    f = d / "rollout-2026-09-28T15-20-00-abc-123.jsonl"
+    f.write_text("")
+    assert T.find_transcript("abc-123", roots=[str(tmp_path / "none")],
+                                      codex_home=str(tmp_path)) == str(f)
+    assert T.find_transcript("abc-123", roots=[str(tmp_path / "none")]) is None
