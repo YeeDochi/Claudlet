@@ -2363,3 +2363,18 @@ def test_the_creatures_line_lands_in_the_open_conversation_window(pet, monkeypat
         assert pet._bubble is None
     finally:
         win.close()
+
+
+def test_the_settings_process_can_find_claudlet_on_its_own(pet, monkeypatch):
+    # 시스템 Qt 로 갈아탄 펫(core/qtpick)은 claudlet 이 깔린 venv 밖에서 돈다.
+    # 설정 프로세스에 건네는 PYTHONPATH 만으로 claudlet 이 import 돼야 한다.
+    import subprocess as sp
+    seen = {}
+    monkeypatch.setattr(P.subprocess, "Popen",
+                        lambda cmd, env=None, **kw: seen.update(env=env))
+    pet._open_settings()
+    monkeypatch.undo()                  # subprocess.run 도 Popen 을 쓴다
+    env = dict(seen["env"])
+    out = sp.run([sys.executable, "-S", "-c", "import claudlet.core.hostinfo"],
+                 env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr

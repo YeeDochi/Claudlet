@@ -94,7 +94,7 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
-                             QToolTip, QInputDialog, QLineEdit,
+                             QToolTip, QInputDialog, QLineEdit, QFileDialog,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
                              QHBoxLayout, QTabBar, QLabel, QScrollArea,
                              QStackedWidget, QToolButton, QFrame, QMessageBox)
@@ -224,6 +224,16 @@ _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 # right-click / tray menu UI strings, per language
 UI = {
     "ko": {"follow": "커서 따라오기", "motions": "모션",
+           "ptr_menu": "🎯 포인터 설정",
+           "ptr_cursor": "커서 모양",
+           "ptr_image": "커서 이미지 고르기…",
+           "ptr_image_clear": "커서 이미지 지우기",
+           "ptr_dir": "세션 프로필 (CLAUDE_CONFIG_DIR)…",
+           "ptr_dir_clear": "세션 프로필 해제",
+           "ptr_pick_image": "포인터로 쓸 이미지",
+           "ptr_pick_dir": "세션이 쓸 CLAUDE_CONFIG_DIR",
+           "ptr_saved": "포인터 설정을 저장했어요",
+           "ptr_bad_image": "그 파일은 이미지로 읽을 수 없어요",
            "float": "호버링 (제자리에 떠 있기)", "quiet": "조용히 (알림 끔)",
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
@@ -245,6 +255,16 @@ UI = {
            "chat_send": "보내기", "chat_note": "📝 쪽지로 남기기",
            "chat_about": "🎯 %s 에 대해  ✕"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
+           "ptr_menu": "🎯 Pointer settings",
+           "ptr_cursor": "Cursor shape",
+           "ptr_image": "Choose a cursor image…",
+           "ptr_image_clear": "Clear the cursor image",
+           "ptr_dir": "Session profile (CLAUDE_CONFIG_DIR)…",
+           "ptr_dir_clear": "Clear the session profile",
+           "ptr_pick_image": "Image to use as the pointer",
+           "ptr_pick_dir": "CLAUDE_CONFIG_DIR for started sessions",
+           "ptr_saved": "Pointer settings saved",
+           "ptr_bad_image": "That file could not be read as an image",
            "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
@@ -735,6 +755,7 @@ QToolButton#icon { color:#9A9AA8; background:transparent; border:none;
 QToolButton#icon:hover { background:#2A2A33; color:#ECECF0; }
 QToolButton#icon:checked { background:#1F2A4D; color:#B9C8FF; }
 QToolButton#icon:disabled { color:#44444f; }
+QToolButton#icon::menu-indicator { image:none; }
 QScrollArea, QWidget#log { background:#16161a; border:none; }
 QTextBrowser { background:#16161a; color:#ECECF0; border:none; }
 QLabel[role="me"] { background:#6B8AFF; color:#ffffff; border-radius:14px;
@@ -817,6 +838,18 @@ class HistoryWindow(QDialog):
         head.setSpacing(2)
         head.addWidget(self._tabs)
         head.addStretch(1)
+        if pet is not None:
+            # 포인터가 이 창에 사니 그 설정도 여기 둔다. 메뉴는 열 때마다 새로
+            # 채운다 — 설정 페이지나 CLI 가 그 사이 바꿨을 수 있다.
+            self._ptr = QToolButton(self)
+            self._ptr.setObjectName("icon")
+            self._ptr.setText("⚙")
+            self._ptr.setToolTip(pet.ui["ptr_menu"])
+            self._ptr.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            menu = QMenu(self._ptr)
+            menu.aboutToShow.connect(lambda: pet._fill_pointer_menu(menu))
+            self._ptr.setMenu(menu)
+            head.addWidget(self._ptr)
         head.addWidget(self._toggle)
         head.addWidget(self._clear)
 
@@ -3703,6 +3736,82 @@ class Pet(QWidget):
         if win is not None:
             win.refresh()
 
+    def _fill_pointer_menu(self, menu):
+        """포인터 설정 메뉴를 (다시) 채운다. 대화창의 ⚙ 가 연다."""
+        menu.clear()
+        pcfg = self._pointer_cfg()
+        shapes = menu.addMenu(self.ui["ptr_cursor"])
+        current = pcfg.get("cursor") or petconfig.DEFAULT_POINTER_CURSOR
+        for name in petconfig.POINTER_CURSORS:
+            act = shapes.addAction(name)
+            act.setCheckable(True)
+            # 이미지가 있으면 그것이 이기므로 모양에 체크하면 거짓말이 된다
+            act.setChecked(name == current and not pcfg.get("image"))
+            # 모양을 고르면 이미지는 지운다: 안 그러면 이미지가 계속 이겨서
+            # 방금 체크한 모양이 아무 일도 안 한다.
+            act.triggered.connect(
+                lambda _c=False, n=name: self._save_pointer(
+                    {"cursor": n, "image": None, "hotspot": None}))
+        menu.addAction(self.ui["ptr_image"]).triggered.connect(
+            lambda: self._pick_pointer_image())
+        if pcfg.get("image"):
+            menu.addAction(self.ui["ptr_image_clear"]).triggered.connect(
+                lambda: self._save_pointer({"image": None, "hotspot": None}))
+        menu.addSeparator()
+        menu.addAction(self.ui["ptr_dir"]).triggered.connect(
+            lambda: self._pick_pointer_dir())
+        if pcfg.get("claude_config_dir"):
+            menu.addAction(self.ui["ptr_dir_clear"]).triggered.connect(
+                lambda: self._save_pointer({"claude_config_dir": None}))
+        return menu
+
+    def _save_pointer(self, updates, notify=True):
+        """Merge into the `pointer` config section and confirm it.
+
+        Writes only what changed: the menu edits one thing at a time, and
+        rewriting the whole section would clobber whatever the settings page or
+        the CLI set in between.
+        """
+        try:
+            current = dict(petconfig.load_config().get("pointer")
+                           or petconfig.DEFAULT_POINTER)
+            current.update(updates)
+            petconfig.save_keys({"pointer": {k: v for k, v in current.items()
+                                             if v is not None}})
+        except Exception:
+            return None
+        if notify:
+            self.say(self.ui["ptr_saved"])
+        return current
+
+    def _pick_pointer_image(self):
+        """Ask for an image file and adopt it as the pointer cursor."""
+        start = os.path.dirname(self._pointer_cfg().get("image") or "") \
+            or os.path.expanduser("~")
+        patterns = " ".join("*" + s for s in petconfig.POINTER_IMAGE_SUFFIXES)
+        path, _ = QFileDialog.getOpenFileName(
+            None, self.ui["ptr_pick_image"], start,
+            "Images (%s)" % patterns)
+        if not path:
+            return None
+        # Check it actually decodes before saving: a file with the right
+        # extension that Qt cannot read would silently fall back to the named
+        # cursor, which looks like the setting did not take.
+        if QPixmap(path).isNull():
+            self.say(self.ui["ptr_bad_image"])
+            return None
+        return self._save_pointer({"image": path, "hotspot": None})
+
+    def _pick_pointer_dir(self):
+        """Ask for the CLAUDE_CONFIG_DIR that started sessions should use."""
+        start = self._pointer_cfg().get("claude_config_dir") \
+            or os.path.expanduser("~")
+        path = QFileDialog.getExistingDirectory(
+            None, self.ui["ptr_pick_dir"], start)
+        if not path:
+            return None
+        return self._save_pointer({"claude_config_dir": path})
+
     def _pointer_cfg(self):
         """The `pointer` config section, re-read so a settings change lands
         without restarting the pet (same reason `restyle` exists)."""
@@ -4018,7 +4127,11 @@ class Pet(QWidget):
         if hasattr(os, "setsid"):
             kw["start_new_session"] = True          # POSIX: 펫과 함께 죽지 않게
         env = dict(os.environ)
-        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
+        # claudlet 패키지를 품은 디렉터리. hostinfo 는 claudlet/core/ 에 있으니
+        # 세 단계를 올라가야 한다 — 두 단계면 패키지 자신을 가리켜, venv 에 깔린
+        # claudlet 이 없을 때(시스템 Qt 로 갈아탄 펫, core/qtpick) import 가 깨진다.
+        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(hostinfo.__file__))))
         env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
         env.pop("QT_QPA_PLATFORM", None)   # 펫은 xcb 를 강제한다; 미리보기는 offscreen
         try:
