@@ -78,3 +78,12 @@ def test_the_thread_s_rollout_is_found_by_its_id(tmp_path):
     env = {"CODEX_HOME": str(tmp_path)}
     assert codexapp.rollout_path("01a0e61f-b782-7903-98e7-92f725e082b3", env) == str(f)
     assert codexapp.rollout_path("nope", env) is None
+
+
+def test_a_turn_start_is_read_off_the_rollout_even_split_across_reads():
+    start = json.dumps({"type": "event_msg", "payload": {"type": "task_started"}}).encode()
+    other = json.dumps({"type": "event_msg", "payload": {"type": "token_count"}}).encode()
+    n, rest = codexapp.turn_starts(other + b"\n" + start[:10])
+    assert n == 0
+    n, rest = codexapp.turn_starts(rest + start[10:] + b"\n")
+    assert (n, rest) == (1, b"")

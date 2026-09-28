@@ -39,6 +39,25 @@ def rollout_path(thread_id, env=None):
     return max(hits, key=os.path.getmtime) if hits else None
 
 
+def turn_starts(buf):
+    """rollout 에 새로 붙은 바이트에서 턴이 시작된 횟수와, 아직 줄이 안 끝난
+    나머지. 순수.
+
+    코덱스 앱은 UserPromptSubmit 훅을 부르지 않는다(실측: 앱에 직접 친 턴에도
+    claudlet 도 Clawd 도 못 받았다). 그래서 턴 시작("생각 중")은 rollout 의
+    task_started 로 안다. 끝은 Stop 훅이 알려준다."""
+    *lines, rest = buf.split(b"\n")
+    n = 0
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and (rec.get("payload") or {}).get("type") == "task_started":
+            n += 1
+    return n, rest
+
+
 def frame(obj):
     data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
     return struct.pack("<I", len(data)) + data

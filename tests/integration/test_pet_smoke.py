@@ -2502,3 +2502,22 @@ def test_a_codex_app_answer_still_lands_when_the_turn_s_hooks_do_fire(
               session=pet.session_id)
     pet._poll_reply()
     assert pet.snapshot()["saying"] == "정상 수신했습니다"
+
+
+def test_a_codex_app_turn_shows_as_thinking_though_no_prompt_hook_comes(pet, monkeypatch, tmp_path):
+    # 코덱스 앱은 UserPromptSubmit 을 안 부른다 — 턴 내내 쉬는 표정이었다.
+    import json
+    from claudlet.platform import codexapp
+    roll = tmp_path / "r.jsonl"
+    roll.write_text(json.dumps({"payload": {"type": "task_complete"}}) + "\n")
+    monkeypatch.setattr(codexapp, "rollout_path", lambda t, env=None: str(roll))
+    pet._codex_pipe = "/fake.sock"
+    pet._watch_rollout()                     # 처음엔 끝에서 시작 — 지난 턴은 무시
+    pet._tick()
+    before = pet.snapshot()["state"]
+    with open(roll, "a") as f:
+        f.write(json.dumps({"payload": {"type": "task_started"}}) + "\n")
+    pet._watch_rollout()
+    pet._tick()
+    assert pet.snapshot()["state"] != before
+    assert pet.snapshot()["state"] == "thinking"

@@ -1642,6 +1642,13 @@ class Pet(QWidget):
         # 코덱스 앱 세션이면 앱의 도구 파이프 — 훅이 물려준 환경에 있다
         self._codex_pipe = (codexapp.pipe_path()
                             if self.agent == "codex" else None)
+        # 코덱스 앱은 UserPromptSubmit 을 안 부른다 — 턴 시작은 rollout 으로 안다
+        self._rollout_pos = None
+        self._rollout_rest = b""
+        if self._codex_pipe:
+            self._rollout_timer = QTimer(self)
+            self._rollout_timer.timeout.connect(self._watch_rollout)
+            self._rollout_timer.start(1000)
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
@@ -1828,7 +1835,9 @@ class Pet(QWidget):
         # 새 턴이 시작되면 지난 대사는 치운다. 말풍선은 12초 떠 있는데, 그 사이
         # 사용자가 다음 말을 걸면 옛 대사가 남아 있다가 새 대사로 바뀌어
         # "이전 말이 나오고 다음 말이 나오는" 것처럼 보인다.
-        if ev.get("event") == "UserPromptSubmit":
+        # rollout 에서 읽은 턴 시작(코덱스 앱)은 표정만 바꾼다 — 펫이 방금 건
+        # 말의 답을 기다리는 중일 수 있어, 그 대기를 끊으면 안 된다.
+        if ev.get("event") == "UserPromptSubmit" and not ev.get("rollout"):
             self._hush()
             self._mark_turn_start(ev.get("transcript"),
                                   whole=bool(self._codex_pipe))
@@ -4665,6 +4674,30 @@ class Pet(QWidget):
         if ok and split:
             QTimer.singleShot(ENTER_DELAY_MS, self._send_enter)
         return ok
+
+    def _watch_rollout(self):
+        """코덱스 앱 스레드의 rollout 끝을 읽어 턴이 시작되면 '생각 중'으로.
+        처음 볼 때는 끝에서 시작한다 — 지난 턴들을 다시 틀 이유가 없다."""
+        path = codexapp.rollout_path(self.session_id)
+        if not path:
+            return
+        try:
+            size = os.path.getsize(path)
+            if self._rollout_pos is None or size < self._rollout_pos:
+                self._rollout_pos = size
+                return
+            if size == self._rollout_pos:
+                return
+            with open(path, "rb") as f:
+                f.seek(self._rollout_pos)
+                chunk = f.read(size - self._rollout_pos)
+            self._rollout_pos = size
+        except OSError:
+            return
+        n, self._rollout_rest = codexapp.turn_starts(self._rollout_rest + chunk)
+        if n:
+            self._handle_event({"event": "UserPromptSubmit",
+                                "session": self.session_id, "rollout": True})
 
     # 코덱스 앱의 턴은 몇 초로 안 끝난다 — 답을 2분까지 지켜본다.
     CODEX_APP_REPLY_TRIES = 600
