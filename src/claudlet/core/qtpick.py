@@ -17,9 +17,14 @@ FCITX_PLUGIN = "libfcitx5platforminputcontextplugin.so"
 SYSTEM_PYTHON = "/usr/bin/python3"
 MARK = "CLAUDLET_SYSTEM_QT"        # 다시 띄운 쪽에 선다 — 두 번 돌지 않게
 
-# 시스템 파이썬에 물어볼 한 줄: 그 PyQt6 의 플러그인 디렉터리.
-_PROBE = ("from PyQt6.QtCore import QLibraryInfo as L;"
-          "print(L.path(L.LibraryPath.PluginsPath))")
+# 이보다 낡은 배포판 PyQt6 로는 갈아타지 않는다. 펫은 pip 가 주는 최신 Qt 에서
+# 개발·검증되고, 갈아탄 쪽에서 쓰는 API 가 없어 죽으면 펫이 아예 안 뜬다 —
+# 한글을 못 치는 것보다 훨씬 나쁘다. 6.5 는 Qt 의 LTS 이자 xcb-cursor 이후 판.
+MIN_QT = (6, 5)
+
+# 시스템 파이썬에 물어볼 한 줄: 그 PyQt6 의 Qt 버전과 플러그인 디렉터리.
+_PROBE = ("from PyQt6.QtCore import QLibraryInfo as L, QT_VERSION_STR as V;"
+          "print(V); print(L.path(L.LibraryPath.PluginsPath))")
 
 
 def has_fcitx(plugins_dir, listdir=os.listdir):
@@ -29,6 +34,18 @@ def has_fcitx(plugins_dir, listdir=os.listdir):
             os.path.join(plugins_dir, "platforminputcontexts"))
     except OSError:
         return False
+
+
+def parse_probe(out, floor=MIN_QT):
+    """_PROBE 의 출력에서 쓸 만한 플러그인 디렉터리, 아니면 None. 순수."""
+    lines = (out or "").strip().splitlines()
+    if len(lines) < 2:
+        return None
+    try:
+        ver = tuple(int(x) for x in lines[0].strip().split(".")[:2])
+    except ValueError:
+        return None
+    return lines[1].strip() or None if ver >= floor else None
 
 
 def should_switch(platform, xmodifiers, ours, theirs):
@@ -51,7 +68,7 @@ def _system_plugins(python=SYSTEM_PYTHON):
                              text=True, timeout=5)
     except Exception:
         return None
-    return out.stdout.strip() if out.returncode == 0 else None
+    return parse_probe(out.stdout) if out.returncode == 0 else None
 
 
 def maybe_reexec(argv=None):

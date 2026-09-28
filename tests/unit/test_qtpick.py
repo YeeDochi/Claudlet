@@ -27,3 +27,10 @@ def test_switches_only_for_fcitx_on_linux_when_it_would_help():
     for k, v in [("platform", "darwin"), ("xmodifiers", "@im=ibus"),
                  ("xmodifiers", None), ("ours", True), ("theirs", False)]:
         assert not Q.should_switch(**dict(go, **{k: v})), k
+
+
+def test_a_too_old_distro_pyqt6_is_not_used():
+    assert Q.parse_probe("6.10.2\n/usr/lib/qt6/plugins\n") == "/usr/lib/qt6/plugins"
+    assert Q.parse_probe("6.2.4\n/usr/lib/qt6/plugins\n") is None
+    assert Q.parse_probe("garbage") is None
+    assert Q.parse_probe("") is None
