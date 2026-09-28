@@ -168,3 +168,18 @@ def test_hooks_are_checked_for_every_agent_not_just_the_first(tmp_path):
     assert doctorcli.check_hooks(str(tmp_path)) == (False, "없음: codex")
     install_hooks.main(["x", "--agent", "codex"], home=str(tmp_path))
     assert doctorcli.check_hooks(str(tmp_path)) == (True, "claude, codex")
+
+
+def test_the_capture_rule_is_checked_only_once_the_camera_is_on(tmp_path, monkeypatch):
+    from claudlet.cli import doctorcli, install_hooks
+    import os
+    os.makedirs(tmp_path / ".claude")
+    (tmp_path / ".claude" / "settings.json").write_text('{"hooks": {}}')
+    monkeypatch.setattr(doctorcli, "_shots_on", lambda: False)
+    assert doctorcli.check_shot_rule(str(tmp_path))[0] is None   # 꺼져 있으면 묻지 않는다
+    monkeypatch.setattr(doctorcli, "_shots_on", lambda: True)
+    assert doctorcli.check_shot_rule(str(tmp_path))[0] is False
+    install_hooks.main(["x", "--agent", "claude"], home=str(tmp_path))
+    assert doctorcli.check_shot_rule(str(tmp_path))[0] is True
+    install_hooks.main(["x", "--remove", "--agent", "claude"], home=str(tmp_path))
+    assert doctorcli.check_shot_rule(str(tmp_path))[0] is False

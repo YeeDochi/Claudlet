@@ -31,6 +31,8 @@ CHECKS = {
     "java_bridge": Check("java_bridge", "read_java", "enable_java_bridge"),
     "uia": Check("uia", "read_screen", "need_powershell"),
     "ax_trusted": Check("ax_trusted", "read_screen", "grant_ax"),
+    "shot_capture": Check("shot_capture", "screenshot", "shot_capture"),
+    "shot_rule": Check("shot_rule", "screenshot", "install_hooks"),
 }
 
 TEXT = {
@@ -58,6 +60,7 @@ TEXT = {
             "hangul_input": "펫 입력창에 한글 치기",
             "read_screen": "🎯 포인터로 가리킨 창의 **글자** 읽기 (창 제목·크기는 읽힘)",
             "read_java": "자바 창(IntelliJ 등)의 글자 읽기",
+            "screenshot": "📷 글자를 못 읽은 창을 화면 캡처로 보내기",
         },
         "fix": {
             "install_hooks": "claudlet-install-hooks 를 실행한 뒤 세션을 다시 여세요.",
@@ -88,6 +91,9 @@ TEXT = {
                                " 그것을 통해 돕니다.",
             "grant_ax": "시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서"
                         " 이 앱(터미널/claudlet)을 허용하세요.",
+            "shot_capture": "리눅스는 spectacle 을 설치하세요. macOS 는 시스템 설정 →"
+                            " 개인정보 보호 및 보안 → 화면 기록에서 이 앱을 허용하세요"
+                            " (없으면 바탕화면만 찍힙니다).",
         },
     },
     "en": {
@@ -116,6 +122,7 @@ TEXT = {
             "read_screen": "reading the **text** of the window you point at"
                            " (title and size still work)",
             "read_java": "reading text out of Java windows (IntelliJ and friends)",
+            "screenshot": "📷 sending a screenshot of windows whose text can't be read",
         },
         "fix": {
             "install_hooks": "Run claudlet-install-hooks, then restart the session.",
@@ -146,6 +153,9 @@ TEXT = {
                                " goes through it.",
             "grant_ax": "System Settings → Privacy & Security → Accessibility, and"
                         " allow this app (your terminal / claudlet).",
+            "shot_capture": "On Linux install spectacle. On macOS allow this app in"
+                            " System Settings → Privacy & Security → Screen Recording"
+                            " (without it only the desktop is captured).",
         },
     },
 }

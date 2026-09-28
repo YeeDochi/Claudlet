@@ -110,11 +110,13 @@ from claudlet.core import bubble as bubblegeom
 from claudlet.core import history as askhistory
 from claudlet.core import transcript
 from claudlet.core import inspect as inspectmod
+from claudlet.core import shot as shotmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
 from claudlet.platform import codexapp
 from claudlet.platform import codexd
 from claudlet.platform import konsole
+from claudlet.platform import screenshot
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
 from claudlet.core import hostinfo
@@ -1017,6 +1019,7 @@ class HistoryWindow(QDialog):
     def _drop_target(self):
         self._pet._ask_target = None
         self._pet._ask_region = None
+        self._pet._ask_shot = None
         self.refresh()
 
     def focus_input(self):
@@ -1104,7 +1107,8 @@ class HistoryWindow(QDialog):
                 name = win.title or win.caption or "?"
                 if len(name) > 40:
                     name = name[:39] + "…"
-                self._chip.setText(pet.ui["chat_about"] % name)
+                self._chip.setText(("📷 " if pet._ask_shot else "")
+                                   + pet.ui["chat_about"] % name)
         if self.view() == "session":
             # The transcript is Claude Code's file; we only read it, so the
             # controls that write have nothing to act on here.
@@ -1183,7 +1187,8 @@ class HistoryWindow(QDialog):
             self._rows.addSpacing(8)
             self._add(self._label(meta, "meta"), True)
             if rec.get("question"):
-                self._add(self._label(rec["question"], "me"), True)
+                self._add(self._label(("📷 " if rec.get("image") else "")
+                                      + rec["question"], "me"), True)
             if self._full and rec.get("text"):
                 self._add(self._label(rec["text"], "seen"), True)
             if rec.get("answer"):
@@ -1571,6 +1576,10 @@ class Pet(QWidget):
         self._bubble = None                  # answer bubble, when one is showing
         self._ask_target = None              # window the last question was about
         self._ask_region = None              # region of the last question, if any
+        # 포인터로 고른 순간 찍은 PNG(메모리). 질문에 실리거나 버려진다.
+        self._ask_shot = None
+        self._capture = screenshot.capture   # 테스트는 가짜 PNG 를 주는 것으로 바꾼다
+        shotmod.clear(self.session_id)       # 지난번에 죽으며 남긴 캡처
         self._ask_waiting = False            # holding `thinking` for an answer
         self._ask_waiting_since = 0.0        # when that hold started
         self._pointer_overlays = []           # pointer-mode overlays, one per screen
@@ -1850,6 +1859,10 @@ class Pet(QWidget):
         # 형제 펫이 드래그로 대열을 옮겼다는 통지. 같은 offset을 공유해야 간격이
         # 유지되므로 받은 값을 그대로 반영한다(config는 옮긴 쪽이 이미 저장했다).
         if ev.get("cmd") == "turn_end":
+            # 실린 캡처는 이번 턴에 읽혔다. 아직 못 실린 쪽지가 있으면 그것의
+            # 캡처일 수 있어 남겨 둔다.
+            if not outbox.pending(self.session_id):
+                shotmod.clear(self.session_id)
             # 턴이 끝났다. 이번 턴의 대사가 transcript 에 나타날 때까지 잠깐
             # 지켜본다 — 훅이 읽던 시절에는 아직 flush 되기 전이라 지난 턴
             # 대사를 물어왔다. 기다리는 일은 블록하면 안 되는 훅이 아니라
@@ -2064,6 +2077,7 @@ class Pet(QWidget):
             "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
             "notes": self._notes,                # 에이전트에게 전하려고 물고 있는 쪽지 수
+            "shot": bool(self._ask_shot),        # 고른 순간 찍은 화면을 들고 있다
             "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
@@ -3822,6 +3836,7 @@ class Pet(QWidget):
             return
         if chosen == a_talk_drop:
             outbox.drop(self.session_id)
+            shotmod.clear(self.session_id)
             self._refresh_notes()
         elif chosen == a_follow:
             self._toggle_follow()
@@ -4081,6 +4096,12 @@ class Pet(QWidget):
         # 다음 턴에 묵은 질문들이 한꺼번에 쏟아진다.
         if self._notes:
             outbox.drop(self.session_id)
+            shotmod.clear(self.session_id)
+        # 글자를 못 읽었을 때만 찍어둔 화면을 파일로 남겨 경로를 싣는다.
+        # 되묻기는 같은 창이라도 그새 화면이 바뀌었을 수 있어 싣지 않는다.
+        png, self._ask_shot = self._ask_shot, None
+        if png and shotmod.needs_image(ctx):
+            ctx["image"] = shotmod.save(self.session_id, png)
         # 배달은 아웃박스로 한다. 우편함(.ask.json)은 세션이 스스로 집어가지
         # 않아 사용자가 "답해줘" 라고 시켜야 했다 — 아웃박스는 훅이 다음 경계
         # (일하는 중이면 다음 툴콜, 놀고 있으면 다음 프롬프트)에서 자동으로
@@ -4093,7 +4114,8 @@ class Pet(QWidget):
         # or to tell "never answered" from "answered while you looked away".
         try:
             askhistory.record_question(self.session_id, question, ctx["target"],
-                                       ctx["text"], region)
+                                       ctx["text"], region,
+                                       image=bool(ctx.get("image")))
         except Exception:
             pass          # a history failure must never lose the question
         # Remember both so the answer's bubble can offer a follow-up on the same
@@ -4200,6 +4222,7 @@ class Pet(QWidget):
             # 고른 영역은 대화창 입력칸 위에 칩으로 붙고, 다음에 보내는 말에
             # 같이 실려 간다. 질문을 따로 묻는 창은 띄우지 않는다.
             self._ask_target, self._ask_region = win, rect
+            self._grab_shot(rect)
             self.show_history().focus_input()
 
         def _done():
@@ -4216,6 +4239,22 @@ class Pet(QWidget):
             ov.show()
             ov.raise_()
         return self._pointer_overlays
+
+    def _grab_shot(self, rect):
+        """고른 순간의 화면을 버퍼에 담는다(설정이 켜져 있을 때만).
+
+        나중에 찍으면 이미 다른 화면이다. 디스크에는 아직 안 쓴다 — 글자를
+        충분히 읽으면 ask_window 가 그냥 버린다.
+        """
+        self._ask_shot = None
+        if not self._pointer_cfg().get("screenshot"):
+            return
+
+        def _got(png, rect=rect):
+            if png and self._ask_region is rect:     # 그새 다시 고르지 않았다
+                self._ask_shot = png
+                self._refresh_chat()
+        self._capture(rect, _got, self)
 
     def exit_pointer(self):
         """Tear down pointer mode. Idempotent -- any overlay finishing ends all."""
@@ -4932,6 +4971,7 @@ class Pet(QWidget):
         if getattr(self, "tray", None) is not None:
             self.tray.hide()
         self._dismiss_bubble()
+        shotmod.clear(self.session_id)
         for c in getattr(self, "_companions", []) + getattr(self, "_departing", []):
             c.close()
         self._companions = []

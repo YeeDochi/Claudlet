@@ -23,7 +23,7 @@ def _posted(pet):
 from claudlet.core import bubble as bubblegeom
 from claudlet.platform.geom import Win
 
-from harness import pet  # noqa: F401  (`pet` used as a fixture)
+from harness import pet, send_hook  # noqa: F401  (`pet` used as a fixture)
 
 
 @pytest.fixture(autouse=True)
@@ -1609,3 +1609,81 @@ def test_the_bubble_setting_shows_answers_over_an_open_chat(pet, _hist, monkeypa
         assert "both places" in win.html()
     finally:
         win.close()
+
+
+# ---------- 스크린샷 폴백: 글자를 못 읽은 창은 고른 순간의 화면을 싣는다 ----------
+
+import glob as _glob
+from claudlet.core import shot as _shot
+
+
+def _shots(pet):  # noqa: F811
+    return _glob.glob(_glob.escape(_shot._prefix(pet.session_id)) + "*.png")
+
+
+def _camera(pet, monkeypatch, on=True):  # noqa: F811
+    monkeypatch.setattr(pet, "_pointer_cfg", lambda: {"screenshot": on})
+    pet._capture = lambda rect, done, parent=None: done(b"\x89PNG fake")
+    _shot.clear(pet.session_id)
+
+
+def test_an_unreadable_window_goes_with_a_capture(pet, monkeypatch):  # noqa: F811
+    _camera(pet, monkeypatch)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend(region_text=["Chrome"]))
+    try:
+        assert "📷" in chat._chip.text()
+        _type_and_send(chat, "이게 뭐야?")
+        files = _shots(pet)
+        assert len(files) == 1 and open(files[0], "rb").read() == b"\x89PNG fake"
+        assert files[0] in _posted(pet)["prompt"]
+    finally:
+        chat.close()
+        _shot.clear(pet.session_id)
+
+
+def test_a_readable_window_leaves_nothing_on_disk(pet, monkeypatch):  # noqa: F811
+    _camera(pet, monkeypatch)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend(
+        region_text=["line one", "line two", "line three", "line four"]))
+    try:
+        _type_and_send(chat, "what is this?")
+        assert _shots(pet) == []
+        assert "화면 캡처" not in _posted(pet)["prompt"]
+    finally:
+        chat.close()
+
+
+def test_the_camera_is_off_unless_the_user_turned_it_on(pet, monkeypatch):  # noqa: F811
+    _camera(pet, monkeypatch, on=False)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend(region_text=["Chrome"]))
+    try:
+        assert pet.snapshot()["shot"] is False
+        _type_and_send(chat, "이게 뭐야?")
+        assert _shots(pet) == []
+    finally:
+        chat.close()
+
+
+def test_the_capture_is_deleted_once_its_turn_ends(pet, monkeypatch):  # noqa: F811
+    _camera(pet, monkeypatch)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend(region_text=["Chrome"]))
+    try:
+        _type_and_send(chat, "이게 뭐야?")
+        send_hook(pet, cmd="turn_end")
+        assert len(_shots(pet)) == 1       # 아직 배달 전 — 남긴다
+        _posted(pet)                        # 훅이 실어 갔다
+        send_hook(pet, cmd="turn_end")
+        assert _shots(pet) == []
+    finally:
+        chat.close()
+        _shot.clear(pet.session_id)
+
+
+def test_the_capture_leaves_with_the_pet(monkeypatch):
+    p = P.Pet()
+    try:
+        _camera(p, monkeypatch)
+        _shot.save(p.session_id, b"x")
+    finally:
+        p._cleanup()
+    assert _shots(p) == []

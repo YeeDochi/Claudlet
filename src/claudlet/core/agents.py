@@ -34,6 +34,10 @@ AGENTS = {
         # 막 띄운 IDE 세션에 건 말이 첫 프롬프트까지 묵었다). 빈 목록 = 이
         # 에이전트에는 그런 훅이 없다.
         "rewake": ["SessionStart", "Stop"],
+        # 포인터 캡처(runtime_dir 의 PNG)는 작업 폴더 밖이라 Read 가 권한을
+        # 묻는다 — 설치기가 그 파일만 읽게 허용 규칙을 넣는다. 코덱스는
+        # view_image 가 샌드박스와 상관없이 읽어서 필요 없다(둘 다 실측).
+        "allow_shots": True,
         "avatar": "claudlet",
         "tools": {},          # state_engine's built-in TOOL_STATES already fit
         "raw_events": {},

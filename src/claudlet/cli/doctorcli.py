@@ -230,6 +230,41 @@ def check_ax_trusted():
         return False, str(e)[:60]
 
 
+def _shots_on():
+    try:
+        return bool((petconfig.load_config().get("pointer") or {}).get("screenshot"))
+    except Exception:
+        return False
+
+
+def check_shot_capture():
+    """캡처를 켜 뒀을 때만: 찍을 수단이 있나(리눅스 spectacle, macOS 화면 기록 권한)."""
+    if not _shots_on():
+        return None, ""
+    if sys.platform == "darwin":
+        try:
+            import Quartz
+            return bool(Quartz.CGPreflightScreenCaptureAccess()), ""
+        except Exception as e:
+            return False, str(e)[:60]
+    from claudlet.platform import screenshot
+    return screenshot.available(), ""
+
+
+def check_shot_rule(home=None):
+    """캡처를 켜 뒀을 때만: Claude Code 가 캡처 파일을 권한 창 없이 읽게 허용했나."""
+    import json
+    from claudlet.cli import install_hooks
+    if not _shots_on() or "claude" not in agents.detected(home):
+        return None, ""
+    try:
+        with open(agents.settings_path("claude", home), encoding="utf-8") as f:
+            allow = (json.load(f).get("permissions") or {}).get("allow") or []
+    except (OSError, ValueError):
+        return False, ""
+    return any(install_hooks.is_our_rule(r) for r in allow), ""
+
+
 ORDER = [
     ("hooks", check_hooks),
     ("skill", check_skill),
@@ -244,6 +279,8 @@ ORDER = [
     ("java_bridge", check_java_bridge),
     ("uia", check_uia),
     ("ax_trusted", check_ax_trusted),
+    ("shot_capture", check_shot_capture),
+    ("shot_rule", check_shot_rule),
 ]
 
 

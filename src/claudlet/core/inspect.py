@@ -193,5 +193,8 @@ def render_prompt(ctx):
                   "열린 파일: %s" % ctx["open"]["file"]]
     elif ctx["note"]:
         parts += ["", "(" + ctx["note"] + ")"]
+    if ctx.get("image"):
+        parts += ["", "화면 캡처(글자를 못 읽은 창 — 이미지를 열어 보세요): "
+                  + ctx["image"]]
     parts += ["", "질문: " + ctx["question"]]
     return "\n".join(parts)
