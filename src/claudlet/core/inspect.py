@@ -193,5 +193,11 @@ def render_prompt(ctx):
                   "열린 파일: %s" % ctx["open"]["file"]]
     elif ctx["note"]:
         parts += ["", "(" + ctx["note"] + ")"]
+    if ctx.get("image"):
+        # 열지 말지는 에이전트가 정한다 — 위의 글자를 보고 판단하는 쪽이 펫이
+        # 줄 수로 가늠하는 것보다 낫다(IntelliJ 는 메뉴 이름만 50줄이었다).
+        # 글자로 충분한 창에서는 이미지 토큰을 안 쓴다.
+        parts += ["", "화면 캡처(사용자가 고른 영역): " + ctx["image"],
+                  "위 글자만으로 질문에 답할 수 없을 때만 이 이미지를 열어 보세요."]
     parts += ["", "질문: " + ctx["question"]]
     return "\n".join(parts)

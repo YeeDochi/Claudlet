@@ -665,6 +665,9 @@ TEXT = {
         "ptr_saved": "저장했어요 — 다음 포인터부터 적용돼요",
         "ptr_bubble": "말풍선", "ptr_bubble_closed": "대화창이 꺼져 있을 때만",
         "ptr_bubble_always": "늘 띄우기",
+        "ptr_shot": "화면 캡처",
+        "ptr_shot_hint": "포인터로 고른 영역을 찍어 질문과 같이 보냅니다."
+                         " 이미지 속 비밀번호·토큰은 가려지지 않아요.",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "redress": "다시 불러오기",
@@ -705,6 +708,9 @@ TEXT = {
         "ptr_saved": "Saved — the next pointer uses it",
         "ptr_bubble": "Speech bubble", "ptr_bubble_closed": "Only while the chat is closed",
         "ptr_bubble_always": "Always",
+        "ptr_shot": "Screenshot",
+        "ptr_shot_hint": "The region you pick is sent as a picture along with"
+                         " the question. Secrets in the image are not masked.",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",
@@ -790,6 +796,7 @@ h2{margin:0 0 14px;font-size:13px;color:var(--dim);font-weight:600;
 .row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;
     flex:0 0 auto}
 label{width:64px;color:var(--dim)}
+.hint{color:var(--dim);font-size:12px;flex:1 1 200px}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
 input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
@@ -992,6 +999,11 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       </select>
     </div>
     <div class="row">
+      <label for="ptrShot">__T_ptr_shot__</label>
+      <input type="checkbox" id="ptrShot">
+      <span class="hint">__T_ptr_shot_hint__</span>
+    </div>
+    <div class="row">
       <button id="ptrSave">__T_save__</button>
       <span id="ptrSaid"></span>
     </div>
@@ -1182,6 +1194,7 @@ function fillPrefs(s) {
   $("ptrImage").value = p.image || "";
   $("ptrDir").value = p.claude_config_dir || "";
   $("ptrBubble").value = p.bubble || "closed";
+  $("ptrShot").checked = !!p.screenshot;
 }
 $("ptrSave").addEventListener("click", async () => {
   const r = await fetch("/api/config", {method: "POST",
@@ -1189,7 +1202,7 @@ $("ptrSave").addEventListener("click", async () => {
     body: JSON.stringify({agent: S.agent, pointer: {
       cursor: $("ptrCursor").value, image: $("ptrImage").value.trim() || null,
       claude_config_dir: $("ptrDir").value.trim() || null,
-      bubble: $("ptrBubble").value}})});
+      bubble: $("ptrBubble").value, screenshot: $("ptrShot").checked}})});
   fill(await r.json());
   $("ptrSaid").textContent = T.ptr_saved;
 });

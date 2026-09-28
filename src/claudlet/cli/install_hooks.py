@@ -16,6 +16,8 @@ import sys
 import tempfile
 
 from claudlet.core import agents
+from claudlet.core import hostinfo
+from claudlet.core import shot
 
 
 def _quote(path):
@@ -221,6 +223,30 @@ def rewake_group(agent):
                        "asyncRewake": True, "timeout": REWAKE_TIMEOUT}]}
 
 
+def is_our_rule(rule):
+    return isinstance(rule, str) and rule.startswith("Read(") \
+        and "claudlet-*-shot-*.png" in rule
+
+
+def with_shot_rule(s, remove=False, directory=None):
+    """permissions.allow 에 캡처 읽기 규칙을 (갈아)넣거나 뺀다. 순수 — 사용자의
+    다른 규칙은 그대로 둔다."""
+    perms = dict(s.get("permissions") or {})
+    allow = [r for r in perms.get("allow", []) if not is_our_rule(r)]
+    if not remove:
+        allow.append(shot.allow_rule(directory or hostinfo.runtime_dir()))
+    if allow:
+        perms["allow"] = allow
+    else:
+        perms.pop("allow", None)
+    out = dict(s)
+    if perms:
+        out["permissions"] = perms
+    else:
+        out.pop("permissions", None)
+    return out
+
+
 def install_for(agent, path, remove=False):
     """Register (or drop) our hook groups in one agent's config file."""
     spec = agents.get(agent)
@@ -252,6 +278,8 @@ def install_for(agent, path, remove=False):
         s["hooks"] = hooks
     elif "hooks" in s:
         del s["hooks"]
+    if spec.get("allow_shots") or remove:
+        s = with_shot_rule(s, remove=remove)
 
     save(path, s)
 

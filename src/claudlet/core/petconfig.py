@@ -184,6 +184,9 @@ DEFAULT_POINTER = {
     # 답을 머리 위 말풍선으로도 띄울지: "closed" = 대화창이 닫혀 있을 때만,
     # "always" = 대화창이 떠 있어도 늘.
     "bubble": "closed",
+    # 글자를 못 읽은 창은 고른 순간의 화면을 찍어 보낸다. 이미지는 redact() 로
+    # 비밀을 못 가리니 기본은 꺼 둔다.
+    "screenshot": False,
 }
 POINTER_BUBBLE = ("closed", "always")
 
@@ -212,6 +215,9 @@ def _clean_pointer(v):
 
     if v.get("bubble") in POINTER_BUBBLE:
         d["bubble"] = v["bubble"]
+
+    if isinstance(v.get("screenshot"), bool):
+        d["screenshot"] = v["screenshot"]
 
     hot = v.get("hotspot")
     if isinstance(hot, (list, tuple)) and len(hot) == 2:

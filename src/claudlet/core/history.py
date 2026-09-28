@@ -82,7 +82,7 @@ def _clip(text):
 
 
 def record_question(session_id, question, target="", text="", region=None,
-                    now=None):
+                    now=None, image=False):
     """Append an asked question and return its id.
 
     The id comes back so the answer can be attached to this exact exchange
@@ -99,6 +99,8 @@ def record_question(session_id, question, target="", text="", region=None,
         "answer": None,
         "answered_ts": None,
     }
+    if image:
+        rec["image"] = True      # 캡처를 실었다는 표시만. 이미지는 남기지 않는다
     if region:
         rec["region"] = {k: float(region[k]) for k in ("x", "y", "w", "h")
                          if k in region}
