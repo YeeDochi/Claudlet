@@ -237,25 +237,34 @@ def render_html(records, lang="ko", full=False, now=None):
         return ("<p style='color:#888'>%s</p>"
                 % ("No conversations recorded yet" if lang == "en"
                    else "아직 기록된 대화가 없어요"))
-    q_label = "Asked" if lang == "en" else "질문"
-    a_label = "Answer" if lang == "en" else "답변"
     waiting = "waiting for an answer" if lang == "en" else "답을 기다리는 중"
     seen = "what was sent" if lang == "en" else "보낸 화면 내용"
 
+    # 채팅처럼: 내 말은 오른쪽 파란 풍선, 펫의 답은 왼쪽 주황 풍선. 배경과 글자색을
+    # 둘 다 박아둬야 창 테마(밝음/어두움)가 바뀌어도 구별이 그대로 간다.
+    # QTextBrowser 의 rich text 는 border-radius 를 모르므로 풍선은 table 이다.
+    def bubble(text, side, bg, fg):
+        # 바깥 표가 한 줄을 차지하고 안쪽 표를 좌/우로 민다 — align 으로 띄우면
+        # (float) 다음 풍선을 밀어내느라 줄바꿈을 넣어야 해서 간격이 벌어진다.
+        return ("<table width='100%%' cellspacing='0' cellpadding='0' "
+                "style='margin:2px 0'><tr><td align='%s'>"
+                "<table cellpadding='7' cellspacing='0' bgcolor='%s'><tr>"
+                "<td style='color:%s'>%s</td></tr></table>"
+                "</td></tr></table>" % (side, bg, fg, text))
+
     out = []
     for rec in records:
-        out.append("<div style='margin:0 0 18px 0'>")
+        out.append("<div style='margin:0 0 14px 0'>")
         head = _esc(ago(rec.get("ts"), now, lang))
         if rec.get("target"):
             head += " &middot; " + _esc(rec["target"])
-        out.append("<div style='color:#888;font-size:11px'>%s</div>" % head)
+        out.append("<div align='right' style='color:#888;font-size:11px'>%s</div>"
+                   % head)
         if rec.get("question"):
-            out.append("<div style='margin:4px 0'><b>%s</b> %s</div>"
-                       % (q_label, _esc(rec["question"])))
+            out.append(bubble(_esc(rec["question"]), "right", "#2F5A8A", "#EAF2FF"))
         answer = rec.get("answer")
         if answer:
-            out.append("<div style='margin:4px 0'><b>%s</b> %s</div>"
-                       % (a_label, _esc(answer)))
+            out.append(bubble(_esc(answer), "left", "#8A4B2F", "#FFEFE6"))
         else:
             out.append("<div style='margin:4px 0;color:#b06a3b'>%s</div>"
                        % waiting)
