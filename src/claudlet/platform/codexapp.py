@@ -31,12 +31,9 @@ def rollout_path(thread_id, env=None):
     앱이 넣은 메시지는 위임(delegation) 입력으로 들어가 UserPromptSubmit·Stop
     훅이 불리지 않는다(실측: 말투 쪽지가 그대로 남았다). 그래서 펫이 턴 끝을
     훅으로 못 듣고, 이 파일을 직접 지켜봐야 답을 받는다."""
-    import glob
+    from claudlet.core import transcript
     env = os.environ if env is None else env
-    home = env.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
-    hits = glob.glob(os.path.join(home, "sessions", "*", "*", "*",
-                                  "rollout-*-%s.jsonl" % thread_id))
-    return max(hits, key=os.path.getmtime) if hits else None
+    return transcript.codex_rollout(thread_id, env.get("CODEX_HOME"))
 
 
 def turn_starts(buf):

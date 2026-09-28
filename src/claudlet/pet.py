@@ -113,6 +113,7 @@ from claudlet.core import inspect as inspectmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
 from claudlet.platform import codexapp
+from claudlet.platform import codexd
 from claudlet.platform import konsole
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
@@ -4551,7 +4552,8 @@ class Pet(QWidget):
         윈도우 콘솔, 코덱스 앱)이거나, 놀고 있는 세션을 깨우는 waiter 가 선
         적이 있는 세션(Claude Code — IDE 터미널, 데스크톱 앱 어디든).
         아니면 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
-        if self._codex_pipe or outbox.can_wake(self.session_id):
+        if (self._codex_pipe or outbox.can_wake(self.session_id)
+                or (self.agent == "codex" and codexd.available())):
             return True
         return self._can_type_now()
 
@@ -4647,6 +4649,9 @@ class Pet(QWidget):
         Konsole 의 D-Bus."""
         if self._codex_pipe:
             return self._codex_app_send(text)
+        # 코덱스 CLI 는 데몬이 대화를 돌린다 — 어느 터미널이든 데몬에 턴을 넣는다
+        if self.agent == "codex" and codexd.start_turn(self.session_id, text):
+            return True
         if not self._can_type_now():
             return False
         split = self.agent != agents.DEFAULT
@@ -5060,9 +5065,20 @@ def main():
     # SessionEnd (e.g. SIGKILL), wind down instead of lingering forever.
     _reaper = None
     if args.claude_pid > 0:
+        # 코덱스 CLI 는 데몬이 훅을 부른다 — 데몬은 TUI 를 닫아도 안 죽으므로
+        # 그 세션의 TUI 를 본다. 두 번 연달아 없을 때만 끈다(재시작 사이의 틈).
+        from claudlet.platform import codexd
+        watch_tui = args.agent == "codex" and codexd.pid_is_daemon(args.claude_pid)
+        misses = [0]
+
         def _check_parent():
             if not _pid_alive(args.claude_pid):
                 app.quit()
+                return
+            if watch_tui:
+                misses[0] = 0 if codexd.session_open(args.session) else misses[0] + 1
+                if misses[0] >= 2:
+                    app.quit()
         _reaper = QTimer()
         _reaper.timeout.connect(_check_parent)
         _reaper.start(3000)

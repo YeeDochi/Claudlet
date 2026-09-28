@@ -113,6 +113,21 @@ def build_message(argv, data, title=None):
     return json.dumps(msg) + "\n"
 
 
+# 코덱스 CLI 는 첫 메시지 전까지 rollout 을 만들지 않는다 — 그래서 SessionStart 가
+# 그 세션을 도구 작업자로 걸러내 펫을 안 띄웠고, 이후 이벤트는 받을 펫이 없어
+# 버려졌다(실측: ~/claude-pet 의 CLI 세션). 그 다음 이벤트에서 늦게라도 띄운다.
+LATE_LAUNCH_EVENTS = ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+
+
+def should_launch_late(agent, event, had_pet, transcript_exists):
+    """SessionStart 를 놓친 세션에 지금 펫을 띄울까. 순수.
+
+    한 번이라도 펫이 떴던 세션(had_pet)은 건드리지 않는다 — 사용자가 끈 펫을
+    되살리면 안 된다. rollout 이 없으면 여전히 도구 작업자일 수 있다."""
+    return (agent == "codex" and event in LATE_LAUNCH_EVENTS
+            and not had_pet and transcript_exists)
+
+
 def resolve_claude_pid(start_pid, proc_info, max_hops=32, needle="claude"):
     """Walk up the parent chain from start_pid to the Claude Code process.
 
@@ -362,6 +377,16 @@ def main():
             if not hostinfo.pet_alive(session_id):
                 _launch_pet(session_id, hostinfo.detect_host(), agent)
                 launched_fresh = not had_port
+        except Exception:
+            pass
+    else:
+        try:
+            # 펫은 뜰 때 .port.lock 을 만들고 꺼져도 남긴다 — "펫이 있었던 적"의 표시
+            had_pet = os.path.exists(hostinfo.session_port_file(session_id) + ".lock")
+            if should_launch_late(agent, event, had_pet, os.path.isfile(
+                    str(data.get("transcript_path") or ""))):
+                _launch_pet(session_id, hostinfo.detect_host(), agent)
+                launched_fresh = True        # 아직 들을 귀가 없다 — 이번 이벤트는 넘긴다
         except Exception:
             pass
 

@@ -30,21 +30,21 @@ def _probe(fn, default=(False, "")):
 
 # ---------- 개별 점검 (얇은 IO) ----------
 
-def check_hooks():
-    """이 에이전트의 훅이 등록돼 있나. 펫이 반응하는 모든 것의 전제."""
-    import json
-    for name in agents.detected() or [agents.DEFAULT]:
-        spec = agents.get(name)
-        path = os.path.join(os.path.expanduser("~"), spec["settings"])
+def check_hooks(home=None):
+    """감지된 에이전트마다 훅이 등록돼 있나. 펫이 반응하는 모든 것의 전제.
+
+    처음 찾은 하나만 보고 "정상 — claude" 라 했더니, 코덱스 세션이 그것을 보고
+    "훅이 claude 에만 연결돼 있다" 고 오진했다. 에이전트마다 따로 적는다."""
+    have, missing = [], []
+    for name in agents.detected(home) or [agents.DEFAULT]:
         try:
-            with open(path, encoding="utf-8") as f:
-                if "claudlet-hook" in f.read():
-                    return True, name
+            with open(agents.settings_path(name, home), encoding="utf-8") as f:
+                (have if "claudlet-hook" in f.read() else missing).append(name)
         except OSError:
-            continue
-        except json.JSONDecodeError:
-            continue
-    return False, ""
+            missing.append(name)
+    if missing:
+        return False, "없음: " + ", ".join(missing)
+    return True, ", ".join(have)
 
 
 def _skill_links():
@@ -106,6 +106,43 @@ def _konsole_pids(run):
         except (IndexError, ValueError):
             continue
     return out
+
+
+def check_rewake(home=None):
+    """Claude Code 에 깨우기 훅(asyncRewake)이 걸려 있나 — 쳐 넣을 수 없는
+    호스트(IDE 터미널, 데스크톱 앱)에서 즉시 전송의 전제."""
+    import json
+    if "claude" not in agents.detected(home):
+        return None, ""
+    try:
+        with open(agents.settings_path("claude", home), encoding="utf-8") as f:
+            groups = (json.load(f).get("hooks") or {}).get("Stop") or []
+    except (OSError, ValueError):
+        return False, ""
+    return any(h.get("asyncRewake") and "Rewake" in h.get("command", "")
+               for g in groups for h in g.get("hooks", [])), ""
+
+
+def check_codex_rule(home=None):
+    """코덱스 AGENTS.md 에 claudlet 블록이 있나 — 코덱스 앱에서 펫 말투의 전제."""
+    from claudlet.cli import install_hooks
+    if "codex" not in agents.detected(home):
+        return None, ""
+    path = os.path.join(home or os.path.expanduser("~"),
+                        agents.get("codex")["instructions"])
+    try:
+        with open(path, encoding="utf-8") as f:
+            return install_hooks.BLOCK_BEGIN in f.read(), ""
+    except OSError:
+        return False, "AGENTS.md 없음"
+
+
+def check_codex_daemon():
+    """코덱스 CLI 데몬에 붙나. 데몬을 안 쓰는 기계면 해당 없음."""
+    from claudlet.platform import codexd
+    if "codex" not in agents.detected() or codexd.socket_path() is None:
+        return None, ""
+    return codexd.reachable(), ""
 
 
 def check_input_dialog():
@@ -197,6 +234,9 @@ ORDER = [
     ("hooks", check_hooks),
     ("skill", check_skill),
     ("konsole_send", check_konsole_send),
+    ("rewake", check_rewake),
+    ("codex_rule", check_codex_rule),
+    ("codex_daemon", check_codex_daemon),
     ("input_dialog", check_input_dialog),
     ("atspi_daemon", check_atspi_daemon),
     ("atspi_gi", check_atspi_gi),

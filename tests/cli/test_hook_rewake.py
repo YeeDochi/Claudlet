@@ -52,3 +52,19 @@ def test_an_older_waiter_steps_aside_for_the_next_one():
         outbox.wake("s1")
     assert _wait("s1", ticks=10, on_tick=replaced) == 0
     assert outbox.wants_wake("s1")                  # 새 주인 몫으로 남는다
+
+
+def test_a_codex_session_that_missed_its_start_gets_a_pet_on_the_next_event():
+    # 코덱스 CLI 는 첫 메시지 전까지 rollout 이 없어 SessionStart 에서 걸러졌다
+    assert hook.should_launch_late("codex", "UserPromptSubmit", False, True)
+    assert hook.should_launch_late("codex", "PreToolUse", False, True)
+
+
+def test_a_pet_the_user_closed_is_not_brought_back():
+    assert not hook.should_launch_late("codex", "PreToolUse", True, True)
+
+
+def test_a_tool_worker_without_a_rollout_still_gets_no_pet():
+    assert not hook.should_launch_late("codex", "PreToolUse", False, False)
+    assert not hook.should_launch_late("codex", "SessionEnd", False, True)
+    assert not hook.should_launch_late("claude", "PreToolUse", False, True)
