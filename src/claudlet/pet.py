@@ -94,7 +94,7 @@ import tempfile
 import time
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
-                             QToolTip, QInputDialog, QLineEdit, QFileDialog,
+                             QToolTip, QInputDialog, QLineEdit,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
                              QHBoxLayout, QTabBar)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
@@ -242,16 +242,6 @@ UI = {
            "ask_none": "그 영역에서 창을 찾지 못했어요",
            "ask_cancel": "취소했어요 — 아무것도 보내지 않았어요",
            "ask_again": "↩ 이 영역에 대해 더 물어보기",
-           "ptr_menu": "🎯 포인터 설정",
-           "ptr_cursor": "커서 모양",
-           "ptr_image": "커서 이미지 고르기…",
-           "ptr_image_clear": "커서 이미지 지우기",
-           "ptr_dir": "세션 프로필 (CLAUDE_CONFIG_DIR)…",
-           "ptr_dir_clear": "세션 프로필 해제",
-           "ptr_pick_image": "포인터로 쓸 이미지",
-           "ptr_pick_dir": "세션이 쓸 CLAUDE_CONFIG_DIR",
-           "ptr_saved": "포인터 설정을 저장했어요",
-           "ptr_bad_image": "그 파일은 이미지로 읽을 수 없어요",
            "history": "💬 대화 시작…"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "float": "Hover (stay put)", "quiet": "Quiet (mute)",
@@ -273,16 +263,6 @@ UI = {
            "ask_none": "No window found in that area",
            "ask_cancel": "Cancelled — nothing was sent",
            "ask_again": "↩ Ask more about this area",
-           "ptr_menu": "🎯 Pointer settings",
-           "ptr_cursor": "Cursor shape",
-           "ptr_image": "Choose a cursor image…",
-           "ptr_image_clear": "Clear the cursor image",
-           "ptr_dir": "Session profile (CLAUDE_CONFIG_DIR)…",
-           "ptr_dir_clear": "Clear the session profile",
-           "ptr_pick_image": "Image to use as the pointer",
-           "ptr_pick_dir": "CLAUDE_CONFIG_DIR for started sessions",
-           "ptr_saved": "Pointer settings saved",
-           "ptr_bad_image": "That file could not be read as an image",
            "history": "💬 Start a conversation…"},
 }
 
@@ -3401,30 +3381,6 @@ class Pet(QWidget):
             a_talk_drop = QAction(self.ui["talk_drop"] % self._notes, m)
             m.addAction(a_talk_drop)
         m.addSeparator()
-        pcfg = self._pointer_cfg()
-        psub = m.addMenu(self.ui["ptr_menu"])
-        cursor_sub = psub.addMenu(self.ui["ptr_cursor"])
-        cursor_acts = {}
-        current = pcfg.get("cursor") or petconfig.DEFAULT_POINTER_CURSOR
-        for name in petconfig.POINTER_CURSORS:
-            act = QAction(name, cursor_sub, checkable=True)
-            act.setChecked(name == current and not pcfg.get("image"))
-            cursor_sub.addAction(act)
-            cursor_acts[act] = name
-        a_pimg = QAction(self.ui["ptr_image"], psub)
-        psub.addAction(a_pimg)
-        a_pimg_clear = None
-        if pcfg.get("image"):
-            a_pimg_clear = QAction(self.ui["ptr_image_clear"], psub)
-            psub.addAction(a_pimg_clear)
-        psub.addSeparator()
-        a_pdir = QAction(self.ui["ptr_dir"], psub)
-        psub.addAction(a_pdir)
-        a_pdir_clear = None
-        if pcfg.get("claude_config_dir"):
-            a_pdir_clear = QAction(self.ui["ptr_dir_clear"], psub)
-            psub.addAction(a_pdir_clear)
-
         a_settings = QAction(self.ui["settings"], m)
         m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
@@ -3461,19 +3417,6 @@ class Pet(QWidget):
             self._spawn_test_companion(+1)
         elif a_comp_del is not None and chosen == a_comp_del:
             self._spawn_test_companion(-1)
-        elif chosen in cursor_acts:
-            # Picking a shape clears a custom image: otherwise the image keeps
-            # winning and the shape they just ticked does nothing.
-            self._save_pointer({"cursor": cursor_acts[chosen], "image": None,
-                                "hotspot": None})
-        elif chosen == a_pimg:
-            self._pick_pointer_image()
-        elif a_pimg_clear is not None and chosen == a_pimg_clear:
-            self._save_pointer({"image": None, "hotspot": None})
-        elif chosen == a_pdir:
-            self._pick_pointer_dir()
-        elif a_pdir_clear is not None and chosen == a_pdir_clear:
-            self._save_pointer({"claude_config_dir": None})
         elif chosen == a_hist:
             self.show_history()
         elif chosen == a_settings:
@@ -3516,53 +3459,6 @@ class Pet(QWidget):
         win = self._chat_open()
         if win is not None:
             win.refresh()
-
-    def _save_pointer(self, updates, notify=True):
-        """Merge into the `pointer` config section and confirm it.
-
-        Writes only what changed: the menu edits one thing at a time, and
-        rewriting the whole section would clobber whatever the settings page or
-        the CLI set in between.
-        """
-        try:
-            current = dict(petconfig.load_config().get("pointer")
-                           or petconfig.DEFAULT_POINTER)
-            current.update(updates)
-            petconfig.save_keys({"pointer": {k: v for k, v in current.items()
-                                             if v is not None}})
-        except Exception:
-            return None
-        if notify:
-            self.say(self.ui["ptr_saved"])
-        return current
-
-    def _pick_pointer_image(self):
-        """Ask for an image file and adopt it as the pointer cursor."""
-        start = os.path.dirname(self._pointer_cfg().get("image") or "") \
-            or os.path.expanduser("~")
-        patterns = " ".join("*" + s for s in petconfig.POINTER_IMAGE_SUFFIXES)
-        path, _ = QFileDialog.getOpenFileName(
-            None, self.ui["ptr_pick_image"], start,
-            "Images (%s)" % patterns)
-        if not path:
-            return None
-        # Check it actually decodes before saving: a file with the right
-        # extension that Qt cannot read would silently fall back to the named
-        # cursor, which looks like the setting did not take.
-        if QPixmap(path).isNull():
-            self.say(self.ui["ptr_bad_image"])
-            return None
-        return self._save_pointer({"image": path, "hotspot": None})
-
-    def _pick_pointer_dir(self):
-        """Ask for the CLAUDE_CONFIG_DIR that started sessions should use."""
-        start = self._pointer_cfg().get("claude_config_dir") \
-            or os.path.expanduser("~")
-        path = QFileDialog.getExistingDirectory(
-            None, self.ui["ptr_pick_dir"], start)
-        if not path:
-            return None
-        return self._save_pointer({"claude_config_dir": path})
 
     def _pointer_cfg(self):
         """The `pointer` config section, re-read so a settings change lands

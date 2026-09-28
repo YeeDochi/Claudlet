@@ -399,6 +399,10 @@ def state_payload(cfg=None, agent=None):
                        if getattr(avatars.get(n), "fractional_scale", False)],
         "agents": _agent_rows(cfg, agent),
         "agent": agent,
+        # 환경설정 탭: 크리처가 아니라 펫 전체에 걸리는 것들. 우클릭 메뉴에
+        # 서브메뉴로 있던 포인터 설정이 여기로 왔다.
+        "pointer": petconfig._clean_pointer(cfg.get("pointer")),
+        "pointer_cursors": list(petconfig.POINTER_CURSORS),
     }
 
 
@@ -530,6 +534,17 @@ def apply(body, broadcast=None):
         creatures[target] = merged
         top["creatures"] = creatures
     updates = top
+    ptr = body.get("pointer")
+    if isinstance(ptr, dict):
+        merged = dict(cfg.get("pointer") or {})
+        if ptr.get("image") != merged.get("image"):
+            merged["hotspot"] = None       # 맞춰둔 핫스팟은 옛 이미지의 것이다
+        merged.update(ptr)
+        clean = petconfig._clean_pointer(merged)
+        # 펫은 포인터를 쓸 때마다 설정을 다시 읽는다 — restyle 을 보낼 일이
+        # 아니라서 updates 와 따로 저장한다.
+        petconfig.save_keys({"pointer": {k: v for k, v in clean.items()
+                                         if v is not None}})
     if updates:
         petconfig.save_keys(updates)
     send = hostinfo.broadcast if broadcast is None else broadcast
@@ -643,6 +658,11 @@ TEXT = {
     "ko": {
         "title": "크리처", "lead": "색과 크기를 정합니다. 저장하면 떠 있는 펫에 바로 반영됩니다.",
         "refresh": "새로고침",
+        "tab_creature": "크리처", "tab_prefs": "환경설정",
+        "prefs_pointer": "🎯 포인터", "ptr_cursor": "커서 모양",
+        "ptr_image": "커서 이미지", "ptr_image_ph": "이미지 파일 경로 (비우면 위의 모양)",
+        "ptr_dir": "세션 프로필", "ptr_dir_ph": "CLAUDE_CONFIG_DIR (비우면 환경 그대로)",
+        "ptr_saved": "저장했어요 — 다음 포인터부터 적용돼요",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "redress": "다시 불러오기",
@@ -676,6 +696,11 @@ TEXT = {
     "en": {
         "title": "Creatures", "lead": "Pick a colour and a size. Saving reaches running pets at once.",
         "refresh": "Refresh",
+        "tab_creature": "Creature", "tab_prefs": "Preferences",
+        "prefs_pointer": "🎯 Pointer", "ptr_cursor": "Cursor shape",
+        "ptr_image": "Cursor image", "ptr_image_ph": "path to an image (empty = the shape above)",
+        "ptr_dir": "Session profile", "ptr_dir_ph": "CLAUDE_CONFIG_DIR (empty = inherit)",
+        "ptr_saved": "Saved — the next pointer uses it",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",
@@ -767,6 +792,9 @@ input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
 input[type=text]{flex:1;min-width:180px;background:var(--sunk);
                  border:1px solid var(--line);color:var(--fg);
                  border-radius:7px;padding:8px 10px;font:inherit}
+#prefs select{background:var(--sunk);border:1px solid var(--line);color:var(--fg);
+              border-radius:7px;padding:7px 10px;font:inherit}
+#prefs label{width:88px}
 code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
 /* creature row: a standalone import button to the LEFT, then one wide bar
    (the dropdown trigger + the export button) spanning the rest of the row */
@@ -787,7 +815,7 @@ code{background:#000;padding:2px 7px;border-radius:5px;font-size:12px}
             background:var(--card);border:1px solid var(--line);border-radius:10px;
             padding:6px;display:flex;flex-direction:column;gap:4px;
             box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.card-panel[hidden]{display:none}
+.card-panel[hidden],#dress[hidden],#prefs[hidden]{display:none}
 .card{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
       background:none;color:var(--fg);border:0;border-radius:7px;
       padding:6px 8px;font:inherit;cursor:pointer}
@@ -938,6 +966,25 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <div id="shots"></div>
     </section>
   </div>
+  <section id="prefs" hidden>
+    <h2>__T_prefs_pointer__</h2>
+    <div class="row">
+      <label for="ptrCursor">__T_ptr_cursor__</label>
+      <select id="ptrCursor"></select>
+    </div>
+    <div class="row">
+      <label for="ptrImage">__T_ptr_image__</label>
+      <input type="text" id="ptrImage" placeholder="__T_ptr_image_ph__">
+    </div>
+    <div class="row">
+      <label for="ptrDir">__T_ptr_dir__</label>
+      <input type="text" id="ptrDir" placeholder="__T_ptr_dir_ph__">
+    </div>
+    <div class="row">
+      <button id="ptrSave">__T_save__</button>
+      <span id="ptrSaid"></span>
+    </div>
+  </section>
 </main>
 <div id="importModal" class="modal-backdrop" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
@@ -1099,9 +1146,40 @@ function onOutsideClick(e) {
 function onPanelKeydown(e) {
   if (e.key === "Escape") closePanel(true);
 }
+// Preferences is one more tab after the agents. A single-agent machine had
+// no tab row at all, so it gets a lone creature tab to sit beside it.
+const PREFS = "__prefs";
+let onPrefs = false;
 function tabRows(s) {
-  return (s.agents || []).map((a) => ({name: a.name, label: a.label}));
+  const rows = (s.agents || []).map((a) => ({name: a.name, label: a.label}));
+  if (!rows.length) rows.push({name: s.agent, label: T.tab_creature});
+  rows.push({name: PREFS, label: T.tab_prefs});
+  return rows;
 }
+function showPane(prefs) {
+  onPrefs = prefs;
+  $("dress").hidden = prefs;
+  $("prefs").hidden = !prefs;
+  for (const b of document.querySelectorAll("#tabs button"))
+    b.setAttribute("aria-selected",
+                   String(prefs ? b.dataset.tab === PREFS : b.dataset.tab === tab));
+}
+function fillPrefs(s) {
+  const p = s.pointer || {};
+  $("ptrCursor").innerHTML = (s.pointer_cursors || []).map((c) =>
+    `<option ${c === p.cursor ? "selected" : ""}>${c}</option>`).join("");
+  $("ptrImage").value = p.image || "";
+  $("ptrDir").value = p.claude_config_dir || "";
+}
+$("ptrSave").addEventListener("click", async () => {
+  const r = await fetch("/api/config", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({agent: S.agent, pointer: {
+      cursor: $("ptrCursor").value, image: $("ptrImage").value.trim() || null,
+      claude_config_dir: $("ptrDir").value.trim() || null}})});
+  fill(await r.json());
+  $("ptrSaid").textContent = T.ptr_saved;
+});
 function paintTabs(rows) {
   $("tabs").innerHTML = rows.map((r) =>
     `<button role="tab" data-tab="${r.name}" ` +
@@ -1110,9 +1188,10 @@ function paintTabs(rows) {
     b.addEventListener("click", () => selectTab(b.dataset.tab));
 }
 async function selectTab(name) {
+  if (name === PREFS) return showPane(true);
   const rows = tabRows(S);
-  if (!rows.length) return;
   tab = rows.some((r) => r.name === name) ? name : rows[0].name;
+  onPrefs = false;
   const r = await fetch("/api/state?agent=" + encodeURIComponent(tab));
   editing = null;                       // show the new agent's creature
   fill(await r.json());
@@ -1123,6 +1202,8 @@ function fill(s) {
   const rows = tabRows(s);
   tab = s.agent;                          // state always belongs to one agent
   paintTabs(rows);
+  fillPrefs(s);
+  showPane(onPrefs);
   $("scale").min = s.scale_range[0];
   $("scale").max = s.scale_range[1];
   const target = editing && s.looks[editing] ? editing : worn();
