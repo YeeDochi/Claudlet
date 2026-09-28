@@ -30,21 +30,21 @@ def _probe(fn, default=(False, "")):
 
 # ---------- 개별 점검 (얇은 IO) ----------
 
-def check_hooks():
-    """이 에이전트의 훅이 등록돼 있나. 펫이 반응하는 모든 것의 전제."""
-    import json
-    for name in agents.detected() or [agents.DEFAULT]:
-        spec = agents.get(name)
-        path = os.path.join(os.path.expanduser("~"), spec["settings"])
+def check_hooks(home=None):
+    """감지된 에이전트마다 훅이 등록돼 있나. 펫이 반응하는 모든 것의 전제.
+
+    처음 찾은 하나만 보고 "정상 — claude" 라 했더니, 코덱스 세션이 그것을 보고
+    "훅이 claude 에만 연결돼 있다" 고 오진했다. 에이전트마다 따로 적는다."""
+    have, missing = [], []
+    for name in agents.detected(home) or [agents.DEFAULT]:
         try:
-            with open(path, encoding="utf-8") as f:
-                if "claudlet-hook" in f.read():
-                    return True, name
+            with open(agents.settings_path(name, home), encoding="utf-8") as f:
+                (have if "claudlet-hook" in f.read() else missing).append(name)
         except OSError:
-            continue
-        except json.JSONDecodeError:
-            continue
-    return False, ""
+            missing.append(name)
+    if missing:
+        return False, "없음: " + ", ".join(missing)
+    return True, ", ".join(have)
 
 
 def _skill_links():

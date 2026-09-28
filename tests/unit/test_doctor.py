@@ -157,3 +157,14 @@ def test_a_missing_codex_rule_names_what_it_costs_and_how_to_fix():
     text = doctor.render([("codex_rule", False, "")], "ko")
     assert "코덱스 앱" in text and "claudlet-install-hooks" in text
     assert doctor.fix_command("codex_rule")[0] == "claudlet-install-hooks"
+
+
+def test_hooks_are_checked_for_every_agent_not_just_the_first(tmp_path):
+    from claudlet.cli import doctorcli, install_hooks
+    import os
+    os.makedirs(tmp_path / ".claude")
+    os.makedirs(tmp_path / ".codex")
+    install_hooks.main(["x", "--agent", "claude"], home=str(tmp_path))
+    assert doctorcli.check_hooks(str(tmp_path)) == (False, "없음: codex")
+    install_hooks.main(["x", "--agent", "codex"], home=str(tmp_path))
+    assert doctorcli.check_hooks(str(tmp_path)) == (True, "claude, codex")
