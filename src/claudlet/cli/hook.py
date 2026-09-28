@@ -304,6 +304,10 @@ def main():
     agent = agent_arg(sys.argv)
     session_id = session_of(data)
 
+    # 펫에게 보낼 이벤트가 아니다 — Stop 옆에 따로 걸린 asyncRewake 훅이다.
+    if event == "Rewake":
+        return rewake_wait(session_id)
+
     # Codex tool workers emit SessionStart with a transcript path but never
     # create that rollout. They are implementation details, not user sessions.
     if (event == "SessionStart" and agent == "codex"
@@ -434,13 +438,45 @@ def deliver_outbox(event, session_id, agent=None):
                 pass
 
 
+REWAKE_POLL = 0.5
+
+
+def rewake_wait(session_id, poll=REWAKE_POLL, sleep=None, alive=None):
+    """깨워 달라는 표시가 올 때까지 기다렸다가 쪽지를 stderr 로 내고 2 를
+    돌려준다 — asyncRewake 훅의 exit 2 가 쉬던 세션을 깨운다. 다른 waiter 가
+    자리를 넘겨받았거나 세션이 사라졌으면 0 (조용히 물러난다).
+
+    백그라운드 훅이라 Claude 를 막지 않는다. 오래 기다리는 것이 할 일이다."""
+    import time
+    sleep = sleep or time.sleep
+    alive = alive or (lambda: os.name == "nt" or os.getppid() != 1)
+    me = os.getpid()
+    outbox.claim_waiter(session_id, me)
+    while outbox.waiter_owner(session_id) == me and alive():
+        if outbox.wants_wake(session_id):
+            notes = outbox.take(session_id)
+            if notes:
+                try:
+                    sys.stderr.write(outbox.render_short(notes))
+                    sys.stderr.flush()
+                    return 2
+                except Exception:
+                    for note in notes:
+                        outbox.restore(session_id, note)
+                    return 0
+        sleep(poll)
+    return 0
+
+
 def _cli():
-    """console-script entry point — hooks must always succeed (exit 0)."""
+    """console-script entry point — hooks must always succeed (exit 0).
+    예외 하나: Rewake 는 깨우려고 2 로 끝난다(백그라운드 훅이라 막지 않는다)."""
+    code = 0
     try:
-        main()
+        code = main()
     except Exception:
         pass
-    sys.exit(0)
+    sys.exit(2 if code == 2 else 0)
 
 
 if __name__ == "__main__":

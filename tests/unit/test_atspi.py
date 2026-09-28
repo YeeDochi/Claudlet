@@ -75,3 +75,33 @@ def test_the_reader_skips_what_is_not_on_screen():
 def test_the_reader_skips_the_app_furniture():
     # 메뉴가 190여 줄을 차지해 정작 화면 내용이 잘려 나갔다.
     assert "menu item" in atspi.READ_PY and "tool bar" in atspi.READ_PY
+
+
+def test_one_browser_window_is_picked_out_of_the_process_by_its_title():
+    # 브라우저는 창이 몇 개든 한 프로세스다. 앱을 통째로 읽었더니 다른 창의
+    # 페이지가 앞에 쌓여 가리킨 창 대신 실려 갔다(실사용 보고).
+    names = ["메일 - Firefox", "Claudlet 이슈 #12", ""]
+    assert atspi.pick_frames(names, "Claudlet 이슈 #12 — Mozilla Firefox") == [1]
+    assert atspi.pick_frames(names, "메일 - Firefox") == [0]
+
+
+def test_no_title_match_reads_the_whole_app_as_before():
+    names = ["a", "b"]
+    assert atspi.pick_frames(names, "") == [0, 1]
+    assert atspi.pick_frames(names, "전혀 다른 창") == [0, 1]
+
+
+def test_the_child_runs_the_same_frame_picking_and_gets_the_title():
+    sent = {}
+    atspi.read_window(Win("1", 0, 0, 10, 10, "firefox", 777, "이슈 — Firefox"),
+                      run=lambda argv, **k: sent.setdefault("argv", argv) and "")
+    assert "def pick_frames" in sent["argv"][2]
+    assert sent["argv"][-1] == "이슈 — Firefox"
+    compile(sent["argv"][2], "<atspi child>", "exec")      # 심은 코드가 문법상 온전하다
+
+
+def test_a_title_whose_app_suffix_differs_still_finds_its_window():
+    names = ["채팅 | [INFRA-ONLY] | Microsoft Teams - 메모리 사용량 많음 - Chrome",
+             "(주)이노그리드 - Chrome"]
+    assert atspi.pick_frames(names, "(주)이노그리드 - Google Chrome") == [1]
+    assert atspi.pick_frames(names, "(주)완전히 다른 - Google Chrome") == [0, 1]

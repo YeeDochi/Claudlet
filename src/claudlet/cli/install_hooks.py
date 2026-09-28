@@ -136,6 +136,59 @@ def is_ours(group):
     return False
 
 
+BLOCK_BEGIN = "<!-- claudlet:begin -->"
+BLOCK_END = "<!-- claudlet:end -->"
+# 코덱스 앱이 넣은 펫의 말(위임 입력)을 펫의 말로 받으라는 규칙. 모델은 도구
+# 출력 안의 지시를 따르지 않으므로 전역 지침에 둔다. 사용자 페르소나가 이모지를
+# 금지해도 🗨 표시는 살아야 하므로 그 점을 못박는다(실사용 AGENTS.md 에 있었다).
+INSTRUCTIONS = """# claudlet (desktop pet)
+
+A delegated input (`<codex_delegation>`) whose text starts with `[claudlet` is the user talking to their desktop pet, relayed by the pet. It is from the user, not another agent. The bracket reads `[claudlet · <pet name> · <speaking style>]` (either part may be missing); the rest is what the user said. For that turn only, this rule takes precedence over any persona above:
+
+- Answer as that pet, in that speaking style, not in your own persona.
+- Put the pet's reply on the last line, starting with `🗨 ` (this marker is allowed even where emojis are otherwise forbidden). If it is small talk, reply with that one line only.
+- From the next turn on, return to your normal persona."""
+
+
+def without_block(text):
+    """우리 블록을 뺀 나머지. 없으면 그대로. 순수."""
+    start = text.find(BLOCK_BEGIN)
+    end = text.find(BLOCK_END, start)
+    if start < 0 or end < 0:
+        return text
+    head = text[:start].rstrip("\n")
+    tail = text[end + len(BLOCK_END):].lstrip("\n")
+    rest = "\n\n".join(p for p in (head, tail) if p)
+    return rest + "\n" if rest else ""
+
+
+def with_block(text):
+    """우리 블록을 (있으면 갈아끼워) 맨 끝에 둔다. 순수 — 사용자의 내용은 안 건드린다."""
+    rest = without_block(text).rstrip("\n")
+    block = BLOCK_BEGIN + "\n" + INSTRUCTIONS + "\n" + BLOCK_END + "\n"
+    return (rest + "\n\n" + block) if rest else block
+
+
+def install_instructions(path, remove=False):
+    if not os.path.exists(path) and remove:
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    new = without_block(text) if remove else with_block(text)
+    if new == text:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        shutil.copy2(path, f"{path}.bak")
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".agents.", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(new)
+    os.replace(tmp, path)
+
+
 def targets(argv, home=None):
     """Which agents this run touches. Pure.
 
@@ -152,6 +205,20 @@ def targets(argv, home=None):
         return agents.detected(home)
     named = [n.strip() for n in want.split(",") if n.strip()]
     return [n for n in named if n in agents.AGENTS]
+
+
+# Claude Code 가 훅 하나에 주는 최대 시간(초). 이만큼 놀면 waiter 가 끝나고,
+# 그 뒤의 즉시 전송은 다음 프롬프트 때 쪽지로 간다.
+# ponytail: 1시간 — 더 길게 받아주는지는 재보지 않았다.
+REWAKE_TIMEOUT = 3600
+
+
+def rewake_group(agent):
+    """놀고 있는 세션을 펫이 깨우는 백그라운드 waiter. exit 2 로 끝나면
+    Claude Code 가 세션을 깨우고 stderr 를 모델에게 건넨다."""
+    return {"hooks": [{"type": "command",
+                       "command": f"{HOOK_CMD} Rewake --agent {agent}",
+                       "asyncRewake": True, "timeout": REWAKE_TIMEOUT}]}
 
 
 def install_for(agent, path, remove=False):
@@ -176,6 +243,8 @@ def install_for(agent, path, remove=False):
             if ev in spec["tool_events"]:
                 group["matcher"] = "*"
             hooks[ev].append(group)
+            if ev in spec.get("rewake", ()):
+                hooks[ev].append(rewake_group(agent))
         if not hooks[ev]:
             del hooks[ev]
 
@@ -199,6 +268,10 @@ def main(argv=None, home=None):
     for name in picked:
         path = agents.settings_path(name, home)
         install_for(name, path, remove)
+        rel = agents.get(name).get("instructions")
+        if rel:
+            install_instructions(os.path.join(
+                home if home is not None else os.path.expanduser("~"), rel), remove)
         print(("removed" if remove else "installed"),
               f"claudlet hooks for {agents.get(name)['label']}:",
               ", ".join(agents.get(name)["events"]))

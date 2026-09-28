@@ -63,6 +63,59 @@ def append_voice(session_id, persona, nickname=None):
         return False
 
 
+def wake(session_id):
+    """"지금 깨워라" 표시를 쌓는다. 프롬프트에 직접 쳐 넣을 수 없는 호스트
+    (IDE 터미널, 데스크톱 앱)에서 즉시 전송이 이것이다 — 세션이 놀고 있으면
+    대기 중인 waiter(`claudlet-hook Rewake`) 가 보고 쪽지를 들고 세션을 깨운다.
+    일하는 중이면 다음 툴콜 경계가 평소처럼 가져간다."""
+    try:
+        with open(outbox_file(session_id), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"wake": True}) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+def wants_wake(session_id):
+    """가져가지 않고, 깨워 달라는 표시가 있는지만 본다(waiter 쪽)."""
+    return any(n.get("wake") for n in _read(outbox_file(session_id)))
+
+
+# ---------- waiter: 놀고 있는 세션을 깨우는 쪽 ----------
+# Claude Code 의 asyncRewake 훅은 백그라운드로 돌다가 exit 2 로 끝나면 쉬던
+# 세션을 깨우고 stderr 를 모델에게 건넨다(2.1.283 바이너리의 훅 스키마 설명,
+# IntelliJ 터미널에서 실측). Stop 마다 새 waiter 가 뜨므로, 파일에 지금 주인의
+# pid 를 적어 두고 옛 waiter 는 주인이 바뀐 것을 보면 조용히 물러난다.
+
+def waiter_file(session_id):
+    sid = session_id or "default"
+    return os.path.join(hostinfo.runtime_dir(), "claudlet-{}.waiter".format(sid))
+
+
+def claim_waiter(session_id, pid):
+    try:
+        with open(waiter_file(session_id), "w") as f:
+            f.write(str(pid))
+        return True
+    except OSError:
+        return False
+
+
+def waiter_owner(session_id):
+    try:
+        with open(waiter_file(session_id)) as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def can_wake(session_id):
+    """이 세션에 waiter 가 한 번이라도 섰나 — 깨우는 훅이 설치돼 있다는 뜻.
+    지금 대기 중인지는 묻지 않는다: 일하는 중이면 waiter 가 없어도 다음 툴콜
+    경계가, 그 턴이 끝나면 새 waiter 가 표시를 보고 바로 깨운다."""
+    return os.path.exists(waiter_file(session_id))
+
+
 def _read(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -80,7 +133,7 @@ def _read(path):
             continue                  # 깨진 한 줄이 나머지를 가리지 않는다
         # "voice" 는 비어 있어도 쪽지다 — 펫으로 들어온 턴이라는 표시 자체다
         if isinstance(note, dict) and (note.get("text") or "voice" in note
-                                       or note.get("name")):
+                                       or note.get("name") or note.get("wake")):
             notes.append(note)
     return notes
 
@@ -206,12 +259,37 @@ def extract_reply(text):
     return None
 
 
-def last_assistant_text(lines):
+def _is_delegation(pay):
+    """코덱스 앱이 스레드에 넣은 말(send_message_to_thread)의 rollout 기록인가."""
+    return (pay.get("type") == "function_call_output"
+            and str(pay.get("output", "")).startswith("<codex_delegation>"))
+
+
+def _text_of(content):
+    if isinstance(content, str):
+        return content or None
+    if isinstance(content, list):
+        parts = [b.get("text") for b in content
+                 if isinstance(b, dict)
+                 and b.get("type") in ("text", "output_text")
+                 and isinstance(b.get("text"), str)]
+        if parts:
+            return "\n".join(parts)
+    return None
+
+
+def last_assistant_text(lines, final_only=False):
     """transcript JSONL 줄들에서 마지막 assistant 발화의 텍스트, 없으면 None.
 
     포맷이 비공식이라는 것이 이 함수의 전제다 — 모르는 모양은 조용히 건너뛴다.
     2026-07-14 에 사용량 대시보드를 접은 이유가 이 포맷 의존이었으므로, 여기서
-    나오는 것은 "있으면 좋은 것"이지 기능의 뼈대가 아니다."""
+    나오는 것은 "있으면 좋은 것"이지 기능의 뼈대가 아니다.
+
+    final_only (코덱스 앱이 넣은 펫의 말): 그 말(위임) **뒤**에 나온 final_answer
+    만 답이다. 일하는 중에 보내면 같은 턴에 끼어드는데, 하던 일의 답이 먼저
+    나오고 위임은 그보다 늦게 기록된다(실측) — 앞에 위임이 보이지 않는 답은
+    아직 답이 아니다."""
+    found = None
     for line in reversed(list(lines or ())):
         try:
             rec = json.loads(line)
@@ -226,18 +304,22 @@ def last_assistant_text(lines):
             content = (rec.get("message") or {}).get("content")
         else:
             pay = rec.get("payload") or {}
+            if final_only and _is_delegation(pay):
+                return found
             if (pay.get("type") != "message" or pay.get("role") != "assistant"):
                 continue
+            # 코덱스는 턴 중간에도 commentary 로 말한다 — 답은 final_answer 다
+            if final_only and pay.get("phase") not in (None, "final_answer"):
+                continue
             content = pay.get("content")
-        if isinstance(content, str):
-            return content or None
-        if isinstance(content, list):
-            parts = [b.get("text") for b in content
-                     if isinstance(b, dict)
-                     and b.get("type") in ("text", "output_text")
-                     and isinstance(b.get("text"), str)]
-            if parts:
-                return "\n".join(parts)
+        text = _text_of(content)
+        if text is None:
+            continue
+        if not final_only:
+            return text
+        if found is not None:
+            return None           # 위임 없이 앞선 답에 닿았다 — 하던 일의 답이다
+        found = text
     return None
 
 
@@ -271,6 +353,8 @@ def turn_had_more(lines):
             role, content = rec["type"], (rec.get("message") or {}).get("content")
         else:                                                # Codex rollout
             pay = rec.get("payload") or {}
+            if _is_delegation(pay):
+                return False            # 코덱스 앱이 넣은 펫의 말 — 여기가 턴의 시작
             if pay.get("type") in _TOOL_ITEMS:
                 return True
             if pay.get("type") != "message":
@@ -293,8 +377,15 @@ def turn_had_more(lines):
     return False
 
 
+def whole_reply(text):
+    """🗨 줄이 없을 때 답 전체를 말풍선 한 줄로. (한 줄, 더 있었나). 순수."""
+    one = " ".join((text or "").split())
+    return (one[:SAY_MAX] or None,
+            len(one) > SAY_MAX or len((text or "").strip().splitlines()) > 1)
+
+
 def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
-                          with_more=False):
+                          with_more=False, whole=False):
     """transcript 파일 끝에서 크리처가 말할 한 줄을 뽑는다. 얇은 껍데기.
 
     전부 읽지 않는다 — 긴 대화의 JSONL 은 수십 MB 가 되고, 펫은 이것을 0.2초마다
@@ -303,7 +394,9 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
     실측에서 답이 파일 끝에서 124KB 앞에 있었고, 그래서 첫 말풍선이 아예 뜨지
     않았다. 그래서 찾을 때까지 꼬리를 배로 늘리되 상한을 둔다.
 
-    with_more: (한 줄, 그 밖에도 할 말이 있었나) 로 돌려준다."""
+    with_more: (한 줄, 그 밖에도 할 말이 있었나) 로 돌려준다.
+    whole: 🗨 줄이 없으면 최종 답 전체를 쓴다 — 펫이 시작한 턴이라 답이 곧
+    펫에게 온 답인데, 지시를 실을 수 없는 호스트(코덱스 앱)용."""
     miss = (None, False) if with_more else None
     while True:
         try:
@@ -317,13 +410,53 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
         lines = raw.splitlines()
         if size > tail_bytes and lines:
             lines = lines[1:]          # 잘린 첫 줄은 JSON 이 아니다
-        text = last_assistant_text(lines)
+        text = last_assistant_text(lines, final_only=whole)
         if text is not None:
             line = extract_reply(text)
-            return (line, turn_had_more(lines)) if with_more else line
-        if tail_bytes >= size or tail_bytes >= tail_max:
+            more = turn_had_more(lines) if with_more else False
+            if line is None and whole:
+                line, more = whole_reply(text)
+            return (line, more) if with_more else line
+        # 펫이 방금 넣은 말의 답은 파일 끝에 붙는다 — 기다리는 동안 꼬리를
+        # 8MB 까지 늘려 0.2초마다 읽을 이유가 없다
+        if whole or tail_bytes >= size or tail_bytes >= tail_max:
             return miss                # 파일을 다 봤거나, 충분히 거슬러 올라갔다
         tail_bytes = min(tail_bytes * 4, tail_max)
+
+
+def render_short(notes):
+    """사람 눈에 보이는 자리(깨운 턴의 훅 피드백, 코덱스 앱 스레드의 메시지)에
+    싣는 짧은 판. 순수.
+
+    render() 의 긴 지시문은 에이전트만 보는 additionalContext 용이다. 깨운 턴과
+    코덱스 앱 메시지는 세션 기록에 그대로 남아 사용자가 다시 보게 되므로(실사용에서
+    "부끄럽다" 가 나왔다), 사용자가 한 말을 맨 앞에 두고 지시는 한 줄로 줄인다."""
+    said = [n["text"] for n in notes if n.get("text")]
+    name = next((n["name"] for n in notes if n.get("name")), "")
+    persona = next((n.get("persona") or n.get("voice") for n in notes
+                    if n.get("persona") or n.get("voice")), "")
+    who = "펫 '%s'" % name if name else "데스크톱 펫"
+    head = "[claudlet] %s에게 건 말: %s" % (who, said[0]) if said else \
+        "[claudlet] %s을 통해 들어온 턴" % who
+    rule = ("답 끝에 펫 목소리로 '%s ' 로 시작하는 한 줄을 붙여라(잡담이면 그 줄만)."
+            % MARK)
+    if persona:
+        rule += " 말투: " + persona
+    return "\n".join([head, rule] + ["- " + t for t in said[1:]])
+
+
+def render_tag(notes):
+    """코덱스 앱 스레드에 넣는 판 — 머리표 한 줄 + 사용자가 한 말. 순수.
+
+    규칙은 설치기가 ~/.codex/AGENTS.md 에 넣어 두므로 메시지에는 누구에게
+    무슨 말투로 건 말인지만 남긴다. 앱 화면에 그대로 보이는 자리라 지시문이
+    있으면 거슬린다(실사용에서 바로 걸렸다)."""
+    said = [n["text"] for n in notes if n.get("text")]
+    name = next((n["name"] for n in notes if n.get("name")), "")
+    persona = next((n.get("persona") or n.get("voice") for n in notes
+                    if n.get("persona") or n.get("voice")), "")
+    tag = " · ".join(["claudlet"] + [x for x in (name, persona) if x])
+    return "[%s] %s" % (tag, "\n\n".join(said))
 
 
 def payload(event, notes):

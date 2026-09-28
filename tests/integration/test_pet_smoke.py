@@ -2420,3 +2420,105 @@ def test_the_settings_process_can_find_claudlet_on_its_own(pet, monkeypatch):
     out = sp.run([sys.executable, "-S", "-c", "import claudlet.core.hostinfo"],
                  env=env, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
+
+
+def test_asking_now_wakes_an_idle_session_the_pet_cannot_type_into(pet, monkeypatch, tmp_path, capsys):
+    # IDE 터미널·데스크톱 앱: 프롬프트에 쳐 넣을 길이 없다. 그래도 "지금 물어보기"
+    # 는 놀고 있는 세션의 waiter 를 깨워 바로 전해져야 한다 — 쪽지로 다음
+    # 프롬프트까지 묵으면 사용자는 "대답이 없다" 로 겪는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.cli import hook
+    from claudlet.core import outbox
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: False)
+    outbox.claim_waiter(pet.session_id, 1)          # Stop 뒤 waiter 가 한 번 섰다
+    assert pet._can_talk_now()
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    ticks = iter(range(3))
+    code = hook.rewake_wait(pet.session_id, sleep=lambda _: None,
+                            alive=lambda: next(ticks, None) is not None)
+    assert code == 2
+    assert "지금 뭐 해?" in capsys.readouterr().err
+
+
+def test_a_note_does_not_wake_the_session(pet, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    pet._talk(immediate=False, text="나중에 봐")
+    assert not outbox.wants_wake(pet.session_id)
+
+
+def test_a_codex_app_thread_gets_just_what_was_said_and_its_answer_comes_back(
+        pet, monkeypatch, tmp_path):
+    # 코덱스 앱이 넣은 메시지는 위임 입력(도구 출력)이라 훅이 안 불리고 모델은
+    # 그 안의 지시를 따르지 않는다(실측). 사용자가 한 말만 가고, 그 턴의 최종
+    # 답이 — 중간 commentary 말고 — 말풍선이 된다.
+    import json
+    from claudlet.platform import codexapp
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    rollout = tmp_path / "rollout.jsonl"
+    def said(text, phase):
+        return json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "phase": phase,
+            "content": [{"type": "output_text", "text": text}]}}) + "\n"
+    rollout.write_text(said("지난 턴 답", "final_answer"))
+    sent = []
+    monkeypatch.setattr(codexapp, "rollout_path", lambda tid, env=None: str(rollout))
+    monkeypatch.setattr(codexapp, "send_message",
+                        lambda path, tid, text, timeout=5: sent.append(text) or True)
+    pet._codex_pipe = "/fake.sock"          # 앱 세션 아래에서 떴다
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    assert sent[0].startswith("[claudlet") and sent[0].endswith("] 지금 뭐 해?")
+    assert "🗨" not in sent[0]              # 규칙은 AGENTS.md 에 있다
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == ""    # 지난 턴 답은 이번 답이 아니다
+    with open(rollout, "a") as f:
+        f.write(json.dumps({"type": "response_item", "payload": {"type": "function_call_output", "output": "<codex_delegation><input>x</input></codex_delegation>"}}) + "\n")                          # 앱이 스레드에 넣은 기록
+        f.write(said("찾아볼게", "commentary"))
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == ""    # 중간 말은 답이 아니다
+    with open(rollout, "a") as f:
+        f.write(said("코드 보는 중이야!", "final_answer"))
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "코드 보는 중이야!"
+
+
+def test_a_codex_app_answer_still_lands_when_the_turn_s_hooks_do_fire(
+        pet, monkeypatch, tmp_path):
+    # 앱이 넣은 턴에도 훅이 불리면 UserPromptSubmit 이 지켜보던 것을 끊고
+    # turn_end 가 다시 기다린다 — 그때도 🗨 없는 최종 답이 말풍선이 돼야 한다.
+    import json
+    from claudlet.platform import codexapp
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    roll = tmp_path / "r.jsonl"
+    roll.write_text("")
+    monkeypatch.setattr(codexapp, "rollout_path", lambda t, env=None: str(roll))
+    monkeypatch.setattr(codexapp, "send_message", lambda *a, **k: True)
+    pet._codex_pipe = "/fake.sock"
+    pet._talk(immediate=True, text="test")
+    send_hook(pet, "UserPromptSubmit", session=pet.session_id, transcript_path=str(roll))
+    roll.write_text(json.dumps({"type": "response_item", "payload": {"type": "function_call_output", "output": "<codex_delegation><input>x</input></codex_delegation>"}}) + "\n" + json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "assistant", "phase": "final_answer",
+        "content": [{"type": "output_text", "text": "정상 수신했습니다"}]}}) + "\n")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(roll),
+              session=pet.session_id)
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "정상 수신했습니다"
+
+
+def test_a_codex_app_turn_shows_as_thinking_though_no_prompt_hook_comes(pet, monkeypatch, tmp_path):
+    # 코덱스 앱은 UserPromptSubmit 을 안 부른다 — 턴 내내 쉬는 표정이었다.
+    import json
+    from claudlet.platform import codexapp
+    roll = tmp_path / "r.jsonl"
+    roll.write_text(json.dumps({"payload": {"type": "task_complete"}}) + "\n")
+    monkeypatch.setattr(codexapp, "rollout_path", lambda t, env=None: str(roll))
+    pet._codex_pipe = "/fake.sock"
+    pet._watch_rollout()                     # 처음엔 끝에서 시작 — 지난 턴은 무시
+    pet._tick()
+    before = pet.snapshot()["state"]
+    with open(roll, "a") as f:
+        f.write(json.dumps({"payload": {"type": "task_started"}}) + "\n")
+    pet._watch_rollout()
+    pet._tick()
+    assert pet.snapshot()["state"] != before
+    assert pet.snapshot()["state"] == "thinking"

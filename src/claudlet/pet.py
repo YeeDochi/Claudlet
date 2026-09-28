@@ -112,6 +112,7 @@ from claudlet.core import transcript
 from claudlet.core import inspect as inspectmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
+from claudlet.platform import codexapp
 from claudlet.platform import konsole
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
@@ -1638,10 +1639,21 @@ class Pet(QWidget):
         self._nickname = getattr(self, "_nickname", "")
         self._notes = 0                    # 물고 있는 쪽지 수
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
+        # 코덱스 앱 세션이면 앱의 도구 파이프 — 훅이 물려준 환경에 있다
+        self._codex_pipe = (codexapp.pipe_path()
+                            if self.agent == "codex" else None)
+        # 코덱스 앱은 UserPromptSubmit 을 안 부른다 — 턴 시작은 rollout 으로 안다
+        self._rollout_pos = None
+        self._rollout_rest = b""
+        if self._codex_pipe:
+            self._rollout_timer = QTimer(self)
+            self._rollout_timer.timeout.connect(self._watch_rollout)
+            self._rollout_timer.start(1000)
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
         self._reply_path = ""
+        self._reply_whole = False          # 🗨 줄 없이 최종 답 전체가 답인 턴
         self._reply_left = 0
         self._said_last = ""               # 직전에 띄운 대사 (같은 줄 = 아직 안 써짐)
         self._note_timer = QTimer(self)
@@ -1823,9 +1835,12 @@ class Pet(QWidget):
         # 새 턴이 시작되면 지난 대사는 치운다. 말풍선은 12초 떠 있는데, 그 사이
         # 사용자가 다음 말을 걸면 옛 대사가 남아 있다가 새 대사로 바뀌어
         # "이전 말이 나오고 다음 말이 나오는" 것처럼 보인다.
-        if ev.get("event") == "UserPromptSubmit":
+        # rollout 에서 읽은 턴 시작(코덱스 앱)은 표정만 바꾼다 — 펫이 방금 건
+        # 말의 답을 기다리는 중일 수 있어, 그 대기를 끊으면 안 된다.
+        if ev.get("event") == "UserPromptSubmit" and not ev.get("rollout"):
             self._hush()
-            self._mark_turn_start(ev.get("transcript"))
+            self._mark_turn_start(ev.get("transcript"),
+                                  whole=bool(self._codex_pipe))
         # A quit command (claudlet-uninstall teardown) is a shutdown request,
         # not a Claude event: shut down cleanly and stop processing.
         if ev.get("cmd") == "quit":
@@ -1842,7 +1857,9 @@ class Pet(QWidget):
             # 답이 아니다 — 띄우지도, 내역에 남기지도 않는다.
             path = ev.get("transcript")
             if isinstance(path, str) and path and self._question_pending():
-                self._await_reply(path)
+                # 코덱스 앱 모델은 🗨 지시를 따르지 않는다 — 앱에서는 훅이
+                # 불려도 최종 답 전체가 펫의 답이다
+                self._await_reply(path, whole=bool(self._codex_pipe))
             return
         if ev.get("cmd") == "say":
             # 크리처가 한 줄 말한다. 에이전트의 설명은 터미널에 그대로 있고,
@@ -3453,13 +3470,14 @@ class Pet(QWidget):
     REPLY_POLL_MS = 200
     REPLY_TRIES = 25
 
-    def _await_reply(self, path):
+    def _await_reply(self, path, tries=None, whole=False):
         """transcript 에 **새** 대사가 나타나면 말풍선을 띄운다.
 
         직전에 띄운 것과 같은 줄은 아직 이번 턴이 안 써졌다는 뜻이므로 넘긴다.
         시간 안에 안 나타나면 그냥 포기한다 — 말풍선은 없어도 되는 것이다."""
         self._reply_path = path
-        self._reply_left = self.REPLY_TRIES
+        self._reply_left = tries or self.REPLY_TRIES
+        self._reply_whole = whole
         if self._reply_timer is None:
             self._reply_timer = QTimer(self)
             self._reply_timer.timeout.connect(self._poll_reply)
@@ -3477,8 +3495,9 @@ class Pet(QWidget):
     def _poll_reply(self):
         line, more = None, False
         try:
-            line, more = outbox.reply_from_transcript(self._reply_path,
-                                                      with_more=True)
+            line, more = outbox.reply_from_transcript(
+                self._reply_path, with_more=True,
+                whole=self._reply_whole)
         except Exception:
             line, more = None, False
         self._reply_left -= 1
@@ -3492,7 +3511,7 @@ class Pet(QWidget):
         if self._reply_left <= 0:
             self._reply_timer.stop()
 
-    def _mark_turn_start(self, path):
+    def _mark_turn_start(self, path, whole=False):
         """턴이 시작될 때 transcript 에 이미 있던 대사를 기준점으로 잡는다.
 
         이것이 없으면 갓 뜬 펫은 기준점이 비어 있어, 지난 대화에 남아 있던 줄을
@@ -3501,7 +3520,8 @@ class Pet(QWidget):
         if not path:
             return
         try:
-            self._said_last = outbox.reply_from_transcript(path) or self._said_last
+            self._said_last = (outbox.reply_from_transcript(path, whole=whole)
+                               or self._said_last)
         except Exception:
             pass
 
@@ -4087,6 +4107,8 @@ class Pet(QWidget):
         if not self._konsole_send(question):
             # 바로 못 보냈으면 우리 쪽지 체계로 들어간다 — 펫이 물고 있는 것이
             # 보이고 우클릭으로 버릴 수 있어야 "물어봤는데 어디 갔지" 가 안 생긴다.
+            # 깨울 수 있는 세션이면 waiter 가 이 쪽지를 들고 곧바로 깨운다.
+            outbox.wake(self.session_id)
             self._refresh_notes()
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
@@ -4525,8 +4547,16 @@ class Pet(QWidget):
     # 어울리지만, 프레임리스 always-on-top 창에 포커스 가능한 위젯을 얹는 일은
     # XWayland 에서 만져보기 전까지 글로 정해봐야 모른다. 여기가 갈아끼울 자리.
     def _can_talk_now(self):
-        """이 호스트에서 프롬프트에 직접 써 넣을 수 있나. 지금은 KDE/Konsole 뿐 —
-        다른 호스트는 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        """지금 바로 전할 수 있나. 프롬프트에 직접 써 넣는 호스트(Konsole,
+        윈도우 콘솔, 코덱스 앱)이거나, 놀고 있는 세션을 깨우는 waiter 가 선
+        적이 있는 세션(Claude Code — IDE 터미널, 데스크톱 앱 어디든).
+        아니면 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        if self._codex_pipe or outbox.can_wake(self.session_id):
+            return True
+        return self._can_type_now()
+
+    def _can_type_now(self):
+        """프롬프트에 직접 써 넣을 수 있나 — Konsole 과 윈도우 콘솔."""
         # 메서드가 있다고 되는 게 아니다: Konsole 은 sendText 를 기본으로 막아둔다
         # (AccessDenied). 막혀 있으면 이 항목을 아예 띄우지 않는다 — 눌렀더니
         # 조용히 쪽지가 되는 것보다 없는 편이 정직하다.
@@ -4594,6 +4624,8 @@ class Pet(QWidget):
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona,
                       nickname=self._nickname)
+        if immediate:
+            outbox.wake(self.session_id)        # 놀고 있으면 waiter 가 깨운다
         # 내역에도 남긴다. 포인터로 시작한 대화만 쌓이면 "아까 뭘 물었더라" 가
         # 절반만 답해진다 — 메뉴로 건 말도 같은 대화다.
         try:
@@ -4610,8 +4642,12 @@ class Pet(QWidget):
 
     def _konsole_send(self, text):
         """이 세션의 프롬프트에 직접 써 넣는다. 실패는 False — 호출자가
-        쪽지로 강등한다. 윈도우는 콘솔 입력 버퍼, KDE 는 Konsole 의 D-Bus."""
-        if not self._can_talk_now():
+        쪽지로 강등한다(깨울 수 있는 세션이면 그 쪽지가 곧바로 깨운다).
+        코덱스 앱은 앱의 도구 파이프, 윈도우는 콘솔 입력 버퍼, KDE 는
+        Konsole 의 D-Bus."""
+        if self._codex_pipe:
+            return self._codex_app_send(text)
+        if not self._can_type_now():
             return False
         split = self.agent != agents.DEFAULT
         if os.name == "nt":
@@ -4638,6 +4674,57 @@ class Pet(QWidget):
         if ok and split:
             QTimer.singleShot(ENTER_DELAY_MS, self._send_enter)
         return ok
+
+    def _watch_rollout(self):
+        """코덱스 앱 스레드의 rollout 끝을 읽어 턴이 시작되면 '생각 중'으로.
+        처음 볼 때는 끝에서 시작한다 — 지난 턴들을 다시 틀 이유가 없다."""
+        path = codexapp.rollout_path(self.session_id)
+        if not path:
+            return
+        try:
+            size = os.path.getsize(path)
+            if self._rollout_pos is None or size < self._rollout_pos:
+                self._rollout_pos = size
+                return
+            if size == self._rollout_pos:
+                return
+            with open(path, "rb") as f:
+                f.seek(self._rollout_pos)
+                chunk = f.read(size - self._rollout_pos)
+            self._rollout_pos = size
+        except OSError:
+            return
+        n, self._rollout_rest = codexapp.turn_starts(self._rollout_rest + chunk)
+        if n:
+            self._handle_event({"event": "UserPromptSubmit",
+                                "session": self.session_id, "rollout": True})
+
+    # 코덱스 앱의 턴은 몇 초로 안 끝난다 — 답을 2분까지 지켜본다.
+    CODEX_APP_REPLY_TRIES = 600
+
+    def _codex_app_send(self, text):
+        """코덱스 앱 스레드에 말을 넣는다.
+
+        앱이 넣은 메시지는 위임 입력이다 — rollout 에 도구 출력으로 들어가고,
+        모델은 그 안의 지시를 따르지 않는다(말투·🗨 지시를 세게 써도 무시했다,
+        실측). 규칙은 설치기가 ~/.codex/AGENTS.md 에 넣고, 여기서는 누구에게
+        무슨 말투로 건 말인지만 데이터로 싣는다. 답은 rollout 을 지켜봐서 받고,
+        🗨 줄이 없으면(규칙이 없거나 안 따랐으면) 최종 답 전체가 답이다."""
+        notes = [n for n in outbox.take(self.session_id) if not n.get("wake")]
+        if not any(text in (n.get("text") or "") for n in notes):
+            notes.append({"text": text})
+        path = codexapp.rollout_path(self.session_id)
+        if path:
+            self._mark_turn_start(path, whole=True)
+        if not codexapp.send_message(self._codex_pipe, self.session_id,
+                                     outbox.render_tag(notes)):
+            for note in notes:
+                if note.get("text") != text:
+                    outbox.restore(self.session_id, note)
+            return False
+        if path:
+            self._await_reply(path, tries=self.CODEX_APP_REPLY_TRIES, whole=True)
+        return True
 
     def _send_enter(self):
         try:

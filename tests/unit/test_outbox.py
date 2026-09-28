@@ -314,3 +314,91 @@ def test_a_voice_note_without_persona_or_name_still_asks_for_the_line():
     outbox.append_voice("s1", None, None)
     ctx = outbox.payload("UserPromptSubmit", outbox.take("s1"))
     assert ctx and outbox.MARK in ctx["hookSpecificOutput"]["additionalContext"]
+
+
+# ---------- 깨우기: 프롬프트에 쳐 넣을 수 없는 호스트의 즉시 전송 ----------
+
+def test_a_wake_mark_is_seen_without_taking_anything():
+    outbox.append("s1", "지금 뭐 해?")
+    assert outbox.wants_wake("s1") is False
+    outbox.wake("s1")
+    assert outbox.wants_wake("s1") is True
+    assert outbox.pending("s1") == 1          # 표시는 쪽지로 세지 않는다
+
+
+def test_the_wake_mark_adds_no_line_of_its_own():
+    outbox.append("s1", "지금 뭐 해?")
+    outbox.wake("s1")
+    text = outbox.render(outbox.take("s1"))
+    assert [l for l in text.splitlines() if l.startswith("- ")] == ["- 지금 뭐 해?"]
+
+
+def test_a_session_can_be_woken_once_a_waiter_has_stood():
+    assert outbox.can_wake("s1") is False
+    outbox.claim_waiter("s1", 42)
+    assert outbox.can_wake("s1") is True
+    assert outbox.waiter_owner("s1") == 42
+    assert outbox.can_wake("s2") is False
+
+
+def test_the_short_form_leads_with_what_the_user_said():
+    notes = [{"voice": "반말", "name": "클로디"},
+             {"text": "지금 뭐 해?", "persona": "반말", "name": "클로디"},
+             {"wake": True}]
+    first, rule = outbox.render_short(notes).splitlines()
+    assert first == "[claudlet] 펫 '클로디'에게 건 말: 지금 뭐 해?"
+    assert outbox.MARK in rule and "말투: 반말" in rule
+    assert outbox.HEADER not in outbox.render_short(notes)    # 긴 지시문은 안 싣는다
+
+
+def test_without_a_mark_the_whole_answer_can_be_the_reply():
+    assert outbox.whole_reply("안녕하십니까,\n주인.") == ("안녕하십니까, 주인.", True)
+    assert outbox.whole_reply("짧아") == ("짧아", False)
+    assert outbox.whole_reply("") == (None, False)
+
+
+def test_an_answer_written_before_the_app_s_message_is_not_its_answer():
+    def said(text):
+        return json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "phase": "final_answer",
+            "content": [{"type": "output_text", "text": text}]}})
+    delegation = json.dumps({"type": "response_item", "payload": {
+        "type": "function_call_output", "output": "<codex_delegation><input>test</input></codex_delegation>"}})
+    lines = [said("하던 일 끝"), delegation]
+    assert outbox.last_assistant_text(lines, final_only=True) is None
+    assert outbox.last_assistant_text(lines + [said("테스트 받았어")],
+                                      final_only=True) == "테스트 받았어"
+
+
+def test_work_before_the_app_s_message_is_not_more_of_the_pet_s_answer():
+    delegation = json.dumps({"type": "response_item", "payload": {
+        "type": "function_call_output", "output": "<codex_delegation><input>안녕</input></codex_delegation>"}})
+    earlier_tool = json.dumps({"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec"}})
+    reply = json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "assistant", "phase": "final_answer",
+        "content": [{"type": "output_text", "text": "🗨 안녕하신가"}]}})
+    assert outbox.turn_had_more([earlier_tool, delegation, reply]) is False
+    assert outbox.turn_had_more([delegation, earlier_tool, reply]) is True
+
+
+def test_the_app_message_is_a_tag_and_what_was_said():
+    notes = [{"voice": "능글맞게, 사투리", "name": "슈텐도지"},
+             {"text": "한잔 하셨어?", "persona": "능글맞게, 사투리", "name": "슈텐도지"}]
+    assert outbox.render_tag(notes) == "[claudlet · 슈텐도지 · 능글맞게, 사투리] 한잔 하셨어?"
+    assert outbox.render_tag([{"text": "hi"}]) == "[claudlet] hi"
+
+
+def test_the_previous_answer_is_not_taken_before_the_app_s_message_is_written():
+    # 실측 순서: 하던 일의 답이 먼저 기록되고, 위임은 그 뒤에 기록된다.
+    def said(text):
+        return json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "phase": "final_answer",
+            "content": [{"type": "output_text", "text": text}]}})
+    started = json.dumps({"type": "event_msg", "payload": {"type": "task_started"}})
+    delegation = json.dumps({"type": "response_item", "payload": {
+        "type": "function_call_output", "output": "<codex_delegation><input>안녕</input></codex_delegation>"}})
+    prev = [said("지난 턴 답"), started, said("대기 중입니다")]
+    assert outbox.last_assistant_text(prev, final_only=True) is None
+    assert outbox.last_assistant_text(prev + [delegation], final_only=True) is None
+    assert outbox.last_assistant_text(prev + [delegation, said("🗨 안녕")],
+                                      final_only=True) == "🗨 안녕"
