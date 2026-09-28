@@ -259,7 +259,7 @@ def extract_reply(text):
     return None
 
 
-def last_assistant_text(lines):
+def last_assistant_text(lines, final_only=False):
     """transcript JSONL 줄들에서 마지막 assistant 발화의 텍스트, 없으면 None.
 
     포맷이 비공식이라는 것이 이 함수의 전제다 — 모르는 모양은 조용히 건너뛴다.
@@ -280,6 +280,9 @@ def last_assistant_text(lines):
         else:
             pay = rec.get("payload") or {}
             if (pay.get("type") != "message" or pay.get("role") != "assistant"):
+                continue
+            # 코덱스는 턴 중간에도 commentary 로 말한다 — 답은 final_answer 다
+            if final_only and pay.get("phase") not in (None, "final_answer"):
                 continue
             content = pay.get("content")
         if isinstance(content, str):
@@ -346,8 +349,15 @@ def turn_had_more(lines):
     return False
 
 
+def whole_reply(text):
+    """🗨 줄이 없을 때 답 전체를 말풍선 한 줄로. (한 줄, 더 있었나). 순수."""
+    one = " ".join((text or "").split())
+    return (one[:SAY_MAX] or None,
+            len(one) > SAY_MAX or len((text or "").strip().splitlines()) > 1)
+
+
 def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
-                          with_more=False):
+                          with_more=False, whole=False):
     """transcript 파일 끝에서 크리처가 말할 한 줄을 뽑는다. 얇은 껍데기.
 
     전부 읽지 않는다 — 긴 대화의 JSONL 은 수십 MB 가 되고, 펫은 이것을 0.2초마다
@@ -356,7 +366,9 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
     실측에서 답이 파일 끝에서 124KB 앞에 있었고, 그래서 첫 말풍선이 아예 뜨지
     않았다. 그래서 찾을 때까지 꼬리를 배로 늘리되 상한을 둔다.
 
-    with_more: (한 줄, 그 밖에도 할 말이 있었나) 로 돌려준다."""
+    with_more: (한 줄, 그 밖에도 할 말이 있었나) 로 돌려준다.
+    whole: 🗨 줄이 없으면 최종 답 전체를 쓴다 — 펫이 시작한 턴이라 답이 곧
+    펫에게 온 답인데, 지시를 실을 수 없는 호스트(코덱스 앱)용."""
     miss = (None, False) if with_more else None
     while True:
         try:
@@ -370,10 +382,13 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
         lines = raw.splitlines()
         if size > tail_bytes and lines:
             lines = lines[1:]          # 잘린 첫 줄은 JSON 이 아니다
-        text = last_assistant_text(lines)
+        text = last_assistant_text(lines, final_only=whole)
         if text is not None:
             line = extract_reply(text)
-            return (line, turn_had_more(lines)) if with_more else line
+            more = turn_had_more(lines) if with_more else False
+            if line is None and whole:
+                line, more = whole_reply(text)
+            return (line, more) if with_more else line
         if tail_bytes >= size or tail_bytes >= tail_max:
             return miss                # 파일을 다 봤거나, 충분히 거슬러 올라갔다
         tail_bytes = min(tail_bytes * 4, tail_max)

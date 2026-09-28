@@ -349,3 +349,9 @@ def test_the_short_form_leads_with_what_the_user_said():
     assert first == "[claudlet] 펫 '클로디'에게 건 말: 지금 뭐 해?"
     assert outbox.MARK in rule and "말투: 반말" in rule
     assert outbox.HEADER not in outbox.render_short(notes)    # 긴 지시문은 안 싣는다
+
+
+def test_without_a_mark_the_whole_answer_can_be_the_reply():
+    assert outbox.whole_reply("안녕하십니까,\n주인.") == ("안녕하십니까, 주인.", True)
+    assert outbox.whole_reply("짧아") == ("짧아", False)
+    assert outbox.whole_reply("") == (None, False)

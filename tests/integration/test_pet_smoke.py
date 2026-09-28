@@ -2447,25 +2447,34 @@ def test_a_note_does_not_wake_the_session(pet, monkeypatch, tmp_path):
     assert not outbox.wants_wake(pet.session_id)
 
 
-def test_a_codex_app_thread_gets_the_voice_in_the_message_and_the_reply_comes_back(
+def test_a_codex_app_thread_gets_just_what_was_said_and_its_answer_comes_back(
         pet, monkeypatch, tmp_path):
-    # 코덱스 앱이 넣은 메시지는 위임 입력이라 훅이 안 불린다(실측). 말투 지시가
-    # 메시지에 실려 가야 크리처가 답하고, 턴 끝도 rollout 을 지켜봐서 받아야 한다.
+    # 코덱스 앱이 넣은 메시지는 위임 입력(도구 출력)이라 훅이 안 불리고 모델은
+    # 그 안의 지시를 따르지 않는다(실측). 사용자가 한 말만 가고, 그 턴의 최종
+    # 답이 — 중간 commentary 말고 — 말풍선이 된다.
     import json
     from claudlet.platform import codexapp
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     rollout = tmp_path / "rollout.jsonl"
-    rollout.write_text("")
+    def said(text, phase):
+        return json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "phase": phase,
+            "content": [{"type": "output_text", "text": text}]}}) + "\n"
+    rollout.write_text(said("지난 턴 답", "final_answer"))
     sent = []
     monkeypatch.setattr(codexapp, "rollout_path", lambda tid, env=None: str(rollout))
     monkeypatch.setattr(codexapp, "send_message",
                         lambda path, tid, text, timeout=5: sent.append(text) or True)
     pet._codex_pipe = "/fake.sock"          # 앱 세션 아래에서 떴다
     pet._talk(immediate=True, text="지금 뭐 해?")
-    assert sent and sent[0].startswith("[claudlet]") and "지금 뭐 해?" in sent[0]
-    assert "🗨" in sent[0]                   # 크리처로 답하라는 지시가 실렸다
-    rollout.write_text(json.dumps({"type": "response_item", "payload": {
-        "type": "message", "role": "assistant",
-        "content": [{"type": "output_text", "text": "🗨 코드 보는 중!"}]}}) + "\n")
+    assert sent == ["지금 뭐 해?"]            # 지시문이 사용자 눈에 안 밟힌다
     pet._poll_reply()
-    assert pet.snapshot()["saying"] == "코드 보는 중!"
+    assert pet.snapshot()["saying"] == ""    # 지난 턴 답은 이번 답이 아니다
+    with open(rollout, "a") as f:
+        f.write(said("찾아볼게", "commentary"))
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == ""    # 중간 말은 답이 아니다
+    with open(rollout, "a") as f:
+        f.write(said("코드 보는 중이야!", "final_answer"))
+    pet._poll_reply()
+    assert pet.snapshot()["saying"] == "코드 보는 중이야!"

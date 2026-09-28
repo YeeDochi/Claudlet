@@ -1646,6 +1646,7 @@ class Pet(QWidget):
         self._say_until = 0.0
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
         self._reply_path = ""
+        self._reply_whole = False          # 🗨 줄 없이 최종 답 전체가 답인 턴
         self._reply_left = 0
         self._said_last = ""               # 직전에 띄운 대사 (같은 줄 = 아직 안 써짐)
         self._note_timer = QTimer(self)
@@ -3457,13 +3458,14 @@ class Pet(QWidget):
     REPLY_POLL_MS = 200
     REPLY_TRIES = 25
 
-    def _await_reply(self, path, tries=None):
+    def _await_reply(self, path, tries=None, whole=False):
         """transcript 에 **새** 대사가 나타나면 말풍선을 띄운다.
 
         직전에 띄운 것과 같은 줄은 아직 이번 턴이 안 써졌다는 뜻이므로 넘긴다.
         시간 안에 안 나타나면 그냥 포기한다 — 말풍선은 없어도 되는 것이다."""
         self._reply_path = path
         self._reply_left = tries or self.REPLY_TRIES
+        self._reply_whole = whole
         if self._reply_timer is None:
             self._reply_timer = QTimer(self)
             self._reply_timer.timeout.connect(self._poll_reply)
@@ -3481,8 +3483,9 @@ class Pet(QWidget):
     def _poll_reply(self):
         line, more = None, False
         try:
-            line, more = outbox.reply_from_transcript(self._reply_path,
-                                                      with_more=True)
+            line, more = outbox.reply_from_transcript(
+                self._reply_path, with_more=True,
+                whole=self._reply_whole)
         except Exception:
             line, more = None, False
         self._reply_left -= 1
@@ -3496,7 +3499,7 @@ class Pet(QWidget):
         if self._reply_left <= 0:
             self._reply_timer.stop()
 
-    def _mark_turn_start(self, path):
+    def _mark_turn_start(self, path, whole=False):
         """턴이 시작될 때 transcript 에 이미 있던 대사를 기준점으로 잡는다.
 
         이것이 없으면 갓 뜬 펫은 기준점이 비어 있어, 지난 대화에 남아 있던 줄을
@@ -3505,7 +3508,8 @@ class Pet(QWidget):
         if not path:
             return
         try:
-            self._said_last = outbox.reply_from_transcript(path) or self._said_last
+            self._said_last = (outbox.reply_from_transcript(path, whole=whole)
+                               or self._said_last)
         except Exception:
             pass
 
@@ -4663,24 +4667,27 @@ class Pet(QWidget):
     CODEX_APP_REPLY_TRIES = 600
 
     def _codex_app_send(self, text):
-        """코덱스 앱 스레드에 말을 넣는다. 앱이 넣은 메시지는 위임 입력이라
-        훅이 불리지 않는다 — 말투 지시(와 포인터로 고른 창 정보)를 메시지에
-        직접 싣고, 답도 훅 대신 rollout 을 지켜봐서 받는다."""
+        """코덱스 앱 스레드에 말을 넣는다.
+
+        앱이 넣은 메시지는 위임 입력이다 — rollout 에 도구 출력으로 들어가
+        훅이 불리지 않고, 모델은 그 안의 지시를 따르지 않는다(말투·🗨 지시를
+        세게 써도 무시했다, 실측). 그래서 지시는 싣지 않고 사용자가 한 말만
+        보낸다(포인터로 고른 창 정보는 데이터라 싣는다). 답은 훅 대신 rollout 을
+        지켜보고, 🗨 줄이 없으니 최종 답 전체를 말풍선에 띄운다."""
         notes = outbox.take(self.session_id)
-        notes = [n for n in notes if not n.get("wake")]
-        if not any(text in (n.get("text") or "") for n in notes):
-            notes.append({"text": text})
+        said = [n["text"] for n in notes if n.get("text")]
+        if not any(text in s for s in said):
+            said.append(text)
         path = codexapp.rollout_path(self.session_id)
         if path:
-            self._mark_turn_start(path)
+            self._mark_turn_start(path, whole=True)
         if not codexapp.send_message(self._codex_pipe, self.session_id,
-                                     outbox.render_short(notes)):
+                                     "\n\n".join(said)):
             for note in notes:
-                if note.get("text") != text:
-                    outbox.restore(self.session_id, note)
+                outbox.restore(self.session_id, note)
             return False
         if path:
-            self._await_reply(path, tries=self.CODEX_APP_REPLY_TRIES)
+            self._await_reply(path, tries=self.CODEX_APP_REPLY_TRIES, whole=True)
         return True
 
     def _send_enter(self):
