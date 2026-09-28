@@ -2467,7 +2467,7 @@ def test_a_codex_app_thread_gets_just_what_was_said_and_its_answer_comes_back(
                         lambda path, tid, text, timeout=5: sent.append(text) or True)
     pet._codex_pipe = "/fake.sock"          # 앱 세션 아래에서 떴다
     pet._talk(immediate=True, text="지금 뭐 해?")
-    assert sent == ["지금 뭐 해?"]            # 지시문이 사용자 눈에 안 밟힌다
+    assert sent[0].startswith("[claudlet]") and "지금 뭐 해?" in sent[0]
     pet._poll_reply()
     assert pet.snapshot()["saying"] == ""    # 지난 턴 답은 이번 답이 아니다
     with open(rollout, "a") as f:

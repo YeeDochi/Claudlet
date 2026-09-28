@@ -4672,22 +4672,22 @@ class Pet(QWidget):
     def _codex_app_send(self, text):
         """코덱스 앱 스레드에 말을 넣는다.
 
-        앱이 넣은 메시지는 위임 입력이다 — rollout 에 도구 출력으로 들어가
-        훅이 불리지 않고, 모델은 그 안의 지시를 따르지 않는다(말투·🗨 지시를
-        세게 써도 무시했다, 실측). 그래서 지시는 싣지 않고 사용자가 한 말만
-        보낸다(포인터로 고른 창 정보는 데이터라 싣는다). 답은 훅 대신 rollout 을
-        지켜보고, 🗨 줄이 없으니 최종 답 전체를 말풍선에 띄운다."""
-        notes = outbox.take(self.session_id)
-        said = [n["text"] for n in notes if n.get("text")]
-        if not any(text in s for s in said):
-            said.append(text)
+        앱이 넣은 메시지는 위임 입력이다 — rollout 에 도구 출력으로 들어가고,
+        모델은 그 안의 지시를 따르지 않는다(말투·🗨 지시를 세게 써도 무시했다,
+        실측). 규칙은 설치기가 ~/.codex/AGENTS.md 에 넣고, 여기서는 누구에게
+        무슨 말투로 건 말인지만 데이터로 싣는다. 답은 rollout 을 지켜봐서 받고,
+        🗨 줄이 없으면(규칙이 없거나 안 따랐으면) 최종 답 전체가 답이다."""
+        notes = [n for n in outbox.take(self.session_id) if not n.get("wake")]
+        if not any(text in (n.get("text") or "") for n in notes):
+            notes.append({"text": text})
         path = codexapp.rollout_path(self.session_id)
         if path:
             self._mark_turn_start(path, whole=True)
         if not codexapp.send_message(self._codex_pipe, self.session_id,
-                                     "\n\n".join(said)):
+                                     outbox.render_short(notes)):
             for note in notes:
-                outbox.restore(self.session_id, note)
+                if note.get("text") != text:
+                    outbox.restore(self.session_id, note)
             return False
         if path:
             self._await_reply(path, tries=self.CODEX_APP_REPLY_TRIES, whole=True)

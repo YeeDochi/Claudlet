@@ -63,6 +63,9 @@ AGENTS = {
         # 코덱스 훅에는 asyncRewake 가 없다. 코덱스 앱은 앱이 여는 도구
         # 파이프로 대신 보낸다(platform/codexapp.py).
         "rewake": [],
+        # 전역 지침 파일. 앱이 넣은 펫의 말은 도구 출력(위임)이라 모델이 그
+        # 안의 지시를 안 따른다 — 규칙은 모델이 믿는 이 자리에 둔다.
+        "instructions": os.path.join(".codex", "AGENTS.md"),
         "avatar": "codex",
         # The only tool_name values evidenced on this version are "exec" (the
         # shell tool -- appears in session rollouts as a custom_tool_call

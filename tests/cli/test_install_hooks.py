@@ -291,3 +291,23 @@ def test_codex_has_no_waiter(tmp_path):
     data = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
     assert not any(h.get("asyncRewake") for gs in data["hooks"].values()
                    for g in gs for h in g["hooks"])
+
+
+def test_codex_gets_the_pet_rule_in_its_instructions_without_losing_the_user_s(tmp_path):
+    os.makedirs(tmp_path / ".codex")
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.write_text("# Iris\n이모지 금지.\n")
+    ih.main(["x", "--agent", "codex"], home=str(tmp_path))
+    ih.main(["x", "--agent", "codex"], home=str(tmp_path))       # 두 번 해도
+    text = agents_md.read_text()
+    assert text.startswith("# Iris\n이모지 금지.\n")
+    assert text.count(ih.BLOCK_BEGIN) == 1 and "[claudlet]" in text
+    ih.main(["x", "--remove", "--agent", "codex"], home=str(tmp_path))
+    assert agents_md.read_text() == "# Iris\n이모지 금지.\n"
+
+
+def test_claude_s_instructions_are_left_alone(tmp_path):
+    os.makedirs(tmp_path / ".claude")
+    ih.main(["x", "--agent", "claude"], home=str(tmp_path))
+    assert not (tmp_path / ".claude" / "AGENTS.md").exists()
+    assert not (tmp_path / ".claude" / "CLAUDE.md").exists()
