@@ -368,3 +368,14 @@ def test_an_answer_written_before_the_app_s_message_is_not_its_answer():
     assert outbox.last_assistant_text(lines, final_only=True) is None
     assert outbox.last_assistant_text(lines + [said("테스트 받았어")],
                                       final_only=True) == "테스트 받았어"
+
+
+def test_work_before_the_app_s_message_is_not_more_of_the_pet_s_answer():
+    delegation = json.dumps({"type": "response_item", "payload": {
+        "type": "function_call_output", "output": "<codex_delegation><input>안녕</input></codex_delegation>"}})
+    earlier_tool = json.dumps({"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec"}})
+    reply = json.dumps({"type": "response_item", "payload": {
+        "type": "message", "role": "assistant", "phase": "final_answer",
+        "content": [{"type": "output_text", "text": "🗨 안녕하신가"}]}})
+    assert outbox.turn_had_more([earlier_tool, delegation, reply]) is False
+    assert outbox.turn_had_more([delegation, earlier_tool, reply]) is True

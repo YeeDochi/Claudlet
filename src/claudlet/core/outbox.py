@@ -259,6 +259,12 @@ def extract_reply(text):
     return None
 
 
+def _is_delegation(pay):
+    """코덱스 앱이 스레드에 넣은 말(send_message_to_thread)의 rollout 기록인가."""
+    return (pay.get("type") == "function_call_output"
+            and str(pay.get("output", "")).startswith("<codex_delegation>"))
+
+
 def last_assistant_text(lines, final_only=False):
     """transcript JSONL 줄들에서 마지막 assistant 발화의 텍스트, 없으면 None.
 
@@ -281,8 +287,7 @@ def last_assistant_text(lines, final_only=False):
             pay = rec.get("payload") or {}
             # 코덱스 앱이 넣은 말(위임)보다 앞선 답은 그 말에 대한 답이 아니다 —
             # 일하는 중에 보내면 같은 턴에 끼어들어, 하던 일의 답이 먼저 나온다
-            if (final_only and pay.get("type") == "function_call_output"
-                    and str(pay.get("output", "")).startswith("<codex_delegation>")):
+            if final_only and _is_delegation(pay):
                 return None
             if (pay.get("type") != "message" or pay.get("role") != "assistant"):
                 continue
@@ -332,6 +337,8 @@ def turn_had_more(lines):
             role, content = rec["type"], (rec.get("message") or {}).get("content")
         else:                                                # Codex rollout
             pay = rec.get("payload") or {}
+            if _is_delegation(pay):
+                return False            # 코덱스 앱이 넣은 펫의 말 — 여기가 턴의 시작
             if pay.get("type") in _TOOL_ITEMS:
                 return True
             if pay.get("type") != "message":
