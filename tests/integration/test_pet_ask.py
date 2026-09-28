@@ -1342,3 +1342,20 @@ def test_markup_read_off_the_screen_is_shown_as_text(pet, _hist):  # noqa: F811
         assert labels and labels[0].textFormat() == P.Qt.TextFormat.PlainText
     finally:
         win.close()
+
+
+def test_the_log_scrolls_to_the_newest_line(pet, _hist):  # noqa: F811
+    from claudlet.core import history as H
+    for i in range(30):
+        H.record_question(pet.session_id, "question %d" % i)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        H.record_question(pet.session_id, "the newest one")
+        win.refresh()
+        for _ in range(5):
+            P.QApplication.processEvents()
+        bar = win._scroll.verticalScrollBar()
+        assert bar.maximum() > 0 and bar.value() == bar.maximum()
+    finally:
+        win.close()

@@ -826,6 +826,16 @@ class HistoryWindow(QDialog):
         self._scroll.setWidget(self._log)
         self._scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 맨 아래 붙어 있기. 새로 채운 풍선의 높이는 레이아웃이 다음 루프에서야
+        # 정하므로 "채우고 바로 내리기" 는 옛 높이까지만 내려간다 — 스크롤 범위가
+        # 실제로 늘어나는 순간(rangeChanged)에 내린다. 사용자가 위로 올려 읽는
+        # 중이면 끌어내리지 않는다.
+        self._stick = True
+        bar = self._scroll.verticalScrollBar()
+        bar.rangeChanged.connect(
+            lambda _lo, hi: bar.setValue(hi) if self._stick else None)
+        bar.valueChanged.connect(
+            lambda v: setattr(self, "_stick", v >= bar.maximum() - 4))
         self._view = QTextBrowser(self)          # the session tab
         self._view.setOpenExternalLinks(False)
         self._stack = QStackedWidget(self)
@@ -1028,12 +1038,8 @@ class HistoryWindow(QDialog):
                 self._add(self._label("waiting for an answer…" if en
                                       else "답을 기다리는 중…", "wait"), False)
         self._rows.addStretch(1)
+        self._stick = True                 # 새 말이 왔다 — 그것을 보여준다
         self._fit_bubbles()
-        QTimer.singleShot(0, self._to_bottom)
-
-    def _to_bottom(self):
-        bar = self._scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
 
     def _fit_bubbles(self):
         # 줄바꿈하는 QLabel 은 폭 상한이 없으면 한 줄로 늘어나 창 끝까지 간다.
@@ -1056,8 +1062,8 @@ class HistoryWindow(QDialog):
 
     def showEvent(self, e):
         super().showEvent(e)
+        self._stick = True
         self._fit_bubbles()          # 처음 채울 땐 뷰포트 폭이 아직 0 이다
-        QTimer.singleShot(0, self._to_bottom)
 
     def html(self):
         """What is displayed, as text -- what tests assert on."""
