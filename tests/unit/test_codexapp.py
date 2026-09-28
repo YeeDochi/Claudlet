@@ -31,6 +31,7 @@ def test_the_request_targets_the_thread_with_the_text():
     p = req["params"]
     assert (req["method"], p["tool"], p["namespace"]) == \
         ("tools/call", "send_message_to_thread", "codex_app")
+    assert p["callerSource"] == "codex"
     assert p["arguments"] == {"threadId": "t-1", "prompt": "안녕"}
 
 

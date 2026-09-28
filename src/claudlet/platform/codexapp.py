@@ -78,6 +78,7 @@ def send_request(thread_id, text):
     return {"id": 1, "jsonrpc": "2.0", "method": "tools/call",
             "params": {"namespace": "codex_app",
                        "tool": "send_message_to_thread",
+                       "callerSource": "codex",
                        "threadId": thread_id,
                        "callId": "claudlet-" + uuid.uuid4().hex,
                        "turnId": "claudlet-" + uuid.uuid4().hex,
