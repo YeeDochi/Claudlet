@@ -5065,9 +5065,20 @@ def main():
     # SessionEnd (e.g. SIGKILL), wind down instead of lingering forever.
     _reaper = None
     if args.claude_pid > 0:
+        # 코덱스 CLI 는 데몬이 훅을 부른다 — 데몬은 TUI 를 닫아도 안 죽으므로
+        # 그 세션의 TUI 를 본다. 두 번 연달아 없을 때만 끈다(재시작 사이의 틈).
+        from claudlet.platform import codexd
+        watch_tui = args.agent == "codex" and codexd.pid_is_daemon(args.claude_pid)
+        misses = [0]
+
         def _check_parent():
             if not _pid_alive(args.claude_pid):
                 app.quit()
+                return
+            if watch_tui:
+                misses[0] = 0 if codexd.session_open(args.session) else misses[0] + 1
+                if misses[0] >= 2:
+                    app.quit()
         _reaper = QTimer()
         _reaper.timeout.connect(_check_parent)
         _reaper.start(3000)

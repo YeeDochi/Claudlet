@@ -203,3 +203,73 @@ def reachable(path=None, timeout=3):
             c.close()
     except (OSError, ValueError):
         return False
+
+
+# ---------- 펫의 수명: 데몬이 아니라 TUI 를 본다 ----------
+# 펫은 "나를 띄운 에이전트 프로세스가 죽으면 끈다" 로 산다. 코덱스 CLI 에서 그
+# 프로세스는 데몬이라 TUI 를 닫아도 안 죽고, 데몬은 닫힌 세션의 스레드도 계속
+# 들고 있다(실측: TUI 하나에 로드된 스레드 셋) — 그래서 펫이 영영 안 꺼졌다.
+# 대신 그 세션 폴더에서 도는 TUI 가 남아 있는지 본다.
+
+def is_daemon(argv):
+    """이 명령줄이 관리형 데몬인가. 순수."""
+    return "app-server" in argv and "--managed-daemon" in argv
+
+
+def tui_running(procs, cwd):
+    """`procs` = [(argv, cwd)] 중에 그 폴더의 코덱스 TUI 가 있나. 순수.
+
+    ponytail: 같은 폴더에 TUI 가 둘이면 둘 다 닫혀야 펫이 꺼진다. 스레드와 TUI 를
+    잇는 길을 데몬이 주지 않아서 폴더로 잇는다."""
+    for argv, where in procs:
+        if (argv and os.path.basename(argv[0]) == "codex"
+                and "app-server" not in argv and where == cwd):
+            return True
+    return False
+
+
+def _procs():
+    """리눅스 /proc 의 (argv, cwd). 다른 OS 는 빈 목록 — 호출자가 옛 방식으로 둔다."""
+    out = []
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else ():
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as f:
+                argv = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+            out.append((argv, os.readlink("/proc/%s/cwd" % pid)))
+        except OSError:
+            continue
+    return out
+
+
+def pid_is_daemon(pid):
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            return is_daemon([a.decode("utf-8", "replace")
+                              for a in f.read().split(b"\0") if a])
+    except OSError:
+        return False
+
+
+def session_cwd(session_id):
+    """세션을 연 폴더 (rollout 첫 줄 session_meta 의 cwd), 모르면 None."""
+    from claudlet.core import transcript
+    path = transcript.codex_rollout(session_id)
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            meta = json.loads(f.readline()).get("payload") or {}
+        return meta.get("cwd") or None
+    except (OSError, ValueError):
+        return None
+
+
+def session_open(session_id):
+    """그 세션의 TUI 가 아직 떠 있나. 판단할 수 없으면 True (펫을 죽이지 않는다)."""
+    cwd = session_cwd(session_id)
+    procs = _procs()
+    if not cwd or not procs:
+        return True
+    return tui_running(procs, cwd)

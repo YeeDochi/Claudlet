@@ -102,3 +102,17 @@ def test_without_unix_sockets_the_turn_goes_through_codex_s_own_proxy(monkeypatc
         frames.append(json.loads(got[1]))
         buf = got[2]
     assert frames[-1]["method"] == "turn/start"
+
+
+def test_the_daemon_is_told_apart_from_the_tui():
+    assert codexd.is_daemon(["codex", "app-server", "--listen", "unix://", "--managed-daemon"])
+    assert not codexd.is_daemon(["/x/codex"])
+
+
+def test_a_session_is_open_while_a_tui_runs_in_its_folder():
+    procs = [(["/v/bin/codex", "app-server", "--managed-daemon"], "/"),
+             (["/v/bin/codex"], "/home/u/proj"),
+             (["zsh"], "/home/u/other")]
+    assert codexd.tui_running(procs, "/home/u/proj")
+    assert not codexd.tui_running(procs, "/home/u/other")     # 그 폴더엔 셸뿐
+    assert not codexd.tui_running(procs[:1], "/")              # 데몬은 TUI 가 아니다
