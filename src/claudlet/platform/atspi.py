@@ -21,9 +21,13 @@ TWO THINGS MAKE THIS DIFFERENT FROM THE OTHER TWO
    the same reason: the interesting part (which node, how deep, what to keep)
    stays pure and testable on a machine with no desktop at all.
 
-Windows are matched by **pid**, never by title: two Konsole windows share a
-title far too often, and the caller already knows the pid from `geom`.
+Windows are matched by **pid**, never by title alone: two Konsole windows share
+a title far too often, and the caller already knows the pid from `geom`. Within
+that pid the title then narrows it to the one window (`pick_frames`) — a
+browser or IDE runs every window in ONE process, and reading the whole app put
+another window's page in front of the one pointed at (실사용 보고).
 """
+import inspect
 import os
 import shutil
 import subprocess
@@ -37,8 +41,42 @@ TIMEOUT = 8.0
 
 _PREFIX = "T:"
 
+def pick_frames(names, caption):
+    """Which of an app's top-level frames are the window titled `caption`. Pure.
+
+    Indices into `names` (the frames' accessible names). Exact title first,
+    then a containing one (KWin's caption often adds " — Firefox" to the
+    page title the frame carries). Nothing matches, or no caption -> every
+    frame, i.e. exactly the old whole-app read rather than nothing at all."""
+    cap = (caption or "").strip()
+    everything = list(range(len(names)))
+    if not cap:
+        return everything
+    clean = [(n or "").strip() for n in names]
+    exact = [i for i, n in enumerate(clean) if n and n == cap]
+    if exact:
+        return exact
+    part = [i for i, n in enumerate(clean) if n and (n in cap or cap in n)]
+    if part:
+        return part
+    # 끝에 붙는 앱 이름이 다르다: 트리는 "… - Chrome", KWin 은 "… - Google
+    # Chrome" (실측). 앞부분이 가장 길게 겹치는 하나를 고르되, 겨우 몇 글자
+    # 겹친 것은 우연이다.
+    def common(n):
+        k = 0
+        while k < min(len(n), len(cap)) and n[k] == cap[k]:
+            k += 1
+        return k
+    best = max((common(n), i) for i, n in enumerate(clean)) if clean else (0, 0)
+    ties = [i for i, n in enumerate(clean) if common(n) == best[0]]
+    if best[0] >= 8 and len(ties) == 1:
+        return ties
+    return everything
+
+
 # The child. Kept as one string so the whole reader is visible in one place; it
-# talks to the tree and prints, and decides nothing that is worth testing here.
+# talks to the tree and prints. Its one decision, which frame is the window,
+# is pick_frames above -- pasted in so the same code is what the tests run.
 READ_PY = r'''
 import sys
 try:
@@ -52,6 +90,7 @@ WANT_PID = int(sys.argv[1])
 MAX_DEPTH = int(sys.argv[2])
 MAX_NODES = int(sys.argv[3])
 PFX = sys.argv[4]
+CAPTION = sys.argv[5] if len(sys.argv) > 5 else ""
 
 # 앱의 가구는 화면 내용이 아니다. 실측: Konsole 을 그냥 훑으면 메뉴 190여 줄이
 # 먼저 나오고 정작 터미널 내용은 192번째 줄부터라, 상위 120줄만 싣는 쪽에서
@@ -119,13 +158,30 @@ for i in range(desktop.get_child_count()):
     except Exception:
         continue
     found = True
-    take(app, 0)
+    frames = []
+    for j in range(min(app.get_child_count(), 60)):
+        try:
+            frames.append(app.get_child_at_index(j))
+        except Exception:
+            pass
+    names = []
+    for f in frames:
+        try:
+            names.append(f.get_name() or "")
+        except Exception:
+            names.append("")
+    for j in pick_frames(names, CAPTION):
+        take(frames[j], 1)
 
 if not found:
     sys.exit(4)                       # 그 pid 는 접근성 트리에 없다 (스위치/미지원)
 for line in out:
     sys.stdout.write(PFX + line + "\n")
 '''
+# 자식에게 pick_frames 를 그대로 심는다 — 테스트가 도는 코드가 자식이 도는 코드다
+READ_PY = READ_PY.replace("desktop = Atspi.get_desktop(0)",
+                          inspect.getsource(pick_frames)
+                          + "\ndesktop = Atspi.get_desktop(0)", 1)
 
 
 def _system_python():
@@ -201,7 +257,8 @@ def read_window(win, run=None):
     if not pid:
         return None                   # pid 로만 창을 고른다 — 제목은 겹친다
     argv = [_system_python(), "-c", READ_PY, str(int(pid)),
-            str(MAX_DEPTH), str(MAX_NODES), _PREFIX]
+            str(MAX_DEPTH), str(MAX_NODES), _PREFIX,
+            getattr(win, "caption", "") or ""]
     runner = run or _run
     try:
         return parse_output(runner(argv))
