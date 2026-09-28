@@ -129,3 +129,31 @@ def test_a_live_skill_link_passes(tmp_path, monkeypatch):
     link.symlink_to(real)
     monkeypatch.setattr(doctorcli, "_skill_links", lambda: [str(link)])
     assert doctorcli.check_skill()[0] is True
+
+
+def test_the_wake_hook_is_seen_only_once_the_installer_put_it_in(tmp_path):
+    from claudlet.cli import doctorcli, install_hooks
+    import os
+    assert doctorcli.check_rewake(str(tmp_path))[0] is None      # Claude Code 없음
+    os.makedirs(tmp_path / ".claude")
+    (tmp_path / ".claude" / "settings.json").write_text('{"hooks": {}}')
+    assert doctorcli.check_rewake(str(tmp_path))[0] is False
+    install_hooks.main(["x", "--agent", "claude"], home=str(tmp_path))
+    assert doctorcli.check_rewake(str(tmp_path))[0] is True
+
+
+def test_the_codex_rule_is_missing_until_the_installer_writes_it(tmp_path):
+    from claudlet.cli import doctorcli, install_hooks
+    import os
+    assert doctorcli.check_codex_rule(str(tmp_path))[0] is None  # 코덱스 없음
+    os.makedirs(tmp_path / ".codex")
+    (tmp_path / ".codex" / "AGENTS.md").write_text("# 내 지침\n")
+    assert doctorcli.check_codex_rule(str(tmp_path))[0] is False
+    install_hooks.main(["x", "--agent", "codex"], home=str(tmp_path))
+    assert doctorcli.check_codex_rule(str(tmp_path))[0] is True
+
+
+def test_a_missing_codex_rule_names_what_it_costs_and_how_to_fix():
+    text = doctor.render([("codex_rule", False, "")], "ko")
+    assert "코덱스 앱" in text and "claudlet-install-hooks" in text
+    assert doctor.fix_command("codex_rule")[0] == "claudlet-install-hooks"

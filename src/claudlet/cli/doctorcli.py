@@ -108,6 +108,43 @@ def _konsole_pids(run):
     return out
 
 
+def check_rewake(home=None):
+    """Claude Code 에 깨우기 훅(asyncRewake)이 걸려 있나 — 쳐 넣을 수 없는
+    호스트(IDE 터미널, 데스크톱 앱)에서 즉시 전송의 전제."""
+    import json
+    if "claude" not in agents.detected(home):
+        return None, ""
+    try:
+        with open(agents.settings_path("claude", home), encoding="utf-8") as f:
+            groups = (json.load(f).get("hooks") or {}).get("Stop") or []
+    except (OSError, ValueError):
+        return False, ""
+    return any(h.get("asyncRewake") and "Rewake" in h.get("command", "")
+               for g in groups for h in g.get("hooks", [])), ""
+
+
+def check_codex_rule(home=None):
+    """코덱스 AGENTS.md 에 claudlet 블록이 있나 — 코덱스 앱에서 펫 말투의 전제."""
+    from claudlet.cli import install_hooks
+    if "codex" not in agents.detected(home):
+        return None, ""
+    path = os.path.join(home or os.path.expanduser("~"),
+                        agents.get("codex")["instructions"])
+    try:
+        with open(path, encoding="utf-8") as f:
+            return install_hooks.BLOCK_BEGIN in f.read(), ""
+    except OSError:
+        return False, "AGENTS.md 없음"
+
+
+def check_codex_daemon():
+    """코덱스 CLI 데몬에 붙나. 데몬을 안 쓰는 기계면 해당 없음."""
+    from claudlet.platform import codexd
+    if "codex" not in agents.detected() or codexd.socket_path() is None:
+        return None, ""
+    return codexd.reachable(), ""
+
+
 def check_input_dialog():
     """한글이 써지는 입력창이 있나 (pip Qt 대화상자에는 입력기가 없다)."""
     if not sys.platform.startswith("linux"):
@@ -197,6 +234,9 @@ ORDER = [
     ("hooks", check_hooks),
     ("skill", check_skill),
     ("konsole_send", check_konsole_send),
+    ("rewake", check_rewake),
+    ("codex_rule", check_codex_rule),
+    ("codex_daemon", check_codex_daemon),
     ("input_dialog", check_input_dialog),
     ("atspi_daemon", check_atspi_daemon),
     ("atspi_gi", check_atspi_gi),

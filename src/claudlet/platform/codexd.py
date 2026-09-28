@@ -186,3 +186,20 @@ def start_turn(thread_id, text, path=None, timeout=5):
             c.close()
     except (OSError, ValueError):
         return False
+
+
+def reachable(path=None, timeout=3):
+    """데몬이 initialize 에 답하나 (doctor 용)."""
+    path = path or socket_path()
+    if not path:
+        return False
+    try:
+        c = _Conn(*(_unix(path, timeout) if hasattr(socket, "AF_UNIX")
+                    else _proxy(timeout)))
+        try:
+            return "result" in c.call(1, "initialize",
+                                      {"clientInfo": {"name": "claudlet", "version": "1"}})
+        finally:
+            c.close()
+    except (OSError, ValueError):
+        return False

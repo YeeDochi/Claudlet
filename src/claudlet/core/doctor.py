@@ -21,6 +21,9 @@ CHECKS = {
     "hooks": Check("hooks", "reactive", "install_hooks"),
     "skill": Check("skill", "slash_command", "reinstall_skill"),
     "konsole_send": Check("konsole_send", "ask_now", "konsole_switch"),
+    "rewake": Check("rewake", "ask_anywhere", "install_hooks"),
+    "codex_rule": Check("codex_rule", "codex_app_voice", "install_hooks"),
+    "codex_daemon": Check("codex_daemon", "codex_ask_now", "codex_daemon"),
     "input_dialog": Check("input_dialog", "hangul_input", "install_kdialog"),
     "atspi_daemon": Check("atspi_daemon", "read_screen", "start_atspi"),
     "atspi_gi": Check("atspi_gi", "read_screen", "install_gi"),
@@ -48,6 +51,10 @@ TEXT = {
             "reactive": "펫이 에이전트 활동에 반응하기",
             "slash_command": "/claudlet 스킬 (띄우기·설정·크리처 만들기·점검)",
             "ask_now": "💬 지금 물어보기 (프롬프트에 바로 제출)",
+            "ask_anywhere": "💬 IDE 터미널·데스크톱 앱의 Claude Code 에 지금 물어보기"
+                            " (놀고 있는 세션을 깨운다)",
+            "codex_app_voice": "코덱스 앱에서 펫 말투로 답하기 (없으면 코덱스 말투 그대로)",
+            "codex_ask_now": "💬 코덱스 CLI 에 지금 물어보기 (어느 터미널이든)",
             "hangul_input": "펫 입력창에 한글 치기",
             "read_screen": "🎯 포인터로 가리킨 창의 **글자** 읽기 (창 제목·크기는 읽힘)",
             "read_java": "자바 창(IntelliJ 등)의 글자 읽기",
@@ -56,6 +63,9 @@ TEXT = {
             "install_hooks": "claudlet-install-hooks 를 실행한 뒤 세션을 다시 여세요.",
             "reinstall_skill": "스킬 링크가 끊어져 있습니다(설치 방식이 바뀌면"
                                " 생깁니다). claudlet-install 을 다시 실행하세요.",
+            "codex_daemon": "코덱스 CLI 데몬 소켓은 있는데 붙지 못했습니다."
+                            " `codex app-server daemon status` 로 데몬이 살아 있는지"
+                            " 보고, 코덱스를 다시 켜세요.",
             "konsole_switch": "Konsole 설정 → 일반 → '보안에 민감한 DBus API 활성화'"
                               " 를 켜세요 (창마다 따로 적용되니 이미 열려 있던 창은"
                               " 새로 여세요).",
@@ -97,6 +107,11 @@ TEXT = {
             "reactive": "the pet reacting to agent activity",
             "slash_command": "the /claudlet skill (launch, configure, make a creature, check up)",
             "ask_now": "💬 Ask now (typed straight into the prompt)",
+            "ask_anywhere": "💬 Ask now for Claude Code in an IDE terminal or the"
+                            " desktop app (wakes the idle session)",
+            "codex_app_voice": "the pet's own voice in the Codex app (otherwise"
+                               " Codex answers in its own)",
+            "codex_ask_now": "💬 Ask now for the Codex CLI (any terminal)",
             "hangul_input": "typing non-ASCII into the pet's input box",
             "read_screen": "reading the **text** of the window you point at"
                            " (title and size still work)",
@@ -106,6 +121,9 @@ TEXT = {
             "install_hooks": "Run claudlet-install-hooks, then restart the session.",
             "reinstall_skill": "The skill link is dangling (this happens when the"
                                " install method changes). Run claudlet-install again.",
+            "codex_daemon": "The Codex CLI daemon socket is there but would not"
+                            " answer. Check `codex app-server daemon status`, then"
+                            " restart Codex.",
             "konsole_switch": "Konsole → Settings → General → 'Enable the security"
                               " sensitive parts of the DBus API'. It applies per"
                               " running Konsole, so reopen windows that were"
@@ -145,6 +163,10 @@ FIXES = {
     "java_bridge": (["__append__", "~/.accessibility.properties", JAVA_PROP],
                     ["__remove__", "~/.accessibility.properties", JAVA_PROP]),
     "hooks": (["claudlet-install-hooks"], ["claudlet-install-hooks", "--remove"]),
+    # 둘 다 설치기가 넣는 것이다 — 다시 돌리면 들어간다
+    "rewake": (["claudlet-install-hooks"], ["claudlet-install-hooks", "--remove"]),
+    "codex_rule": (["claudlet-install-hooks", "--agent", "codex"],
+                   ["claudlet-install-hooks", "--remove", "--agent", "codex"]),
     "skill": (["claudlet-install"], ["claudlet-uninstall"]),
 }
 
