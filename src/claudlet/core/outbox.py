@@ -48,9 +48,10 @@ def append_voice(session_id, persona, nickname=None):
 
     즉시 전송은 프롬프트에 질문을 그대로 타이핑하므로, 말투 지시까지 거기
     끼워 넣으면 사용자 눈에 계속 밟힌다(실사용에서 바로 걸렸다). 타이핑이
-    제출되면 UserPromptSubmit 이 돌고, 훅이 이 쪽지를 같은 턴에 실어 보낸다."""
-    if not (persona or nickname):
-        return False
+    제출되면 UserPromptSubmit 이 돌고, 훅이 이 쪽지를 같은 턴에 실어 보낸다.
+
+    말투·이름이 비어도 쌓는다: 이 쪽지가 곧 "🗨 한 줄을 붙여라" 는 지시라서,
+    없으면 에이전트가 크리처 답을 안 쓰고 말풍선이 영영 안 뜬다(코덱스 실측)."""
     note = {"voice": persona or ""}
     if nickname:
         note["name"] = nickname
@@ -77,7 +78,8 @@ def _read(path):
             note = json.loads(line)
         except ValueError:
             continue                  # 깨진 한 줄이 나머지를 가리지 않는다
-        if isinstance(note, dict) and (note.get("text") or note.get("voice")
+        # "voice" 는 비어 있어도 쪽지다 — 펫으로 들어온 턴이라는 표시 자체다
+        if isinstance(note, dict) and (note.get("text") or "voice" in note
                                        or note.get("name")):
             notes.append(note)
     return notes

@@ -4581,7 +4581,7 @@ class Pet(QWidget):
             return
         # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
         # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
-        if immediate and (self._persona or self._nickname):
+        if immediate:
             outbox.append_voice(self.session_id, self._persona, self._nickname)
         # 프롬프트에는 질문만 찍는다. 말투·이름은 위에서 아웃박스에 넣었고,
         # 이 제출이 부르는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다.

@@ -77,3 +77,11 @@ def test_a_swapped_avatar_is_what_gets_painted():
         assert tall.painted, "the pet painted something other than its avatar"
     finally:
         p._cleanup()
+
+
+def test_every_bundled_creature_comes_with_a_name_and_a_voice():
+    # 비어 있으면 즉시 전송에 크리처 목소리가 없어진다 — 말풍선이 밋밋해진다
+    from claudlet.core import avatars
+    for name, cls in avatars.bundled().items():
+        assert getattr(cls, "nickname", None), name
+        assert getattr(cls, "persona", None), name

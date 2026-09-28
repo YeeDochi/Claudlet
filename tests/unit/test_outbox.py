@@ -307,3 +307,10 @@ def test_a_codex_tool_call_counts_as_more():
                  "type": "message", "role": "assistant",
                  "content": [{"type": "output_text", "text": "🗨 됐다"}]}})]
     assert outbox.turn_had_more(lines) is True
+
+
+def test_a_voice_note_without_persona_or_name_still_asks_for_the_line():
+    # 말투·이름을 안 정한 크리처(코덱스 기본)도 즉시 전송하면 🗨 지시가 가야 한다
+    outbox.append_voice("s1", None, None)
+    ctx = outbox.payload("UserPromptSubmit", outbox.take("s1"))
+    assert ctx and outbox.MARK in ctx["hookSpecificOutput"]["additionalContext"]
