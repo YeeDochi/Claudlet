@@ -97,7 +97,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                              QToolTip, QInputDialog, QLineEdit,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
                              QHBoxLayout, QTabBar, QLabel, QScrollArea,
-                             QStackedWidget, QToolButton, QFrame)
+                             QStackedWidget, QToolButton, QFrame, QMessageBox)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
                          QRegion, QPainterPath, QFont, QPen)
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
@@ -729,10 +729,12 @@ QTabBar::tab { background:transparent; color:#9A9AA8; border:none;
                border-bottom:2px solid transparent; padding:8px 14px;
                font-weight:600; }
 QTabBar::tab:selected { color:#ECECF0; border-bottom-color:#6B8AFF; }
-QToolButton#more { color:#9A9AA8; background:transparent; border:none;
-                   font-size:18px; padding:0 8px; }
-QToolButton#more:hover { color:#ECECF0; }
-QToolButton#more::menu-indicator { image:none; }
+QToolButton#icon { color:#9A9AA8; background:transparent; border:none;
+                   border-radius:14px; min-width:28px; min-height:28px;
+                   font-size:14px; }
+QToolButton#icon:hover { background:#2A2A33; color:#ECECF0; }
+QToolButton#icon:checked { background:#1F2A4D; color:#B9C8FF; }
+QToolButton#icon:disabled { color:#44444f; }
 QScrollArea, QWidget#log { background:#16161a; border:none; }
 QTextBrowser { background:#16161a; color:#ECECF0; border:none; }
 QLabel[role="me"] { background:#6B8AFF; color:#ffffff; border-radius:14px;
@@ -795,26 +797,28 @@ class HistoryWindow(QDialog):
         self._tabs.addTab("Session activity" if en else "세션 활동")
         self._tabs.currentChanged.connect(lambda _i: self.refresh())
 
-        # 자주 안 쓰는 둘은 ⋯ 메뉴로 — 대화 밑에 버튼 줄로 늘어놓으면 입력칸보다
-        # 눈에 먼저 띈다.
-        more = QToolButton(self)
-        more.setObjectName("more")
-        more.setText("⋯")
-        more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu = QMenu(more)
-        self._toggle = menu.addAction("Show what was sent" if en
-                                      else "보낸 화면 내용 보기")
+        # 자주 안 쓰는 둘은 탭 줄 오른쪽 아이콘으로 — 대화 밑에 버튼 줄로
+        # 늘어놓으면 입력칸보다 눈에 먼저 띈다. 👁 는 켜고 끄는 토글.
+        self._toggle = QToolButton(self)
+        self._toggle.setObjectName("icon")
+        self._toggle.setText("👁")
         self._toggle.setCheckable(True)
+        self._toggle.setToolTip("Show what was sent" if en
+                                else "보낸 화면 내용 보기")
         self._toggle.toggled.connect(self._set_full)
-        self._clear = menu.addAction("Clear" if en else "내역 지우기")
-        self._clear.triggered.connect(self._clear_history)
-        more.setMenu(menu)
+        self._clear = QToolButton(self)
+        self._clear.setObjectName("icon")
+        self._clear.setText("✕")
+        self._clear.setToolTip("Clear" if en else "내역 지우기")
+        self._clear.clicked.connect(self._confirm_clear)
 
         head = QHBoxLayout()
         head.setContentsMargins(8, 4, 8, 0)
+        head.setSpacing(2)
         head.addWidget(self._tabs)
         head.addStretch(1)
-        head.addWidget(more)
+        head.addWidget(self._toggle)
+        head.addWidget(self._clear)
 
         self._log = QWidget()
         self._log.setObjectName("log")
@@ -945,6 +949,15 @@ class HistoryWindow(QDialog):
     def _set_full(self, on):
         self._full = bool(on)
         self.refresh()
+
+    def _confirm_clear(self):
+        # 오른쪽 위 ✕ 는 창 닫기로 착각하기 쉽고, 지운 내역은 돌아오지 않는다.
+        en = self._lang == "en"
+        yes = QMessageBox.question(
+            self, "claudlet",
+            "Clear this conversation log?" if en else "이 대화 내역을 지울까요?")
+        if yes == QMessageBox.StandardButton.Yes:
+            self._clear_history()
 
     def _clear_history(self):
         try:

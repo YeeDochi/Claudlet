@@ -1359,3 +1359,16 @@ def test_the_log_scrolls_to_the_newest_line(pet, _hist):  # noqa: F811
         assert bar.maximum() > 0 and bar.value() == bar.maximum()
     finally:
         win.close()
+
+
+def test_the_clear_icon_asks_before_wiping_the_log(pet, _hist, monkeypatch):  # noqa: F811
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "keep me")
+    monkeypatch.setattr(P.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: P.QMessageBox.StandardButton.No))
+    win = pet.show_history()
+    try:
+        win._clear.click()
+        assert [r["question"] for r in win.records()] == ["keep me"]
+    finally:
+        win.close()
