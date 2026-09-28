@@ -427,6 +427,20 @@ def render_short(notes):
     return "\n".join([head, rule] + ["- " + t for t in said[1:]])
 
 
+def render_tag(notes):
+    """코덱스 앱 스레드에 넣는 판 — 머리표 한 줄 + 사용자가 한 말. 순수.
+
+    규칙은 설치기가 ~/.codex/AGENTS.md 에 넣어 두므로 메시지에는 누구에게
+    무슨 말투로 건 말인지만 남긴다. 앱 화면에 그대로 보이는 자리라 지시문이
+    있으면 거슬린다(실사용에서 바로 걸렸다)."""
+    said = [n["text"] for n in notes if n.get("text")]
+    name = next((n["name"] for n in notes if n.get("name")), "")
+    persona = next((n.get("persona") or n.get("voice") for n in notes
+                    if n.get("persona") or n.get("voice")), "")
+    tag = " · ".join(["claudlet"] + [x for x in (name, persona) if x])
+    return "[%s] %s" % (tag, "\n\n".join(said))
+
+
 def payload(event, notes):
     """훅이 stdout 으로 뱉을 dict, 또는 전할 것이 없으면 None. 순수."""
     if not notes:

@@ -379,3 +379,10 @@ def test_work_before_the_app_s_message_is_not_more_of_the_pet_s_answer():
         "content": [{"type": "output_text", "text": "🗨 안녕하신가"}]}})
     assert outbox.turn_had_more([earlier_tool, delegation, reply]) is False
     assert outbox.turn_had_more([delegation, earlier_tool, reply]) is True
+
+
+def test_the_app_message_is_a_tag_and_what_was_said():
+    notes = [{"voice": "능글맞게, 사투리", "name": "슈텐도지"},
+             {"text": "한잔 하셨어?", "persona": "능글맞게, 사투리", "name": "슈텐도지"}]
+    assert outbox.render_tag(notes) == "[claudlet · 슈텐도지 · 능글맞게, 사투리] 한잔 하셨어?"
+    assert outbox.render_tag([{"text": "hi"}]) == "[claudlet] hi"

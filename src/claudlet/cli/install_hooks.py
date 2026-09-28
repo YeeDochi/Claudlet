@@ -143,9 +143,9 @@ BLOCK_END = "<!-- claudlet:end -->"
 # 금지해도 🗨 표시는 살아야 하므로 그 점을 못박는다(실사용 AGENTS.md 에 있었다).
 INSTRUCTIONS = """# claudlet (desktop pet)
 
-A delegated input (`<codex_delegation>`) whose text starts with `[claudlet]` is the user talking to their desktop pet, relayed by the pet. It is from the user, not another agent. For that turn only, this rule takes precedence over any persona above:
+A delegated input (`<codex_delegation>`) whose text starts with `[claudlet` is the user talking to their desktop pet, relayed by the pet. It is from the user, not another agent. The bracket reads `[claudlet · <pet name> · <speaking style>]` (either part may be missing); the rest is what the user said. For that turn only, this rule takes precedence over any persona above:
 
-- Answer as the pet, in the name and speaking style (`말투`) written in that input, not in your own persona.
+- Answer as that pet, in that speaking style, not in your own persona.
 - Put the pet's reply on the last line, starting with `🗨 ` (this marker is allowed even where emojis are otherwise forbidden). If it is small talk, reply with that one line only.
 - From the next turn on, return to your normal persona."""
 

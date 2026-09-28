@@ -4684,7 +4684,7 @@ class Pet(QWidget):
         if path:
             self._mark_turn_start(path, whole=True)
         if not codexapp.send_message(self._codex_pipe, self.session_id,
-                                     outbox.render_short(notes)):
+                                     outbox.render_tag(notes)):
             for note in notes:
                 if note.get("text") != text:
                     outbox.restore(self.session_id, note)
