@@ -386,3 +386,19 @@ def test_the_app_message_is_a_tag_and_what_was_said():
              {"text": "한잔 하셨어?", "persona": "능글맞게, 사투리", "name": "슈텐도지"}]
     assert outbox.render_tag(notes) == "[claudlet · 슈텐도지 · 능글맞게, 사투리] 한잔 하셨어?"
     assert outbox.render_tag([{"text": "hi"}]) == "[claudlet] hi"
+
+
+def test_the_previous_answer_is_not_taken_before_the_app_s_message_is_written():
+    # 실측 순서: 하던 일의 답이 먼저 기록되고, 위임은 그 뒤에 기록된다.
+    def said(text):
+        return json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "phase": "final_answer",
+            "content": [{"type": "output_text", "text": text}]}})
+    started = json.dumps({"type": "event_msg", "payload": {"type": "task_started"}})
+    delegation = json.dumps({"type": "response_item", "payload": {
+        "type": "function_call_output", "output": "<codex_delegation><input>안녕</input></codex_delegation>"}})
+    prev = [said("지난 턴 답"), started, said("대기 중입니다")]
+    assert outbox.last_assistant_text(prev, final_only=True) is None
+    assert outbox.last_assistant_text(prev + [delegation], final_only=True) is None
+    assert outbox.last_assistant_text(prev + [delegation, said("🗨 안녕")],
+                                      final_only=True) == "🗨 안녕"

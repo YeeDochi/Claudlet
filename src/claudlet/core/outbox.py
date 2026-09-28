@@ -265,12 +265,31 @@ def _is_delegation(pay):
             and str(pay.get("output", "")).startswith("<codex_delegation>"))
 
 
+def _text_of(content):
+    if isinstance(content, str):
+        return content or None
+    if isinstance(content, list):
+        parts = [b.get("text") for b in content
+                 if isinstance(b, dict)
+                 and b.get("type") in ("text", "output_text")
+                 and isinstance(b.get("text"), str)]
+        if parts:
+            return "\n".join(parts)
+    return None
+
+
 def last_assistant_text(lines, final_only=False):
     """transcript JSONL 줄들에서 마지막 assistant 발화의 텍스트, 없으면 None.
 
     포맷이 비공식이라는 것이 이 함수의 전제다 — 모르는 모양은 조용히 건너뛴다.
     2026-07-14 에 사용량 대시보드를 접은 이유가 이 포맷 의존이었으므로, 여기서
-    나오는 것은 "있으면 좋은 것"이지 기능의 뼈대가 아니다."""
+    나오는 것은 "있으면 좋은 것"이지 기능의 뼈대가 아니다.
+
+    final_only (코덱스 앱이 넣은 펫의 말): 그 말(위임) **뒤**에 나온 final_answer
+    만 답이다. 일하는 중에 보내면 같은 턴에 끼어드는데, 하던 일의 답이 먼저
+    나오고 위임은 그보다 늦게 기록된다(실측) — 앞에 위임이 보이지 않는 답은
+    아직 답이 아니다."""
+    found = None
     for line in reversed(list(lines or ())):
         try:
             rec = json.loads(line)
@@ -285,25 +304,22 @@ def last_assistant_text(lines, final_only=False):
             content = (rec.get("message") or {}).get("content")
         else:
             pay = rec.get("payload") or {}
-            # 코덱스 앱이 넣은 말(위임)보다 앞선 답은 그 말에 대한 답이 아니다 —
-            # 일하는 중에 보내면 같은 턴에 끼어들어, 하던 일의 답이 먼저 나온다
             if final_only and _is_delegation(pay):
-                return None
+                return found
             if (pay.get("type") != "message" or pay.get("role") != "assistant"):
                 continue
             # 코덱스는 턴 중간에도 commentary 로 말한다 — 답은 final_answer 다
             if final_only and pay.get("phase") not in (None, "final_answer"):
                 continue
             content = pay.get("content")
-        if isinstance(content, str):
-            return content or None
-        if isinstance(content, list):
-            parts = [b.get("text") for b in content
-                     if isinstance(b, dict)
-                     and b.get("type") in ("text", "output_text")
-                     and isinstance(b.get("text"), str)]
-            if parts:
-                return "\n".join(parts)
+        text = _text_of(content)
+        if text is None:
+            continue
+        if not final_only:
+            return text
+        if found is not None:
+            return None           # 위임 없이 앞선 답에 닿았다 — 하던 일의 답이다
+        found = text
     return None
 
 
@@ -401,7 +417,9 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
             if line is None and whole:
                 line, more = whole_reply(text)
             return (line, more) if with_more else line
-        if tail_bytes >= size or tail_bytes >= tail_max:
+        # 펫이 방금 넣은 말의 답은 파일 끝에 붙는다 — 기다리는 동안 꼬리를
+        # 8MB 까지 늘려 0.2초마다 읽을 이유가 없다
+        if whole or tail_bytes >= size or tail_bytes >= tail_max:
             return miss                # 파일을 다 봤거나, 충분히 거슬러 올라갔다
         tail_bytes = min(tail_bytes * 4, tail_max)
 

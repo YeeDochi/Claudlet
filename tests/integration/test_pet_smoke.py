@@ -2472,6 +2472,7 @@ def test_a_codex_app_thread_gets_just_what_was_said_and_its_answer_comes_back(
     pet._poll_reply()
     assert pet.snapshot()["saying"] == ""    # 지난 턴 답은 이번 답이 아니다
     with open(rollout, "a") as f:
+        f.write(json.dumps({"type": "response_item", "payload": {"type": "function_call_output", "output": "<codex_delegation><input>x</input></codex_delegation>"}}) + "\n")                          # 앱이 스레드에 넣은 기록
         f.write(said("찾아볼게", "commentary"))
     pet._poll_reply()
     assert pet.snapshot()["saying"] == ""    # 중간 말은 답이 아니다
@@ -2495,7 +2496,7 @@ def test_a_codex_app_answer_still_lands_when_the_turn_s_hooks_do_fire(
     pet._codex_pipe = "/fake.sock"
     pet._talk(immediate=True, text="test")
     send_hook(pet, "UserPromptSubmit", session=pet.session_id, transcript_path=str(roll))
-    roll.write_text(json.dumps({"type": "response_item", "payload": {
+    roll.write_text(json.dumps({"type": "response_item", "payload": {"type": "function_call_output", "output": "<codex_delegation><input>x</input></codex_delegation>"}}) + "\n" + json.dumps({"type": "response_item", "payload": {
         "type": "message", "role": "assistant", "phase": "final_answer",
         "content": [{"type": "output_text", "text": "정상 수신했습니다"}]}}) + "\n")
     send_hook(pet, "turn_end", cmd="turn_end", transcript=str(roll),
