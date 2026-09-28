@@ -252,6 +252,7 @@ UI = {
            "ask_again": "↩ 이 영역에 대해 더 물어보기",
            "history": "💬 대화 시작…",
            "chat_ph": "펫에게 할 말 · 엔터로 바로 보내기",
+           "chat_ph_note": "펫에게 할 말 · 엔터로 쪽지 남기기",
            "chat_send": "보내기", "chat_note": "📝 쪽지로 남기기",
            "chat_about": "🎯 %s 에 대해  ✕"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
@@ -283,6 +284,7 @@ UI = {
            "ask_again": "↩ Ask more about this area",
            "history": "💬 Start a conversation…",
            "chat_ph": "Say something · Enter sends it now",
+           "chat_ph_note": "Say something · Enter leaves it as a note",
            "chat_send": "Send", "chat_note": "📝 Leave as a note",
            "chat_about": "🎯 About %s  ✕"},
 }
@@ -785,6 +787,41 @@ QMenu::item:selected { background:#33333d; }
 """
 
 
+class _Stick:
+    """Keep a scroll view pinned to the newest line, unless the reader scrolled up.
+
+    Scrolling right after filling reaches only the OLD bottom: the new content's
+    height is laid out on a later turn of the loop. So the pin acts when the
+    range actually grows (rangeChanged). A re-render run through `around()`
+    keeps a reader who scrolled up at the place they were reading.
+    """
+    def __init__(self, bar):
+        self.bar = bar
+        self.on = True
+        self._hold = None
+        bar.rangeChanged.connect(self._range)
+        # 사람이 움직였을 때만 듣는다(휠·드래그·화살표). valueChanged 로 들으면
+        # QTextBrowser 가 문서를 나눠 깔면서 스스로 옮기는 것까지 "위로 올려 읽는
+        # 중" 으로 알아듣고 고정을 풀어버린다.
+        bar.actionTriggered.connect(self._moved)
+
+    def _range(self, _lo, hi):
+        if self.on:
+            self.bar.setValue(hi)
+        elif self._hold is not None:
+            self.bar.setValue(min(self._hold, hi))
+
+    def _moved(self, _action):
+        # actionTriggered 는 값이 바뀌기 직전에 온다 — 갈 자리는 sliderPosition
+        self.on = self.bar.sliderPosition() >= self.bar.maximum() - 4
+        self._hold = None
+
+    def around(self, render):
+        self._hold = None if self.on else self.bar.value()
+        render()
+        self._range(0, self.bar.maximum())
+
+
 class HistoryWindow(QDialog):
     """This pet's conversation: the log, and a line to talk from.
 
@@ -863,18 +900,16 @@ class HistoryWindow(QDialog):
         self._scroll.setWidget(self._log)
         self._scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # 맨 아래 붙어 있기. 새로 채운 풍선의 높이는 레이아웃이 다음 루프에서야
-        # 정하므로 "채우고 바로 내리기" 는 옛 높이까지만 내려간다 — 스크롤 범위가
-        # 실제로 늘어나는 순간(rangeChanged)에 내린다. 사용자가 위로 올려 읽는
-        # 중이면 끌어내리지 않는다.
-        self._stick = True
-        bar = self._scroll.verticalScrollBar()
-        bar.rangeChanged.connect(
-            lambda _lo, hi: bar.setValue(hi) if self._stick else None)
-        bar.valueChanged.connect(
-            lambda v: setattr(self, "_stick", v >= bar.maximum() - 4))
+        self._stick = _Stick(self._scroll.verticalScrollBar())
         self._view = QTextBrowser(self)          # the session tab
         self._view.setOpenExternalLinks(False)
+        self._view_stick = _Stick(self._view.verticalScrollBar())
+        # 세션 활동은 훅마다 바뀐다. 보고 있는 동안만, 파일이 실제로 바뀌었을
+        # 때만 다시 그린다 — 긴 세션의 transcript 를 매번 파싱하면 비싸다.
+        self._seen_stamp = None
+        self._live = QTimer(self)
+        self._live.setInterval(2000)
+        self._live.timeout.connect(self._poll_session)
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._scroll)
         self._stack.addWidget(self._view)
@@ -979,6 +1014,20 @@ class HistoryWindow(QDialog):
         except Exception:
             return []
 
+    def _session_stamp(self):
+        try:
+            st = os.stat(transcript.find_transcript(self._session) or "")
+            return (st.st_size, st.st_mtime)
+        except (OSError, TypeError):
+            return None
+
+    def _poll_session(self):
+        if not self.isVisible() or self.view() != "session":
+            self._live.stop()
+            return
+        if self._session_stamp() != self._seen_stamp:
+            self.refresh()
+
     def _set_full(self, on):
         self._full = bool(on)
         self.refresh()
@@ -1009,6 +1058,10 @@ class HistoryWindow(QDialog):
     def refresh(self):
         pet = self._pet
         if pet is not None:
+            # 이 호스트가 프롬프트에 직접 써 넣지 못하면 엔터는 쪽지가 된다 —
+            # "바로 보내기" 라고 써두면 보냈는데 왜 안 가지 가 된다.
+            self._input.setPlaceholderText(
+                pet.ui["chat_ph"] if pet._can_talk_now() else pet.ui["chat_ph_note"])
             win = pet._ask_target
             self._chip.setVisible(win is not None)
             if win is not None:
@@ -1020,10 +1073,14 @@ class HistoryWindow(QDialog):
             # The transcript is Claude Code's file; we only read it, so the
             # controls that write have nothing to act on here.
             self._stack.setCurrentWidget(self._view)
-            self._view.setHtml(transcript.render_html(self.timeline(), self._lang))
+            self._seen_stamp = self._session_stamp()
+            html = transcript.render_html(self.timeline(), self._lang)
+            self._view_stick.around(lambda: self._view.setHtml(html))
             self._toggle.setEnabled(False)
             self._clear.setEnabled(False)
+            self._live.start()
             return
+        self._live.stop()
         self._stack.setCurrentWidget(self._scroll)
         recs = self.records()
         self._fill(recs[::-1])             # 채팅처럼 최신이 아래, 입력칸 바로 위
@@ -1084,7 +1141,7 @@ class HistoryWindow(QDialog):
                 self._add(self._label("waiting for an answer…" if en
                                       else "답을 기다리는 중…", "wait"), False)
         self._rows.addStretch(1)
-        self._stick = True                 # 새 말이 왔다 — 그것을 보여준다
+        self._stick.on = True              # 새 말이 왔다 — 그것을 보여준다
         self._fit_bubbles()
 
     def _fit_bubbles(self):
@@ -1108,7 +1165,7 @@ class HistoryWindow(QDialog):
 
     def showEvent(self, e):
         super().showEvent(e)
-        self._stick = True
+        self._stick.on = True
         self._fit_bubbles()          # 처음 채울 땐 뷰포트 폭이 아직 0 이다
 
     def html(self):

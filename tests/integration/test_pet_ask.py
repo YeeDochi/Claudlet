@@ -1486,3 +1486,67 @@ def test_the_clear_icon_asks_before_wiping_the_log(pet, _hist, monkeypatch):  # 
         assert [r["question"] for r in win.records()] == ["keep me"]
     finally:
         win.close()
+
+
+def _long_transcript(pet, tmp_path, monkeypatch, n=80):  # noqa: F811
+    import json
+    from claudlet.core import transcript as T
+    proj = tmp_path / "proj"
+    proj.mkdir(exist_ok=True)
+    path = proj / ("%s.jsonl" % pet.session_id)
+    path.write_text("\n".join(json.dumps(
+        {"type": "user", "message": {"role": "user", "content": "step %d" % i}})
+        for i in range(n)) + "\n")
+    monkeypatch.setattr(T, "transcript_roots", lambda *a, **k: [str(tmp_path)])
+    return path
+
+
+def _settle():
+    for _ in range(5):
+        P.QApplication.processEvents()
+
+
+def test_session_activity_opens_on_the_newest_step(pet, _hist, tmp_path, monkeypatch):  # noqa: F811
+    _long_transcript(pet, tmp_path, monkeypatch)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        win._tabs.setCurrentIndex(1)
+        _settle()
+        bar = win._view.verticalScrollBar()
+        assert bar.maximum() > 0 and bar.value() == bar.maximum()
+    finally:
+        win.close()
+
+
+def test_session_activity_follows_new_steps_while_watched(pet, _hist, tmp_path, monkeypatch):  # noqa: F811
+    import json
+    path = _long_transcript(pet, tmp_path, monkeypatch, n=3)
+    win = pet.show_history()
+    try:
+        win._tabs.setCurrentIndex(1)
+        with open(path, "a") as f:
+            f.write(json.dumps({"type": "user", "message": {
+                "role": "user", "content": "a brand new step"}}) + "\n")
+        win._poll_session()                 # what the 2s timer does
+        assert "a brand new step" in win.html()
+    finally:
+        win.close()
+
+
+def test_a_reader_who_scrolled_up_keeps_their_place(pet, _hist, tmp_path, monkeypatch):  # noqa: F811
+    _long_transcript(pet, tmp_path, monkeypatch)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        win._tabs.setCurrentIndex(1)
+        _settle()
+        bar = win._view.verticalScrollBar()
+        bar.triggerAction(bar.SliderAction.SliderToMinimum)   # the reader scrolls up
+        bar.triggerAction(bar.SliderAction.SliderSingleStepAdd)
+        place = bar.value()
+        win.refresh()
+        _settle()
+        assert 0 < place < bar.maximum() and bar.value() == place
+    finally:
+        win.close()
