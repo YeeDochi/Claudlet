@@ -227,7 +227,6 @@ UI = {
            "release": "창에서 꺼내기", "quit": "종료",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
-           "talk_now": "💬 지금 물어보기…", "talk_note": "📝 쪽지 남기기…",
            "talk_drop": "물고 있는 쪽지 버리기 (%d장)",
            "talk_prompt": "펫에게 전할 말", "talk_sent": "전달했다",
            "settings": "🎨 크리처 설정…",
@@ -236,19 +235,19 @@ UI = {
            "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)",
            "ask": "🎯 포인터…",
            "ask_prompt": "무엇이 궁금한가요?",
-           "ask_pick": "궁금한 영역을 드래그하세요 · ESC 취소",
            "ask_hint": "🎯 드래그해서 영역 선택 · 우클릭/ESC 취소",
            "ask_sent": "물어봤어요. 세션이 답하면 알려드릴게요",
            "ask_none": "그 영역에서 창을 찾지 못했어요",
-           "ask_cancel": "취소했어요 — 아무것도 보내지 않았어요",
            "ask_again": "↩ 이 영역에 대해 더 물어보기",
-           "history": "💬 대화 시작…"},
+           "history": "💬 대화 시작…",
+           "chat_ph": "펫에게 할 말 · 엔터로 바로 보내기",
+           "chat_send": "보내기", "chat_note": "📝 쪽지로 남기기",
+           "chat_about": "🎯 %s 에 대해  ✕"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
-           "talk_now": "💬 Ask now…", "talk_note": "📝 Leave a note…",
            "talk_drop": "Drop the note it holds (%d)",
            "talk_prompt": "What to tell the pet", "talk_sent": "delivered",
            "settings": "🎨 Creature settings…",
@@ -257,13 +256,14 @@ UI = {
            "roam": "Roam freely", "dock_reset": "Reset dock position",
            "ask": "🎯 Pointer…",
            "ask_prompt": "What would you like to know?",
-           "ask_pick": "Drag the area you're asking about · Esc to cancel",
            "ask_hint": "🎯 Drag to select an area · right-click or Esc to cancel",
            "ask_sent": "Asked. I'll show the answer when the session replies",
            "ask_none": "No window found in that area",
-           "ask_cancel": "Cancelled — nothing was sent",
            "ask_again": "↩ Ask more about this area",
-           "history": "💬 Start a conversation…"},
+           "history": "💬 Start a conversation…",
+           "chat_ph": "Say something · Enter sends it now",
+           "chat_send": "Send", "chat_note": "📝 Leave as a note",
+           "chat_about": "🎯 About %s  ✕"},
 }
 
 # 도크 재정렬 주기(ms): 앞자리 펫이 종료해 생긴 구멍을 뒷펫이 메워 대열을 다시
@@ -779,30 +779,70 @@ class HistoryWindow(QDialog):
         self.refresh()
 
     def _talk_row(self, pet):
-        """Talking lives here too, so the log is also where you start a
-        conversation -- no trip through the right-click menu for each line.
+        """A chat bar: the log above, a line to type into below.
 
-        Typing still goes through Pet._ask_text (kdialog/zenity on Linux): the
-        wheel Qt has no fcitx input context, so an inline QLineEdit here takes
-        no Hangul at all (measured, ibus-shim included)."""
+        Enter sends straight to the session (demoted to a note when the host
+        can't take typed input); the send button's right-click leaves a note
+        on purpose. A region picked with 🎯 sits above the line as a chip and
+        rides along with the next line sent; ✕ drops it unsent.
+
+        On Linux this needs a Qt that carries the fcitx input context -- see
+        core/qtpick.py, which re-launches the pet on the system PyQt6 for that.
+        """
         ui = pet.ui
-        row = QHBoxLayout()
-        self._now = QPushButton(ui["talk_now"], self)
-        self._now.clicked.connect(lambda: self._after(pet._talk, True))
-        self._note = QPushButton(ui["talk_note"], self)
-        self._note.clicked.connect(lambda: self._after(pet._talk, False))
+        self._chip = QPushButton(self)
+        self._chip.setFlat(True)
+        self._chip.clicked.connect(self._drop_target)
+        self._input = QLineEdit(self)
+        self._input.setPlaceholderText(ui["chat_ph"])
+        self._input.returnPressed.connect(lambda: self.send(True))
+        self._send = QPushButton(ui["chat_send"], self)
+        self._send.clicked.connect(lambda: self.send(True))
+        self._send.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._send.customContextMenuRequested.connect(self._send_menu)
         self._point = QPushButton(ui["ask"], self)
         self._point.clicked.connect(pet._start_ask)
-        self._again = QPushButton(ui["ask_again"], self)
-        self._again.clicked.connect(lambda: self._after(pet._reply_to_bubble))
-        for b in (self._now, self._note, self._point, self._again):
-            row.addWidget(b)
-        row.addStretch(1)
-        return row
 
-    def _after(self, fn, *args):
-        fn(*args)
+        line = QHBoxLayout()
+        line.addWidget(self._input, 1)
+        line.addWidget(self._send)
+        line.addWidget(self._point)
+        col = QVBoxLayout()
+        col.addWidget(self._chip, 0, Qt.AlignmentFlag.AlignLeft)
+        col.addLayout(line)
+        return col
+
+    def _send_menu(self, pos):
+        m = QMenu(self)
+        note = m.addAction(self._pet.ui["chat_note"])
+        if m.exec(self._send.mapToGlobal(pos)) is note:
+            self.send(False)
+
+    def send(self, immediate):
+        """Send what is typed. `immediate=False` leaves it as a note."""
+        pet = self._pet
+        text = self._input.text().strip()
+        if not text:
+            return None
+        self._input.clear()
+        if pet._ask_target is not None:
+            pet.ask_window(pet._ask_target, text, region=pet._ask_region)
+            pet._ask_target = pet._ask_region = None     # 한 번 실려 갔다
+        else:
+            pet._talk(immediate, text)
         self.refresh()
+        return text
+
+    def _drop_target(self):
+        self._pet._ask_target = None
+        self._pet._ask_region = None
+        self.refresh()
+
+    def focus_input(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._input.setFocus()
 
     def view(self):
         """Which tab is showing: "pet" or "session"."""
@@ -836,10 +876,11 @@ class HistoryWindow(QDialog):
     def refresh(self):
         pet = self._pet
         if pet is not None:
-            # 되묻기는 포인터로 고른 영역이 있을 때만, 지금 보내기는 호스트가
-            # 프롬프트에 직접 써 넣을 수 있을 때만 — 메뉴에서 하던 판단 그대로.
-            self._now.setVisible(pet._can_talk_now())
-            self._again.setVisible(pet._ask_target is not None)
+            win = pet._ask_target
+            self._chip.setVisible(win is not None)
+            if win is not None:
+                self._chip.setText(pet.ui["chat_about"]
+                                   % inspectmod.describe_window(win))
         if self.view() == "session":
             # The transcript is Claude Code's file; we only read it, so the
             # controls that write have nothing to act on here.
@@ -848,7 +889,11 @@ class HistoryWindow(QDialog):
             self._clear.setEnabled(False)
             return
         recs = self.records()
-        self._view.setHtml(askhistory.render_html(recs, self._lang, self._full))
+        # 채팅처럼 최신이 아래, 입력칸 바로 위에 온다.
+        self._view.setHtml(askhistory.render_html(recs[::-1], self._lang,
+                                                  self._full))
+        bar = self._view.verticalScrollBar()
+        bar.setValue(bar.maximum())
         self._toggle.setEnabled(True)
         self._clear.setEnabled(bool(recs))
 
@@ -3657,17 +3702,6 @@ class Pet(QWidget):
         """
         self.enter_pointer()
 
-    def _prompt_question(self, target=""):
-        """Modal asking what they want to know. "" when cancelled or empty.
-
-        The only thing in this feature that takes focus, and only after the user
-        acted -- the bubble and the overlay both stay focus-free.
-        """
-        label = self.ui["ask_prompt"]
-        if target:
-            label = "%s\n%s" % (target, label)
-        return self._ask_text(label)
-
     def enter_pointer(self):
         """Arm pointer mode: crosshair cursor, drag to select a region."""
         if self._pointer_overlays:
@@ -3683,11 +3717,10 @@ class Pet(QWidget):
             if win is None:
                 self.say(self.ui["ask_none"])
                 return
-            q = self._prompt_question(inspectmod.describe_window(win))
-            if not q:
-                self.say(self.ui["ask_cancel"])
-                return
-            self.ask_window(win, q, region=rect)
+            # 고른 영역은 대화창 입력칸 위에 칩으로 붙고, 다음에 보내는 말에
+            # 같이 실려 간다. 질문을 따로 묻는 창은 띄우지 않는다.
+            self._ask_target, self._ask_region = win, rect
+            self.show_history().focus_input()
 
         def _done():
             self.exit_pointer()
@@ -4087,8 +4120,9 @@ class Pet(QWidget):
         ok = d.exec()
         return d.textValue().strip() if ok else ""
 
-    def _talk(self, immediate):
-        text = self._ask_text()
+    def _talk(self, immediate, text=None):
+        if text is None:
+            text = self._ask_text()
         if not text:
             return
         # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
@@ -4423,6 +4457,8 @@ def _lock_exclusive_nonblocking(fd):
 def main():
     import argparse
     import signal
+    from claudlet.core import qtpick
+    qtpick.maybe_reexec()                 # 리눅스 fcitx: 한글이 쳐지는 Qt 로
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")

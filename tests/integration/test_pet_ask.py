@@ -468,68 +468,76 @@ def test_the_pointer_arms_before_anything_is_typed(pet, monkeypatch):  # noqa: F
         pet.exit_pointer()
 
 
-def test_the_question_is_asked_after_the_region_is_picked(pet, monkeypatch):  # noqa: F811
-    seen = []
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, seen=seen)
+def _pick(pet, monkeypatch, backend=None, **win):  # noqa: F811
+    """Drag a region with the pointer; returns the chat window it lands in."""
+    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win(**win)])
+    monkeypatch.setattr(pet, "_ask_backend", lambda: backend)
     pet.enter_pointer()[0].on_region(_rect())
-    assert len(seen) == 1
-    posted = _posted(pet)
-    assert posted is not None and "what is this?" in posted["prompt"]
+    return pet._chat_open()
 
 
-def test_the_prompt_names_what_was_selected(pet, monkeypatch):  # noqa: F811
-    seen = []
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win(title="Ledger")])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, seen=seen)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert "Ledger" in seen[0]
+def _type_and_send(chat, text, immediate=True):
+    chat._input.setText(text)
+    return chat.send(immediate)
 
 
-def test_a_region_hitting_nothing_never_asks_the_question(pet, monkeypatch):  # noqa: F811
-    # the point of selecting first: don't make someone type before finding out
-    seen = []
+def test_a_picked_region_waits_above_the_input_naming_the_window(pet, monkeypatch):  # noqa: F811
+    chat = _pick(pet, monkeypatch, title="Ledger")
+    try:
+        assert chat is not None
+        assert chat._chip.isVisibleTo(chat) and "Ledger" in chat._chip.text()
+        assert _posted(pet) is None             # nothing goes until you send
+    finally:
+        chat.close()
+
+
+def test_the_region_rides_along_with_the_next_message(pet, monkeypatch):  # noqa: F811
+    backend = _RegionBackend()
+    chat = _pick(pet, monkeypatch, backend=backend)
+    try:
+        _type_and_send(chat, "what is this?")
+        posted = _posted(pet)
+        assert posted is not None and "what is this?" in posted["prompt"]
+        assert "region text" in posted["prompt"]
+        assert backend.calls == [("region", (150.0, 150.0, 100.0, 80.0))]
+        assert not chat._chip.isVisibleTo(chat)  # sent once, then gone
+    finally:
+        chat.close()
+
+
+def test_dropping_the_chip_sends_the_message_on_its_own(pet, monkeypatch, _hist):  # noqa: F811
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend())
+    try:
+        chat._chip.click()
+        _type_and_send(chat, "just chatting", immediate=False)
+        assert _posted(pet)["prompt"] == "just chatting"
+    finally:
+        chat.close()
+
+
+def test_a_region_hitting_nothing_attaches_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    _dialog(monkeypatch, seen=seen)
     pet.enter_pointer()[0].on_region(_rect(9000, 9000, 10, 10))
-    assert seen == []
+    assert pet._ask_target is None
     assert _posted(pet) is None
 
 
-def test_cancelling_the_question_after_selecting_posts_nothing(pet, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, answer="", ok=False)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert _posted(pet) is None
-    assert pet._bubble is not None          # told the user it was cancelled
-
-
-def test_an_empty_question_after_selecting_posts_nothing(pet, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, answer="   ", ok=True)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert _posted(pet) is None
+def test_an_empty_line_sends_nothing(pet, monkeypatch):  # noqa: F811
+    chat = _pick(pet, monkeypatch)
+    try:
+        assert _type_and_send(chat, "   ") is None
+        assert _posted(pet) is None
+    finally:
+        chat.close()
 
 
 def test_picking_a_region_disarms_the_pointer(pet, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert pet._pointer_overlays == []
-
-
-def test_the_region_survives_into_the_posted_question(pet, monkeypatch):  # noqa: F811
-    backend = _RegionBackend()
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: backend)
-    _dialog(monkeypatch)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert backend.calls == [("region", (150.0, 150.0, 100.0, 80.0))]
+    chat = _pick(pet, monkeypatch)
+    try:
+        assert pet._pointer_overlays == []
+    finally:
+        chat.close()
 
 
 def test_the_menu_entry_arms_the_pointer_directly(pet, monkeypatch):  # noqa: F811
@@ -1008,19 +1016,30 @@ def test_the_menu_offers_the_conversation_log(pet, _pcfg):  # noqa: F811
     assert _find(_menu_tree(pet), "💬 대화 시작") is not None
 
 
-def test_talking_lives_in_the_conversation_window_not_the_menu(pet, _pcfg):  # noqa: F811
+def test_the_pointer_lives_in_the_conversation_window_not_the_menu(pet, _pcfg):  # noqa: F811
     texts = [i["text"] for i in _menu_tree(pet)]
-    assert pet.ui["talk_note"] not in texts
     assert pet.ui["ask"] not in texts
 
 
-def test_a_note_left_from_the_window_shows_up_in_it(pet, _hist, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_text", lambda *a: "left from the window")
+def test_a_line_typed_in_the_window_shows_up_in_it(pet, _hist, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
     win = pet.show_history()
     try:
-        win._note.click()
-        assert "left from the window" in win.html()
+        _type_and_send(win, "typed in the window")
+        assert "typed in the window" in win.html()
+        assert win._input.text() == ""
+    finally:
+        win.close()
+
+
+def test_the_note_option_leaves_a_note_instead_of_sending(pet, _hist, monkeypatch):  # noqa: F811
+    sent = []
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: sent.append(t) or True)
+    win = pet.show_history()
+    try:
+        _type_and_send(win, "for later", immediate=False)
+        assert sent == []
+        assert _posted(pet)["prompt"] == "for later"
     finally:
         win.close()
 
