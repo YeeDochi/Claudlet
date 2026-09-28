@@ -6,26 +6,6 @@ from claudlet.core import shot
 from claudlet.cli import install_hooks
 
 
-def _ctx(lines=0, note=None, open_=None):
-    return {"lines": lines, "note": note, "open": open_}
-
-
-def test_chrome_reading_only_its_title_needs_a_picture():
-    assert shot.needs_image(_ctx(lines=1))          # 실측: 제목 1줄
-
-
-def test_an_unreadable_window_needs_a_picture():
-    assert shot.needs_image(_ctx(note="text unavailable (no accessibility access)"))
-
-
-def test_a_terminal_full_of_text_does_not():
-    assert not shot.needs_image(_ctx(lines=40))
-
-
-def test_an_editor_is_read_from_disk_not_photographed():
-    assert not shot.needs_image(_ctx(lines=0, open_={"project": "p", "file": "f"}))
-
-
 def test_crop_maps_a_region_on_the_third_monitor():
     # 이 머신: 1920+1920+1920 가로, 가상 데스크톱 5760x1200, 캡처도 같은 크기
     r = {"x": 4000.0, "y": 100.0, "w": 300.0, "h": 200.0}

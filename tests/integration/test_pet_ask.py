@@ -1641,14 +1641,29 @@ def test_an_unreadable_window_goes_with_a_capture(pet, monkeypatch):  # noqa: F8
         _shot.clear(pet.session_id)
 
 
-def test_a_readable_window_leaves_nothing_on_disk(pet, monkeypatch):  # noqa: F811
+def test_a_camera_on_the_chip_means_the_picture_goes(pet, monkeypatch):  # noqa: F811
+    # IntelliJ: 메뉴·툴바 이름만 50줄 넘게 읽혔다. 줄 수로 "충분하다" 고
+    # 판단해 버리면 칩의 📷 가 거짓말이 된다(첫 실사용).
     _camera(pet, monkeypatch)
     chat = _pick(pet, monkeypatch, backend=_RegionBackend(
-        region_text=["line one", "line two", "line three", "line four"]))
+        region_text=["메인 메뉴 %d" % i for i in range(50)]))
     try:
-        _type_and_send(chat, "what is this?")
+        assert "📷" in chat._chip.text()
+        _type_and_send(chat, "보여?")
+        files = _shots(pet)
+        assert len(files) == 1 and files[0] in _posted(pet)["prompt"]
+    finally:
+        chat.close()
+        _shot.clear(pet.session_id)
+
+
+def test_dropping_the_chip_drops_the_picture(pet, monkeypatch):  # noqa: F811
+    _camera(pet, monkeypatch)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend())
+    try:
+        chat._chip.click()
+        _type_and_send(chat, "그냥 말", immediate=False)
         assert _shots(pet) == []
-        assert "화면 캡처" not in _posted(pet)["prompt"]
     finally:
         chat.close()
 

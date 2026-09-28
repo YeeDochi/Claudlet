@@ -60,7 +60,7 @@ TEXT = {
             "hangul_input": "펫 입력창에 한글 치기",
             "read_screen": "🎯 포인터로 가리킨 창의 **글자** 읽기 (창 제목·크기는 읽힘)",
             "read_java": "자바 창(IntelliJ 등)의 글자 읽기",
-            "screenshot": "📷 글자를 못 읽은 창을 화면 캡처로 보내기",
+            "screenshot": "📷 포인터로 고른 영역을 화면 캡처로 보내기",
         },
         "fix": {
             "install_hooks": "claudlet-install-hooks 를 실행한 뒤 세션을 다시 여세요.",
@@ -122,7 +122,7 @@ TEXT = {
             "read_screen": "reading the **text** of the window you point at"
                            " (title and size still work)",
             "read_java": "reading text out of Java windows (IntelliJ and friends)",
-            "screenshot": "📷 sending a screenshot of windows whose text can't be read",
+            "screenshot": "📷 sending a screenshot of the region you pick",
         },
         "fix": {
             "install_hooks": "Run claudlet-install-hooks, then restart the session.",

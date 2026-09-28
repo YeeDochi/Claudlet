@@ -1,29 +1,20 @@
-"""포인터 스크린샷 폴백 — 글자를 못 읽은 창은 화면을 찍어 넘긴다.
+"""포인터 스크린샷 — 고른 순간의 화면을 찍어 질문에 싣는다.
 
-포인터로 고른 순간 찍어 메모리에 둔다. 창 글자를 충분히 읽었으면 그 버퍼는
-버리고(디스크에 안 남는다), 부족할 때만 runtime_dir 에 PNG 로 저장해 경로를
-쪽지에 싣는다. 파일은 그 턴이 끝나면(turn_end) 지운다.
+설정을 켜 두면 포인터로 고른 순간 찍어 메모리에 두고, 질문을 보낼 때
+runtime_dir 에 PNG 로 저장해 경로를 쪽지에 싣는다. 파일은 그 턴이 끝나면
+(turn_end) 지운다.
 
-판단·좌표는 순수 함수, 파일 수명은 이름 규칙 하나(claudlet-<sid>-shot-<n>.png)로
+"글자가 부족할 때만" 보내던 판단은 뺐다: IntelliJ 는 본문 없이 메뉴·툴바 이름만
+50줄 넘게 읽혀 "충분하다" 로 떨어졌고, 칩의 📷 는 떠 있는데 사진은 안 가는
+거짓말이 됐다(첫 실사용). 사용자가 켠 기능이고 칩으로 보이고 뺄 수 있다.
+
+좌표는 순수 함수, 파일 수명은 이름 규칙 하나(claudlet-<sid>-shot-<n>.png)로
 묶어 glob 한 번에 지운다. 캡처 자체는 platform/screenshot.py.
 """
 import glob
 import os
 
 from claudlet.core import hostinfo
-
-# 창 제목·툴바 한두 줄만 읽혔다면 본문은 못 읽은 것이다. Chrome 기본 설정은
-# 제목 1줄이 전부였다(2026-09-28 실측).
-# ponytail: 줄 수 기준은 거칠다. 메뉴만 잔뜩 읽힌 창은 놓친다 — 걸리면
-# "제목·앱 이름 외 줄 N 개 미만" 으로 좁힌다.
-MIN_LINES = 3
-
-
-def needs_image(ctx):
-    """읽은 글자가 부족해 화면을 같이 보내야 하는가. 순수."""
-    if ctx.get("open"):
-        return False        # 편집기: 본문은 디스크에서 읽으라고 이미 알려준다
-    return bool(ctx.get("note")) or ctx.get("lines", 0) < MIN_LINES
 
 
 def crop_rect(rect, virt, shot_size):

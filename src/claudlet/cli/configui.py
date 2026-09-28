@@ -666,7 +666,7 @@ TEXT = {
         "ptr_bubble": "말풍선", "ptr_bubble_closed": "대화창이 꺼져 있을 때만",
         "ptr_bubble_always": "늘 띄우기",
         "ptr_shot": "화면 캡처",
-        "ptr_shot_hint": "글자를 못 읽은 창은 고른 순간의 화면을 찍어 보냅니다."
+        "ptr_shot_hint": "포인터로 고른 영역을 찍어 질문과 같이 보냅니다."
                          " 이미지 속 비밀번호·토큰은 가려지지 않아요.",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
@@ -709,8 +709,8 @@ TEXT = {
         "ptr_bubble": "Speech bubble", "ptr_bubble_closed": "Only while the chat is closed",
         "ptr_bubble_always": "Always",
         "ptr_shot": "Screenshot",
-        "ptr_shot_hint": "Windows whose text can't be read are sent as a picture"
-                         " taken when you picked them. Secrets in the image are not masked.",
+        "ptr_shot_hint": "The region you pick is sent as a picture along with"
+                         " the question. Secrets in the image are not masked.",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",

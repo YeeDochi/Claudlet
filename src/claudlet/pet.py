@@ -4097,10 +4097,10 @@ class Pet(QWidget):
         if self._notes:
             outbox.drop(self.session_id)
             shotmod.clear(self.session_id)
-        # 글자를 못 읽었을 때만 찍어둔 화면을 파일로 남겨 경로를 싣는다.
+        # 찍어둔 화면이 있으면(칩에 📷) 파일로 남겨 경로를 싣는다.
         # 되묻기는 같은 창이라도 그새 화면이 바뀌었을 수 있어 싣지 않는다.
         png, self._ask_shot = self._ask_shot, None
-        if png and shotmod.needs_image(ctx):
+        if png:
             ctx["image"] = shotmod.save(self.session_id, png)
         # 배달은 아웃박스로 한다. 우편함(.ask.json)은 세션이 스스로 집어가지
         # 않아 사용자가 "답해줘" 라고 시켜야 했다 — 아웃박스는 훅이 다음 경계
