@@ -278,6 +278,9 @@ def test_claude_gets_a_background_waiter_beside_stop(tmp_path):
                if h.get("asyncRewake")]
     assert len(waiters) == 1
     assert " Rewake --agent claude" in waiters[0]["command"]
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    assert any(h.get("asyncRewake") for g in data["hooks"]["SessionStart"]
+               for h in g["hooks"])                  # 첫 프롬프트 전에도 깨운다
     ih.main(["x", "--remove", "--agent", "claude"], home=str(tmp_path))
     assert _stop_groups(tmp_path) == []
 

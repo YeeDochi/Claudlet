@@ -28,10 +28,12 @@ AGENTS = {
                    "Notification", "Stop", "StopFailure", "SubagentStop",
                    "SessionStart", "SessionEnd"],
         "tool_events": ["PreToolUse", "PostToolUse"],
-        # 이 이벤트 옆에 asyncRewake waiter 를 하나 더 건다 — 놀고 있는 세션을
-        # 펫이 깨울 수 있는 통로(프롬프트에 쳐 넣을 수 없는 호스트용). None =
-        # 이 에이전트에는 그런 훅이 없다.
-        "rewake": "Stop",
+        # 이 이벤트들 옆에 asyncRewake waiter 를 하나 더 건다 — 놀고 있는
+        # 세션을 펫이 깨울 수 있는 통로(프롬프트에 쳐 넣을 수 없는 호스트용).
+        # SessionStart 가 있어야 첫 프롬프트 전에도 깨운다(Stop 만 걸었더니
+        # 막 띄운 IDE 세션에 건 말이 첫 프롬프트까지 묵었다). 빈 목록 = 이
+        # 에이전트에는 그런 훅이 없다.
+        "rewake": ["SessionStart", "Stop"],
         "avatar": "claudlet",
         "tools": {},          # state_engine's built-in TOOL_STATES already fit
         "raw_events": {},
@@ -60,7 +62,7 @@ AGENTS = {
         "tool_events": ["PreToolUse", "PostToolUse"],
         # 코덱스 훅에는 asyncRewake 가 없다. 코덱스 앱은 앱이 여는 도구
         # 파이프로 대신 보낸다(platform/codexapp.py).
-        "rewake": None,
+        "rewake": [],
         "avatar": "codex",
         # The only tool_name values evidenced on this version are "exec" (the
         # shell tool -- appears in session rollouts as a custom_tool_call

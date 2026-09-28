@@ -190,7 +190,7 @@ def install_for(agent, path, remove=False):
             if ev in spec["tool_events"]:
                 group["matcher"] = "*"
             hooks[ev].append(group)
-            if ev == spec.get("rewake"):
+            if ev in spec.get("rewake", ()):
                 hooks[ev].append(rewake_group(agent))
         if not hooks[ev]:
             del hooks[ev]
