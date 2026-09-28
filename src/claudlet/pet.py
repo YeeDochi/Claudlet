@@ -769,6 +769,8 @@ QLabel[role="wait"] { color:#D9975F; font-style:italic; padding:2px 4px; }
 QLabel[role="seen"] { background:#0e0e12; color:#9A9AA8; border-radius:8px;
                       padding:6px 8px; font-size:11px; }
 QLabel[role="empty"] { color:#6E6E7C; }
+QLabel#who { color:#ECECF0; font-size:15px; font-weight:700; }
+QLabel#what { color:#6E6E7C; font-size:12px; }
 QPushButton#chip { background:#1F2A4D; color:#B9C8FF; border:1px solid #6B8AFF;
                    border-radius:11px; padding:3px 10px; text-align:left; }
 QFrame#bar { background:#212128; border:1px solid #33333d; border-radius:20px; }
@@ -870,10 +872,20 @@ class HistoryWindow(QDialog):
         self._clear.setToolTip("Clear" if en else "내역 지우기")
         self._clear.clicked.connect(self._confirm_clear)
 
+        # 누구와 얘기하는지: 지금 입은 크리처의 모습과 이름(별명이 있으면 별명).
+        self._face = QLabel(self)
+        self._who = QLabel(self)
+        self._who.setObjectName("who")
+        self._what = QLabel(self)
+        self._what.setObjectName("what")
         head = QHBoxLayout()
-        head.setContentsMargins(8, 4, 8, 0)
+        head.setContentsMargins(14, 10, 8, 0)
         head.setSpacing(2)
-        head.addWidget(self._tabs)
+        head.addWidget(self._face)
+        head.addSpacing(8)
+        head.addWidget(self._who)
+        head.addSpacing(6)
+        head.addWidget(self._what)
         head.addStretch(1)
         if pet is not None:
             # 포인터가 이 창에 사니 그 설정도 여기 둔다. 메뉴는 열 때마다 새로
@@ -914,10 +926,16 @@ class HistoryWindow(QDialog):
         self._stack.addWidget(self._scroll)
         self._stack.addWidget(self._view)
 
+        tabs = QHBoxLayout()
+        tabs.setContentsMargins(8, 2, 8, 0)
+        tabs.addWidget(self._tabs)
+        tabs.addStretch(1)
+
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(0)
         box.addLayout(head)
+        box.addLayout(tabs)
         box.addWidget(self._stack, 1)
         if pet is not None:
             box.addLayout(self._talk_row(pet))
@@ -1055,7 +1073,21 @@ class HistoryWindow(QDialog):
         except Exception:
             return []
 
+    def _show_identity(self):
+        pet = self._pet
+        if pet is None:
+            self._face.hide(); self._who.hide(); self._what.hide()
+            return
+        name, creature, icon = pet._chat_identity()
+        self._icon = icon
+        self._face.setPixmap(icon.pixmap(36, 36))
+        self._who.setText(name)
+        # 별명을 붙였으면 무슨 크리처인지도 옆에 흐리게
+        self._what.setText(creature if creature != name else "")
+        self.setWindowTitle("claudlet — %s" % name)
+
     def refresh(self):
+        self._show_identity()
         pet = self._pet
         if pet is not None:
             # 이 호스트가 프롬프트에 직접 써 넣지 못하면 엔터는 쪽지가 된다 —
@@ -1092,7 +1124,7 @@ class HistoryWindow(QDialog):
         lab.setProperty("role", role)
         # 화면에서 긁어 온 글자다 — 마크업으로 해석하면 안 된다
         lab.setTextFormat(Qt.TextFormat.PlainText)
-        lab.setWordWrap(role != "meta")
+        lab.setWordWrap(role not in ("meta", "wait"))
         lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         return lab
 
@@ -1101,6 +1133,12 @@ class HistoryWindow(QDialog):
         row.setContentsMargins(0, 0, 0, 0)
         if right:
             row.addStretch(1)
+        if lab.property("role") == "pet" and getattr(self, "_icon", None):
+            face = QLabel()
+            face.setPixmap(self._icon.pixmap(24, 24))
+            face.setAlignment(Qt.AlignmentFlag.AlignTop)
+            row.addWidget(face, 0, Qt.AlignmentFlag.AlignTop)
+            row.addSpacing(4)
         row.addWidget(lab)
         if not right:
             row.addStretch(1)
@@ -1155,7 +1193,9 @@ class HistoryWindow(QDialog):
             fm = lab.fontMetrics()
             natural = max((fm.horizontalAdvance(ln)
                            for ln in lab.text().splitlines() or [""]), default=0)
-            w = min(cap, natural + 30)                  # 30 = 좌우 padding + 여유
+            # 좌우 padding 24 에 여유를 넉넉히: 모자라면 한 줄짜리가 두 줄
+            # 높이로 잡힌다(글자 폭 추정이 실제 배치보다 조금 짧다)
+            w = min(cap, natural + 40)
             lab.setFixedWidth(w)
             lab.setFixedHeight(lab.heightForWidth(w))
 
@@ -1954,6 +1994,7 @@ class Pet(QWidget):
             c.rescale(_companion_scale(self.u, self.avatar))
             c.update()
         self.update()
+        self._refresh_chat()           # 대화창 머리의 얼굴·이름도 갈아입는다
 
     def _arm_quit(self):
         self._cancel_quit()
@@ -3779,6 +3820,11 @@ class Pet(QWidget):
         self._history_win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
         self._history_win.show()
         return self._history_win
+
+    def _chat_identity(self):
+        """(부를 이름, 크리처 이름, 아이콘) — 대화창 머리에 뜨는 것."""
+        creature = self.avatar.name
+        return (self._nickname or creature), creature, self._state_icon("idle")
 
     def _chat_open(self):
         """The conversation window, when it is showing; else None."""
