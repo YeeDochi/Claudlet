@@ -181,7 +181,11 @@ DEFAULT_POINTER = {
     "cursor": DEFAULT_POINTER_CURSOR,
     "image": None,          # absolute path to a custom cursor image
     "hotspot": None,        # [x, y] within the image; None = centre it
+    # 답을 머리 위 말풍선으로도 띄울지: "closed" = 대화창이 닫혀 있을 때만,
+    # "always" = 대화창이 떠 있어도 늘.
+    "bubble": "closed",
 }
+POINTER_BUBBLE = ("closed", "always")
 
 
 def _clean_pointer(v):
@@ -205,6 +209,9 @@ def _clean_pointer(v):
         path = os.path.expanduser(img.strip())
         if os.path.splitext(path)[1].lower() in POINTER_IMAGE_SUFFIXES:
             d["image"] = path
+
+    if v.get("bubble") in POINTER_BUBBLE:
+        d["bubble"] = v["bubble"]
 
     hot = v.get("hotspot")
     if isinstance(hot, (list, tuple)) and len(hot) == 2:

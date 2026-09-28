@@ -273,3 +273,37 @@ def test_a_transcript_with_no_answer_anywhere_costs_a_bounded_read(tmp_path):
         for _ in range(200):
             f.write(json.dumps({"type": "user", "message": {"content": "x" * 500}}) + "\n")
     assert outbox.reply_from_transcript(str(p)) is None
+
+
+def _cc(kind, content):
+    return json.dumps({"type": kind, "message": {"content": content}})
+
+
+def test_a_turn_with_only_the_creature_line_has_nothing_more():
+    lines = [_cc("user", "뭐해?"), _cc("assistant", [{"type": "text", "text": "🗨 논다"}])]
+    assert outbox.turn_had_more(lines) is False
+
+
+def test_work_before_the_creature_line_counts_as_more():
+    lines = [_cc("user", "고쳐줘"),
+             _cc("assistant", [{"type": "tool_use", "name": "Bash"}]),
+             _cc("user", [{"type": "tool_result", "content": "ok"}]),
+             _cc("assistant", [{"type": "text", "text": "🗨 고쳤다"}])]
+    assert outbox.turn_had_more(lines) is True
+
+
+def test_an_earlier_turn_s_work_does_not_count():
+    lines = [_cc("assistant", [{"type": "tool_use", "name": "Bash"}]),
+             _cc("user", "뭐해?"),
+             _cc("assistant", [{"type": "text", "text": "🗨 논다"}])]
+    assert outbox.turn_had_more(lines) is False
+
+
+def test_a_codex_tool_call_counts_as_more():
+    lines = [json.dumps({"type": "response_item", "payload": {
+                 "type": "message", "role": "user", "content": "고쳐줘"}}),
+             json.dumps({"type": "response_item", "payload": {"type": "function_call"}}),
+             json.dumps({"type": "response_item", "payload": {
+                 "type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "🗨 됐다"}]}})]
+    assert outbox.turn_had_more(lines) is True

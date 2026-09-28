@@ -124,3 +124,9 @@ def test_the_helper_reads_it_from_config():
 
 def test_the_helper_is_none_when_unset():
     assert P.pointer_config_dir() is None
+
+
+def test_the_bubble_choice_survives_and_junk_falls_back():
+    assert P._clean_pointer({"bubble": "always"})["bubble"] == "always"
+    assert P._clean_pointer({"bubble": "sometimes"})["bubble"] == "closed"
+    assert P._clean_pointer(None)["bubble"] == "closed"

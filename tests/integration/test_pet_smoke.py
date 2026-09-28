@@ -2291,10 +2291,50 @@ def test_the_last_line_is_cleared_when_a_new_turn_starts(pet):
     assert pet.snapshot()["saying"] == ""
 
 
-def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet, tmp_path):
+def _asked(pet, tmp_path, monkeypatch):
+    """펫으로 물어본 질문이 답을 기다리는 상태 (내역은 tmp 에)."""
+    from claudlet.core import history as H
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    H.record_question(pet.session_id, "뭐해?", "")
+
+
+def test_a_turn_nobody_asked_the_pet_about_stays_silent(pet, tmp_path, monkeypatch):
+    # 터미널에서 바로 친 턴의 🗨 줄은 크리처의 답이 아니다.
+    import json as _json
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    tr = tmp_path / "t.jsonl"
+    tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "🗨 안 물어봤는데예"}]}}), encoding="utf-8")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    assert pet.snapshot()["saying"] == ""
+
+
+def test_a_reply_longer_than_its_line_offers_the_full_text(pet, tmp_path, monkeypatch):
+    import json as _json
+    _asked(pet, tmp_path, monkeypatch)
+    tr = tmp_path / "t.jsonl"
+    tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "길게 설명했다\n🗨 요약 한 줄"}]}}), encoding="utf-8")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    b = pet._bubble
+    assert b is not None and b.has_reply() and "전문" in b.text()
+
+
+def test_a_one_line_reply_has_no_full_text_link(pet, tmp_path, monkeypatch):
+    import json as _json
+    _asked(pet, tmp_path, monkeypatch)
+    tr = tmp_path / "t.jsonl"
+    tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "🗨 한 줄이면 끝"}]}}), encoding="utf-8")
+    send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
+    assert pet._bubble is not None and "전문" not in pet._bubble.text()
+
+
+def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet, tmp_path, monkeypatch):
     # 턴이 끝난 순간 transcript 에는 아직 지난 턴 대사밖에 없을 수 있다.
     # 그것을 그대로 띄우면 말풍선이 한 턴씩 늦는다.
     import json as _json
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     tr = tmp_path / "t.jsonl"
 
     def write(line):
@@ -2303,6 +2343,7 @@ def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet
 
     write("지난 턴 대사")
     send_hook(pet, "say", cmd="say", text="지난 턴 대사")   # 이미 띄운 적 있다
+    _asked(pet, tmp_path, monkeypatch)                      # 이번 턴에 펫으로 물었다
     pet._said_last = "지난 턴 대사"
     send_hook(pet, "turn_end", cmd="turn_end", transcript=str(tr))
     assert pet.snapshot()["saying"] == "지난 턴 대사"        # 새 대사는 아직 없다
@@ -2311,10 +2352,11 @@ def test_the_pet_waits_for_this_turn_s_line_instead_of_speaking_the_last_one(pet
     assert pet.snapshot()["saying"] == "이번 턴 대사"
 
 
-def test_a_new_turn_cancels_the_wait_for_the_last_one(pet, tmp_path):
+def test_a_new_turn_cancels_the_wait_for_the_last_one(pet, tmp_path, monkeypatch):
     # 기다리던 타이머를 멈추지 않으면, 새 턴이 시작된 뒤 지난 턴 대사가 뒤늦게
     # 떠서 고치려던 "한 턴 늦음"이 그대로 재현된다.
     import json as _json
+    _asked(pet, tmp_path, monkeypatch)
     tr = tmp_path / "t.jsonl"
     tr.write_text(_json.dumps({"type": "assistant", "message": {"content": [
         {"type": "text", "text": "🗨 지난 턴 대사"}]}}), encoding="utf-8")

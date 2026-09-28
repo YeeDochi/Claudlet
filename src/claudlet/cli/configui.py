@@ -663,6 +663,8 @@ TEXT = {
         "ptr_image": "커서 이미지", "ptr_image_ph": "이미지 파일 경로 (비우면 위의 모양)",
         "ptr_dir": "세션 프로필", "ptr_dir_ph": "CLAUDE_CONFIG_DIR (비우면 환경 그대로)",
         "ptr_saved": "저장했어요 — 다음 포인터부터 적용돼요",
+        "ptr_bubble": "말풍선", "ptr_bubble_closed": "대화창이 꺼져 있을 때만",
+        "ptr_bubble_always": "늘 띄우기",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "redress": "다시 불러오기",
@@ -701,6 +703,8 @@ TEXT = {
         "ptr_image": "Cursor image", "ptr_image_ph": "path to an image (empty = the shape above)",
         "ptr_dir": "Session profile", "ptr_dir_ph": "CLAUDE_CONFIG_DIR (empty = inherit)",
         "ptr_saved": "Saved — the next pointer uses it",
+        "ptr_bubble": "Speech bubble", "ptr_bubble_closed": "Only while the chat is closed",
+        "ptr_bubble_always": "Always",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",
@@ -981,6 +985,13 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <input type="text" id="ptrDir" placeholder="__T_ptr_dir_ph__">
     </div>
     <div class="row">
+      <label for="ptrBubble">__T_ptr_bubble__</label>
+      <select id="ptrBubble">
+        <option value="closed">__T_ptr_bubble_closed__</option>
+        <option value="always">__T_ptr_bubble_always__</option>
+      </select>
+    </div>
+    <div class="row">
       <button id="ptrSave">__T_save__</button>
       <span id="ptrSaid"></span>
     </div>
@@ -1170,13 +1181,15 @@ function fillPrefs(s) {
     `<option ${c === p.cursor ? "selected" : ""}>${c}</option>`).join("");
   $("ptrImage").value = p.image || "";
   $("ptrDir").value = p.claude_config_dir || "";
+  $("ptrBubble").value = p.bubble || "closed";
 }
 $("ptrSave").addEventListener("click", async () => {
   const r = await fetch("/api/config", {method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify({agent: S.agent, pointer: {
       cursor: $("ptrCursor").value, image: $("ptrImage").value.trim() || null,
-      claude_config_dir: $("ptrDir").value.trim() || null}})});
+      claude_config_dir: $("ptrDir").value.trim() || null,
+      bubble: $("ptrBubble").value}})});
   fill(await r.json());
   $("ptrSaid").textContent = T.ptr_saved;
 });
