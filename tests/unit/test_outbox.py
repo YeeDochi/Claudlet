@@ -314,3 +314,28 @@ def test_a_voice_note_without_persona_or_name_still_asks_for_the_line():
     outbox.append_voice("s1", None, None)
     ctx = outbox.payload("UserPromptSubmit", outbox.take("s1"))
     assert ctx and outbox.MARK in ctx["hookSpecificOutput"]["additionalContext"]
+
+
+# ---------- 깨우기: 프롬프트에 쳐 넣을 수 없는 호스트의 즉시 전송 ----------
+
+def test_a_wake_mark_is_seen_without_taking_anything():
+    outbox.append("s1", "지금 뭐 해?")
+    assert outbox.wants_wake("s1") is False
+    outbox.wake("s1")
+    assert outbox.wants_wake("s1") is True
+    assert outbox.pending("s1") == 1          # 표시는 쪽지로 세지 않는다
+
+
+def test_the_wake_mark_adds_no_line_of_its_own():
+    outbox.append("s1", "지금 뭐 해?")
+    outbox.wake("s1")
+    text = outbox.render(outbox.take("s1"))
+    assert [l for l in text.splitlines() if l.startswith("- ")] == ["- 지금 뭐 해?"]
+
+
+def test_a_session_can_be_woken_once_a_waiter_has_stood():
+    assert outbox.can_wake("s1") is False
+    outbox.claim_waiter("s1", 42)
+    assert outbox.can_wake("s1") is True
+    assert outbox.waiter_owner("s1") == 42
+    assert outbox.can_wake("s2") is False

@@ -112,6 +112,7 @@ from claudlet.core import transcript
 from claudlet.core import inspect as inspectmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
+from claudlet.platform import codexapp
 from claudlet.platform import konsole
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
@@ -1638,6 +1639,9 @@ class Pet(QWidget):
         self._nickname = getattr(self, "_nickname", "")
         self._notes = 0                    # 물고 있는 쪽지 수
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
+        # 코덱스 앱 세션이면 앱의 도구 파이프 — 훅이 물려준 환경에 있다
+        self._codex_pipe = (codexapp.pipe_path()
+                            if self.agent == "codex" else None)
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
@@ -4087,6 +4091,8 @@ class Pet(QWidget):
         if not self._konsole_send(question):
             # 바로 못 보냈으면 우리 쪽지 체계로 들어간다 — 펫이 물고 있는 것이
             # 보이고 우클릭으로 버릴 수 있어야 "물어봤는데 어디 갔지" 가 안 생긴다.
+            # 깨울 수 있는 세션이면 waiter 가 이 쪽지를 들고 곧바로 깨운다.
+            outbox.wake(self.session_id)
             self._refresh_notes()
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
@@ -4525,8 +4531,16 @@ class Pet(QWidget):
     # 어울리지만, 프레임리스 always-on-top 창에 포커스 가능한 위젯을 얹는 일은
     # XWayland 에서 만져보기 전까지 글로 정해봐야 모른다. 여기가 갈아끼울 자리.
     def _can_talk_now(self):
-        """이 호스트에서 프롬프트에 직접 써 넣을 수 있나. 지금은 KDE/Konsole 뿐 —
-        다른 호스트는 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        """지금 바로 전할 수 있나. 프롬프트에 직접 써 넣는 호스트(Konsole,
+        윈도우 콘솔, 코덱스 앱)이거나, 놀고 있는 세션을 깨우는 waiter 가 선
+        적이 있는 세션(Claude Code — IDE 터미널, 데스크톱 앱 어디든).
+        아니면 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
+        if self._codex_pipe or outbox.can_wake(self.session_id):
+            return True
+        return self._can_type_now()
+
+    def _can_type_now(self):
+        """프롬프트에 직접 써 넣을 수 있나 — Konsole 과 윈도우 콘솔."""
         # 메서드가 있다고 되는 게 아니다: Konsole 은 sendText 를 기본으로 막아둔다
         # (AccessDenied). 막혀 있으면 이 항목을 아예 띄우지 않는다 — 눌렀더니
         # 조용히 쪽지가 되는 것보다 없는 편이 정직하다.
@@ -4594,6 +4608,8 @@ class Pet(QWidget):
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona,
                       nickname=self._nickname)
+        if immediate:
+            outbox.wake(self.session_id)        # 놀고 있으면 waiter 가 깨운다
         # 내역에도 남긴다. 포인터로 시작한 대화만 쌓이면 "아까 뭘 물었더라" 가
         # 절반만 답해진다 — 메뉴로 건 말도 같은 대화다.
         try:
@@ -4610,8 +4626,12 @@ class Pet(QWidget):
 
     def _konsole_send(self, text):
         """이 세션의 프롬프트에 직접 써 넣는다. 실패는 False — 호출자가
-        쪽지로 강등한다. 윈도우는 콘솔 입력 버퍼, KDE 는 Konsole 의 D-Bus."""
-        if not self._can_talk_now():
+        쪽지로 강등한다(깨울 수 있는 세션이면 그 쪽지가 곧바로 깨운다).
+        코덱스 앱은 앱의 도구 파이프, 윈도우는 콘솔 입력 버퍼, KDE 는
+        Konsole 의 D-Bus."""
+        if self._codex_pipe:
+            return codexapp.send_message(self._codex_pipe, self.session_id, text)
+        if not self._can_type_now():
             return False
         split = self.agent != agents.DEFAULT
         if os.name == "nt":

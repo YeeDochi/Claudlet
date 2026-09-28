@@ -11,15 +11,18 @@ import sys
 
 def run(target, swallow=False):
     """Import "module.path:callable" (with ../src on sys.path) and call it.
-    swallow=True (hooks): never raise, always exit 0 so Claude is never blocked."""
+    swallow=True (hooks): never raise, always exit 0 so Claude is never blocked
+    -- except a deliberate 2, which the background Rewake hook uses to wake
+    the session (see claudlet.cli.hook.rewake_wait)."""
     sys.path.insert(0, os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+    code = 0
     try:
         mod_name, _, attr = target.partition(":")
         mod = __import__(mod_name, fromlist=[attr])
-        getattr(mod, attr)()
+        code = getattr(mod, attr)()
     except Exception:
         if not swallow:
             raise
     if swallow:
-        sys.exit(0)
+        sys.exit(2 if code == 2 else 0)

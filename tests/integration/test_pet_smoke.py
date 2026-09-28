@@ -2420,3 +2420,28 @@ def test_the_settings_process_can_find_claudlet_on_its_own(pet, monkeypatch):
     out = sp.run([sys.executable, "-S", "-c", "import claudlet.core.hostinfo"],
                  env=env, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
+
+
+def test_asking_now_wakes_an_idle_session_the_pet_cannot_type_into(pet, monkeypatch, tmp_path, capsys):
+    # IDE 터미널·데스크톱 앱: 프롬프트에 쳐 넣을 길이 없다. 그래도 "지금 물어보기"
+    # 는 놀고 있는 세션의 waiter 를 깨워 바로 전해져야 한다 — 쪽지로 다음
+    # 프롬프트까지 묵으면 사용자는 "대답이 없다" 로 겪는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.cli import hook
+    from claudlet.core import outbox
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: False)
+    outbox.claim_waiter(pet.session_id, 1)          # Stop 뒤 waiter 가 한 번 섰다
+    assert pet._can_talk_now()
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    ticks = iter(range(3))
+    code = hook.rewake_wait(pet.session_id, sleep=lambda _: None,
+                            alive=lambda: next(ticks, None) is not None)
+    assert code == 2
+    assert "- 지금 뭐 해?" in capsys.readouterr().err
+
+
+def test_a_note_does_not_wake_the_session(pet, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    pet._talk(immediate=False, text="나중에 봐")
+    assert not outbox.wants_wake(pet.session_id)

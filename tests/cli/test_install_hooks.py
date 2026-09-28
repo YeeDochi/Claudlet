@@ -263,3 +263,28 @@ def test_remove_sweeps_orphaned_events_the_registry_no_longer_lists(tmp_path):
 
     data = json.loads(path.read_text())
     assert "hooks" not in data
+
+
+def _stop_groups(home):
+    data = json.loads((home / ".claude" / "settings.json").read_text())
+    return data.get("hooks", {}).get("Stop", [])
+
+
+def test_claude_gets_a_background_waiter_beside_stop(tmp_path):
+    os.makedirs(tmp_path / ".claude")
+    ih.main(["x", "--agent", "claude"], home=str(tmp_path))
+    ih.main(["x", "--agent", "claude"], home=str(tmp_path))      # 두 번 해도
+    waiters = [h for g in _stop_groups(tmp_path) for h in g["hooks"]
+               if h.get("asyncRewake")]
+    assert len(waiters) == 1
+    assert " Rewake --agent claude" in waiters[0]["command"]
+    ih.main(["x", "--remove", "--agent", "claude"], home=str(tmp_path))
+    assert _stop_groups(tmp_path) == []
+
+
+def test_codex_has_no_waiter(tmp_path):
+    os.makedirs(tmp_path / ".codex")
+    ih.main(["x", "--agent", "codex"], home=str(tmp_path))
+    data = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
+    assert not any(h.get("asyncRewake") for gs in data["hooks"].values()
+                   for g in gs for h in g["hooks"])

@@ -63,6 +63,59 @@ def append_voice(session_id, persona, nickname=None):
         return False
 
 
+def wake(session_id):
+    """"지금 깨워라" 표시를 쌓는다. 프롬프트에 직접 쳐 넣을 수 없는 호스트
+    (IDE 터미널, 데스크톱 앱)에서 즉시 전송이 이것이다 — 세션이 놀고 있으면
+    대기 중인 waiter(`claudlet-hook Rewake`) 가 보고 쪽지를 들고 세션을 깨운다.
+    일하는 중이면 다음 툴콜 경계가 평소처럼 가져간다."""
+    try:
+        with open(outbox_file(session_id), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"wake": True}) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+def wants_wake(session_id):
+    """가져가지 않고, 깨워 달라는 표시가 있는지만 본다(waiter 쪽)."""
+    return any(n.get("wake") for n in _read(outbox_file(session_id)))
+
+
+# ---------- waiter: 놀고 있는 세션을 깨우는 쪽 ----------
+# Claude Code 의 asyncRewake 훅은 백그라운드로 돌다가 exit 2 로 끝나면 쉬던
+# 세션을 깨우고 stderr 를 모델에게 건넨다(2.1.283 바이너리의 훅 스키마 설명,
+# IntelliJ 터미널에서 실측). Stop 마다 새 waiter 가 뜨므로, 파일에 지금 주인의
+# pid 를 적어 두고 옛 waiter 는 주인이 바뀐 것을 보면 조용히 물러난다.
+
+def waiter_file(session_id):
+    sid = session_id or "default"
+    return os.path.join(hostinfo.runtime_dir(), "claudlet-{}.waiter".format(sid))
+
+
+def claim_waiter(session_id, pid):
+    try:
+        with open(waiter_file(session_id), "w") as f:
+            f.write(str(pid))
+        return True
+    except OSError:
+        return False
+
+
+def waiter_owner(session_id):
+    try:
+        with open(waiter_file(session_id)) as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
+
+def can_wake(session_id):
+    """이 세션에 waiter 가 한 번이라도 섰나 — 깨우는 훅이 설치돼 있다는 뜻.
+    지금 대기 중인지는 묻지 않는다: 일하는 중이면 waiter 가 없어도 다음 툴콜
+    경계가, 그 턴이 끝나면 새 waiter 가 표시를 보고 바로 깨운다."""
+    return os.path.exists(waiter_file(session_id))
+
+
 def _read(path):
     try:
         with open(path, encoding="utf-8") as f:
@@ -80,7 +133,7 @@ def _read(path):
             continue                  # 깨진 한 줄이 나머지를 가리지 않는다
         # "voice" 는 비어 있어도 쪽지다 — 펫으로 들어온 턴이라는 표시 자체다
         if isinstance(note, dict) and (note.get("text") or "voice" in note
-                                       or note.get("name")):
+                                       or note.get("name") or note.get("wake")):
             notes.append(note)
     return notes
 

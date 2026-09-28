@@ -154,6 +154,20 @@ def targets(argv, home=None):
     return [n for n in named if n in agents.AGENTS]
 
 
+# Claude Code 가 훅 하나에 주는 최대 시간(초). 이만큼 놀면 waiter 가 끝나고,
+# 그 뒤의 즉시 전송은 다음 프롬프트 때 쪽지로 간다.
+# ponytail: 1시간 — 더 길게 받아주는지는 재보지 않았다.
+REWAKE_TIMEOUT = 3600
+
+
+def rewake_group(agent):
+    """놀고 있는 세션을 펫이 깨우는 백그라운드 waiter. exit 2 로 끝나면
+    Claude Code 가 세션을 깨우고 stderr 를 모델에게 건넨다."""
+    return {"hooks": [{"type": "command",
+                       "command": f"{HOOK_CMD} Rewake --agent {agent}",
+                       "asyncRewake": True, "timeout": REWAKE_TIMEOUT}]}
+
+
 def install_for(agent, path, remove=False):
     """Register (or drop) our hook groups in one agent's config file."""
     spec = agents.get(agent)
@@ -176,6 +190,8 @@ def install_for(agent, path, remove=False):
             if ev in spec["tool_events"]:
                 group["matcher"] = "*"
             hooks[ev].append(group)
+            if ev == spec.get("rewake"):
+                hooks[ev].append(rewake_group(agent))
         if not hooks[ev]:
             del hooks[ev]
 
