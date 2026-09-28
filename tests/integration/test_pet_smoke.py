@@ -1,4 +1,5 @@
 import sys, os, time, types
+import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import Qt, QPoint, QPointF
 from claudlet import pet as P
@@ -2438,6 +2439,25 @@ def test_asking_now_wakes_an_idle_session_the_pet_cannot_type_into(pet, monkeypa
                             alive=lambda: next(ticks, None) is not None)
     assert code == 2
     assert "지금 뭐 해?" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "nt", reason="윈도우 콘솔 전송 경로")
+def test_windows_desktop_app_session_is_woken_not_typed_into(pet, monkeypatch, tmp_path):
+    # 데스크톱 앱의 Claude 콘솔은 아무도 읽지 않는다. 써 넣기가 "성공" 해버리면
+    # 말이 쪽지도 깨우기도 없이 사라진다(실측) — 쪽지로 남기고 waiter 를 깨워야 한다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    from claudlet.platform import winsend
+    sent = []
+    monkeypatch.setattr(winsend, "send_text", lambda *a, **k: sent.append(a) or True)
+    monkeypatch.setattr(pet, "_claude_pid", 1234)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-desktop")
+    assert not pet._can_type_now()
+    pet._talk(immediate=True, text="들리나?")
+    assert not sent
+    assert outbox.wants_wake(pet.session_id)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    assert pet._can_type_now()
 
 
 def test_a_note_does_not_wake_the_session(pet, monkeypatch, tmp_path):

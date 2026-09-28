@@ -4605,6 +4605,12 @@ class Pet(QWidget):
             # 콘솔 입력 버퍼에 붙어 쓴다 — 전역 스위치가 필요 없다. 미리
             # 확인할 방법이 없으므로(확인 = 실제로 써보기) 띄워두고, 실패하면
             # 쪽지로 강등한다.
+            # 데스크톱 앱의 Claude 도 콘솔은 달고 있어서 써 넣기는 "성공" 하지만
+            # 그 콘솔은 아무도 읽지 않는다 — 말이 쪽지도 못 되고 사라진다.
+            # 그 세션은 waiter 가 깨운다.
+            if (self.agent == agents.DEFAULT
+                    and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "claude-desktop"):
+                return False
             return bool(self._claude_pid)
         if not (sys.platform.startswith("linux") and self._ancestor_pids
                 and "konsole" in [c.lower() for c in (self.host_classes or [])]):
