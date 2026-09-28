@@ -3095,11 +3095,19 @@ class Pet(QWidget):
         answered = self._ask_waiting
         if answered:
             self._end_thinking()
+        self._deliver_answer(self._say, reply=answered)
+
+    def _deliver_answer(self, text, reply):
+        """답을 내역에 붙이고 보여준다. 대화창이 떠 있으면 거기에 쌓이고,
+        닫혀 있을 때만 말풍선으로 뜬다."""
         try:
-            askhistory.record_answer(self.session_id, self._say)
+            askhistory.record_answer(self.session_id, text)
         except Exception:
             pass
-        self.say(self._say, reply=answered)
+        if self._chat_open() is not None:
+            self._refresh_chat()
+            return
+        self.say(text, reply=reply)
 
     # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
     REPLY_POLL_MS = 200
@@ -3787,14 +3795,7 @@ class Pet(QWidget):
             return
         if text:
             self._end_thinking()
-            try:
-                askhistory.record_answer(self.session_id, text)
-            except Exception:
-                pass
-            if self._chat_open() is not None:
-                self._refresh_chat()   # 대화창이 떠 있으면 답은 거기에 쌓인다
-                return
-            self.say(text, reply=True)
+            self._deliver_answer(text, reply=True)
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
     def _toggle_follow(self):
