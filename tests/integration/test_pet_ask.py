@@ -1570,3 +1570,42 @@ def test_without_a_nickname_the_creature_name_is_not_repeated(pet, _hist):  # no
         assert win._who.text() == pet.avatar.name and win._what.text() == ""
     finally:
         win.close()
+
+
+def test_an_open_chat_takes_the_answer_but_a_minimized_one_does_not(pet, _hist):  # noqa: F811
+    win = pet.show_history()
+    try:
+        askbox.post_answer(pet.session_id, "into the chat")
+        pet._poll_answer()
+        assert pet._bubble is None
+        win.showMinimized()
+        askbox.post_answer(pet.session_id, "chat is minimized")
+        pet._poll_answer()
+        assert pet._bubble is not None and "minimized" in pet._bubble.text()
+    finally:
+        win.close()
+
+
+def test_the_chat_links_to_the_full_reply_only_when_there_is_one(pet, _hist):  # noqa: F811
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "고쳐줘", "")
+    H.record_answer(pet.session_id, "고쳤데이", more=True)
+    H.record_question(pet.session_id, "뭐해?", "")
+    H.record_answer(pet.session_id, "논다")
+    win = pet.show_history()
+    try:
+        assert win.html().count(pet.ui["full_reply"]) == 1
+    finally:
+        win.close()
+
+
+def test_the_bubble_setting_shows_answers_over_an_open_chat(pet, _hist, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "_pointer_cfg", lambda: {"bubble": "always"})
+    win = pet.show_history()
+    try:
+        askbox.post_answer(pet.session_id, "both places")
+        pet._poll_answer()
+        assert pet._bubble is not None and "both places" in pet._bubble.text()
+        assert "both places" in win.html()
+    finally:
+        win.close()

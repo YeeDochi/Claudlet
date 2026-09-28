@@ -250,6 +250,7 @@ UI = {
            "ask_sent": "물어봤어요. 세션이 답하면 알려드릴게요",
            "ask_none": "그 영역에서 창을 찾지 못했어요",
            "ask_again": "↩ 이 영역에 대해 더 물어보기",
+           "full_reply": "↗ 응답 전문 보기",
            "history": "💬 대화 시작…",
            "chat_ph": "펫에게 할 말 · 엔터로 바로 보내기",
            "chat_ph_note": "펫에게 할 말 · 엔터로 쪽지 남기기",
@@ -282,6 +283,7 @@ UI = {
            "ask_sent": "Asked. I'll show the answer when the session replies",
            "ask_none": "No window found in that area",
            "ask_again": "↩ Ask more about this area",
+           "full_reply": "↗ See the full reply",
            "history": "💬 Start a conversation…",
            "chat_ph": "Say something · Enter sends it now",
            "chat_ph_note": "Say something · Enter leaves it as a note",
@@ -1128,6 +1130,15 @@ class HistoryWindow(QDialog):
         lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         return lab
 
+    def _full_link(self):
+        """"응답 전문 보기": 에이전트가 쓴 전체 답이 있는 창으로 간다."""
+        lab = QLabel('<a href="#">%s</a>' % self._pet.ui["full_reply"])
+        lab.setProperty("role", "link")
+        lab.setTextFormat(Qt.TextFormat.RichText)
+        lab.setCursor(Qt.CursorShape.PointingHandCursor)
+        lab.linkActivated.connect(lambda _h: self._pet._activate_claude())
+        return lab
+
     def _add(self, lab, right):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -1175,6 +1186,8 @@ class HistoryWindow(QDialog):
                 self._add(self._label(rec["text"], "seen"), True)
             if rec.get("answer"):
                 self._add(self._label(rec["answer"], "pet"), False)
+                if rec.get("more") and self._pet is not None:
+                    self._add(self._full_link(), False)
             else:
                 self._add(self._label("waiting for an answer…" if en
                                       else "답을 기다리는 중…", "wait"), False)
@@ -1825,8 +1838,10 @@ class Pet(QWidget):
             # 지켜본다 — 훅이 읽던 시절에는 아직 flush 되기 전이라 지난 턴
             # 대사를 물어왔다. 기다리는 일은 블록하면 안 되는 훅이 아니라
             # 이벤트 루프를 가진 펫이 한다.
+            # 펫으로 물은 게 없는 턴(터미널에서 바로 친 것)의 대사는 크리처의
+            # 답이 아니다 — 띄우지도, 내역에 남기지도 않는다.
             path = ev.get("transcript")
-            if isinstance(path, str) and path:
+            if isinstance(path, str) and path and self._question_pending():
                 self._await_reply(path)
             return
         if ev.get("cmd") == "say":
@@ -3420,13 +3435,17 @@ class Pet(QWidget):
 
     def _deliver_answer(self, text, reply):
         """답을 내역에 붙이고 보여준다. 대화창이 떠 있으면 거기에 쌓이고,
-        닫혀 있을 때만 말풍선으로 뜬다."""
+        말풍선은 설정(pointer.bubble)대로: 늘, 또는 대화창이 안 보일 때만."""
         try:
-            askhistory.record_answer(self.session_id, text)
+            askhistory.record_answer(self.session_id, text,
+                                     more=getattr(self, "_say_more", False))
         except Exception:
             pass
-        if self._chat_open() is not None:
-            self._refresh_chat()
+        win = self._chat_open()
+        self._refresh_chat()
+        # 최소화된 대화창은 isVisible() 이 참이라도 화면에 없다 — 말풍선으로 띄운다.
+        if (win is not None and not win.isMinimized()
+                and self._pointer_cfg().get("bubble") != "always"):
             return
         self.say(text, reply=reply)
 
@@ -3447,16 +3466,27 @@ class Pet(QWidget):
         self._reply_timer.start(self.REPLY_POLL_MS)
         self._poll_reply()
 
-    def _poll_reply(self):
-        line = None
+    def _question_pending(self):
+        """이 세션에 펫으로 들어와 아직 답이 안 달린 질문이 있나."""
         try:
-            line = outbox.reply_from_transcript(self._reply_path)
+            return bool(askhistory.load(self.session_id, limit=1,
+                                        pending_only=True))
         except Exception:
-            line = None
+            return False
+
+    def _poll_reply(self):
+        line, more = None, False
+        try:
+            line, more = outbox.reply_from_transcript(self._reply_path,
+                                                      with_more=True)
+        except Exception:
+            line, more = None, False
         self._reply_left -= 1
         if line and line != self._said_last:
             self._said_last = line
             self._reply_timer.stop()
+            # 답이 한 줄로 안 끝났다 — 말풍선에 "전문 보기" 를 단다
+            self._say_more = more
             self._handle_event({"cmd": "say", "text": line})
             return
         if self._reply_left <= 0:
@@ -3809,16 +3839,20 @@ class Pet(QWidget):
         if win is not None:
             try:
                 win.refresh()
-                win.show()
+                # 최소화돼 있었으면 편다 (showNormal 은 최대화도 풀어버린다)
+                win.showNormal() if win.isMinimized() else win.show()
                 win.raise_()
+                win.activateWindow()
                 return win
             except RuntimeError:
                 pass          # the window was closed and destroyed; remake it
         self._history_win = HistoryWindow(self.session_id, self.lang, pet=self)
         # 펫 창은 절대 활성화되지 않는 Tool 창이라 그 밑에 달면 안 된다(_ask_text
-        # 참고). 독립 창으로 두되 펫처럼 위에 떠 있게 한다.
-        self._history_win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
+        # 참고). 독립 창으로 둔다. 항상 위로 두면 다른 창을 눌러도 안 덮여서
+        # 방해만 됐다 — 열 때만 앞으로 올리고 그 뒤로는 보통 창처럼 쌓인다.
         self._history_win.show()
+        self._history_win.raise_()
+        self._history_win.activateWindow()
         return self._history_win
 
     def _chat_identity(self):
@@ -3937,17 +3971,30 @@ class Pet(QWidget):
         resolved.
         """
         self._dismiss_bubble()
+        more, self._say_more = getattr(self, "_say_more", False), False
         if not text:
             return None
         r = self.geometry()
         can_reply = bool(reply) and self._ask_target is not None
+        # 푸터는 하나뿐이다. 전문이 따로 있으면 그쪽이 먼저다 — 되묻기는
+        # 대화창에서도 할 수 있지만 잘린 답은 에이전트 창에만 있다.
+        if more:
+            on_reply, label = self._open_full_reply, self.ui["full_reply"]
+        elif can_reply:
+            on_reply, label = self._reply_to_bubble, self.ui["ask_again"]
+        else:
+            on_reply, label = None, ""
         self._bubble = SpeechBubble(
             text, (r.x(), r.y(), r.width(), r.height()), self._screen_rect(),
             self._dismiss_bubble, self.lang,
-            on_reply=self._reply_to_bubble if can_reply else None,
-            reply_label=self.ui["ask_again"] if can_reply else "")
+            on_reply=on_reply, reply_label=label)
         self._bubble.show()
         return self._bubble
+
+    def _open_full_reply(self):
+        """"전문 보기": 에이전트가 쓴 전체 답이 있는 창으로 간다."""
+        self._dismiss_bubble()
+        self._activate_claude()
 
     def _reply_to_bubble(self):
         """Footer clicked: ask another question about the SAME window.

@@ -106,11 +106,13 @@ def record_question(session_id, question, target="", text="", region=None,
     return rec["id"]
 
 
-def record_answer(session_id, answer, rec_id=None, now=None):
+def record_answer(session_id, answer, rec_id=None, now=None, more=False):
     """Attach an answer to a pending question, or log it standalone.
 
     Without `rec_id` it attaches to the newest unanswered question in that
     session -- which is what the pet has, since the mailbox carries no id.
+    `more`: the agent did work besides this line, so the full reply is in its
+    window (the chat offers a link there).
     """
     records = _load_raw()
     target = None
@@ -136,10 +138,13 @@ def record_answer(session_id, answer, rec_id=None, now=None):
             "question": "", "target": "", "text": "",
             "answer": str(answer or ""),
             "answered_ts": now or time.time(),
+            **({"more": True} if more else {}),
         })
         return None
     target["answer"] = str(answer or "")
     target["answered_ts"] = now or time.time()
+    if more:
+        target["more"] = True
     _write_all(records)
     return target.get("id")
 

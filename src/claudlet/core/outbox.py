@@ -153,7 +153,10 @@ SAY_MAX = 120                # 말풍선에 들어갈 만큼. 긴 설명은 터�
 ASK_LINE = ("펫의 목소리로 '%s ' 로 시작하는 한 줄을 답의 맨 마지막에 덧붙여라"
             " (그 줄이 말풍선에 뜬다). 펫에게 건 잡담이면 그 한 줄만 내고 다른"
             " 말은 하지 마라 — 두 번 답하는 꼴이 된다. 실제로 처리할 작업이 있는"
-            " 요청일 때만 평소대로 처리하고 그 한 줄을 덧붙인다." % MARK)
+            " 요청일 때만 평소대로 처리하고 그 한 줄을 덧붙인다. 이 지시는 이번"
+            " 턴에만 해당한다 — 다음 턴부터는 [claudlet] 쪽지가 다시 오지 않는 한"
+            " 그 줄을 붙이지 마라. 터미널에서 직접 받은 요청에 크리처가 답하면 안 된다."
+            % MARK)
 
 
 def render(notes):
@@ -240,14 +243,66 @@ TAIL_START = 65536          # 대개 여기서 찾는다
 TAIL_MAX = 8 << 20          # 못 찾으면 여기까지만 거슬러 올라간다
 
 
-def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX):
+def has_more(text):
+    """답에 크리처 한 줄 말고도 할 말(설명·작업 내역)이 있나. 순수."""
+    return any(l.strip() and not l.strip().startswith(MARK)
+               for l in (text or "").splitlines())
+
+
+_TOOL_BLOCKS = ("tool_use", "server_tool_use")
+_TOOL_ITEMS = ("function_call", "custom_tool_call", "local_shell_call")
+
+
+def turn_had_more(lines):
+    """이번 턴에 크리처 한 줄 말고 에이전트가 한 일(도구·설명)이 있었나. 순수.
+
+    마지막 사용자 프롬프트까지 거슬러 올라간다. 도구 결과도 'user' 로 기록되니
+    그것은 프롬프트로 치지 않는다. 모르는 모양은 last_assistant_text 처럼 넘긴다."""
+    for line in reversed(list(lines or ())):
+        try:
+            rec = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("type") in ("user", "assistant"):        # Claude Code
+            role, content = rec["type"], (rec.get("message") or {}).get("content")
+        else:                                                # Codex rollout
+            pay = rec.get("payload") or {}
+            if pay.get("type") in _TOOL_ITEMS:
+                return True
+            if pay.get("type") != "message":
+                continue
+            role, content = pay.get("role"), pay.get("content")
+        blocks = content if isinstance(content, list) else [
+            {"type": "text", "text": content}]
+        kinds = {b.get("type") for b in blocks if isinstance(b, dict)}
+        if role == "user":
+            if "tool_result" in kinds:
+                continue
+            return False                                     # 턴의 시작에 닿았다
+        if role != "assistant":
+            continue
+        if kinds & set(_TOOL_BLOCKS):
+            return True
+        if any(has_more(b.get("text")) for b in blocks
+               if isinstance(b, dict) and isinstance(b.get("text"), str)):
+            return True
+    return False
+
+
+def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
+                          with_more=False):
     """transcript 파일 끝에서 크리처가 말할 한 줄을 뽑는다. 얇은 껍데기.
 
     전부 읽지 않는다 — 긴 대화의 JSONL 은 수십 MB 가 되고, 펫은 이것을 0.2초마다
     돌린다. 그렇다고 고정 꼬리만 읽어서도 안 된다: 한 턴이 남기는 기록(시스템
     리마인더, 큰 툴 결과)이 수백 KB 가 되어 정작 답이 창 밖으로 밀려난다 —
     실측에서 답이 파일 끝에서 124KB 앞에 있었고, 그래서 첫 말풍선이 아예 뜨지
-    않았다. 그래서 찾을 때까지 꼬리를 배로 늘리되 상한을 둔다."""
+    않았다. 그래서 찾을 때까지 꼬리를 배로 늘리되 상한을 둔다.
+
+    with_more: (한 줄, 그 밖에도 할 말이 있었나) 로 돌려준다."""
+    miss = (None, False) if with_more else None
     while True:
         try:
             with open(path, "rb") as f:
@@ -256,15 +311,16 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX):
                 f.seek(max(0, size - tail_bytes))
                 raw = f.read().decode("utf-8", "replace")
         except (OSError, TypeError):
-            return None
+            return miss
         lines = raw.splitlines()
         if size > tail_bytes and lines:
             lines = lines[1:]          # 잘린 첫 줄은 JSON 이 아니다
         text = last_assistant_text(lines)
         if text is not None:
-            return extract_reply(text)
+            line = extract_reply(text)
+            return (line, turn_had_more(lines)) if with_more else line
         if tail_bytes >= size or tail_bytes >= tail_max:
-            return None                # 파일을 다 봤거나, 충분히 거슬러 올라갔다
+            return miss                # 파일을 다 봤거나, 충분히 거슬러 올라갔다
         tail_bytes = min(tail_bytes * 4, tail_max)
 
 
