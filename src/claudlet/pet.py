@@ -96,7 +96,8 @@ import time
 from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                              QToolTip, QInputDialog, QLineEdit, QFileDialog,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
-                             QHBoxLayout, QTabBar)
+                             QHBoxLayout, QTabBar, QLabel, QScrollArea,
+                             QStackedWidget, QToolButton, QFrame, QMessageBox)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
                          QRegion, QPainterPath, QFont, QPen)
 from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
@@ -223,25 +224,6 @@ _ICON_FRAME = {"work_computer": 100, "walk": 6, "work_search": 4}
 # right-click / tray menu UI strings, per language
 UI = {
     "ko": {"follow": "커서 따라오기", "motions": "모션",
-           "float": "호버링 (제자리에 떠 있기)", "quiet": "조용히 (알림 끔)",
-           "release": "창에서 꺼내기", "quit": "종료",
-           "comp_add": "🐣 컴패니언 추가 (테스트)",
-           "comp_del": "컴패니언 제거 (테스트)",
-           "talk_now": "💬 지금 물어보기…", "talk_note": "📝 쪽지 남기기…",
-           "talk_drop": "물고 있는 쪽지 버리기 (%d장)",
-           "talk_prompt": "펫에게 전할 말", "talk_sent": "전달했다",
-           "settings": "🎨 크리처 설정…",
-           "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
-           "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
-           "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)",
-           "ask": "🎯 포인터…",
-           "ask_prompt": "무엇이 궁금한가요?",
-           "ask_pick": "궁금한 영역을 드래그하세요 · ESC 취소",
-           "ask_hint": "🎯 드래그해서 영역 선택 · 우클릭/ESC 취소",
-           "ask_sent": "물어봤어요. 세션이 답하면 알려드릴게요",
-           "ask_none": "그 영역에서 창을 찾지 못했어요",
-           "ask_cancel": "취소했어요 — 아무것도 보내지 않았어요",
-           "ask_again": "↩ 이 영역에 대해 더 물어보기",
            "ptr_menu": "🎯 포인터 설정",
            "ptr_cursor": "커서 모양",
            "ptr_image": "커서 이미지 고르기…",
@@ -252,27 +234,28 @@ UI = {
            "ptr_pick_dir": "세션이 쓸 CLAUDE_CONFIG_DIR",
            "ptr_saved": "포인터 설정을 저장했어요",
            "ptr_bad_image": "그 파일은 이미지로 읽을 수 없어요",
-           "history": "🗒 대화 내역…"},
+           "float": "호버링 (제자리에 떠 있기)", "quiet": "조용히 (알림 끔)",
+           "release": "창에서 꺼내기", "quit": "종료",
+           "comp_add": "🐣 컴패니언 추가 (테스트)",
+           "comp_del": "컴패니언 제거 (테스트)",
+           "talk_drop": "물고 있는 쪽지 버리기 (%d장)",
+           "talk_prompt": "펫에게 전할 말", "talk_sent": "전달했다",
+           "settings": "🎨 크리처 설정…",
+           "zone_edit": "🚫 금지구역 편집", "zone_clear": "금지구역 지우기",
+           "zone_hint": "드래그: 구역 지정 · 우클릭/ESC: 끝내기",
+           "roam": "자유롭게 돌아다니기", "dock_reset": "제자리로 (기본 위치)",
+           "ask": "🎯 포인터…",
+           "ask_prompt": "무엇이 궁금한가요?",
+           "ask_hint": "🎯 드래그해서 영역 선택 · 우클릭/ESC 취소",
+           "ask_sent": "물어봤어요. 세션이 답하면 알려드릴게요",
+           "ask_none": "그 영역에서 창을 찾지 못했어요",
+           "ask_again": "↩ 이 영역에 대해 더 물어보기",
+           "history": "💬 대화 시작…",
+           "chat_ph": "펫에게 할 말 · 엔터로 바로 보내기",
+           "chat_ph_note": "펫에게 할 말 · 엔터로 쪽지 남기기",
+           "chat_send": "보내기", "chat_note": "📝 쪽지로 남기기",
+           "chat_about": "🎯 %s 에 대해  ✕"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
-           "float": "Hover (stay put)", "quiet": "Quiet (mute)",
-           "release": "Release from window", "quit": "Quit",
-           "comp_add": "🐣 Add companion (test)",
-           "comp_del": "Remove companion (test)",
-           "talk_now": "💬 Ask now…", "talk_note": "📝 Leave a note…",
-           "talk_drop": "Drop the note it holds (%d)",
-           "talk_prompt": "What to tell the pet", "talk_sent": "delivered",
-           "settings": "🎨 Creature settings…",
-           "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
-           "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
-           "roam": "Roam freely", "dock_reset": "Reset dock position",
-           "ask": "🎯 Pointer…",
-           "ask_prompt": "What would you like to know?",
-           "ask_pick": "Drag the area you're asking about · Esc to cancel",
-           "ask_hint": "🎯 Drag to select an area · right-click or Esc to cancel",
-           "ask_sent": "Asked. I'll show the answer when the session replies",
-           "ask_none": "No window found in that area",
-           "ask_cancel": "Cancelled — nothing was sent",
-           "ask_again": "↩ Ask more about this area",
            "ptr_menu": "🎯 Pointer settings",
            "ptr_cursor": "Cursor shape",
            "ptr_image": "Choose a cursor image…",
@@ -283,7 +266,27 @@ UI = {
            "ptr_pick_dir": "CLAUDE_CONFIG_DIR for started sessions",
            "ptr_saved": "Pointer settings saved",
            "ptr_bad_image": "That file could not be read as an image",
-           "history": "🗒 Conversation log…"},
+           "float": "Hover (stay put)", "quiet": "Quiet (mute)",
+           "release": "Release from window", "quit": "Quit",
+           "comp_add": "🐣 Add companion (test)",
+           "comp_del": "Remove companion (test)",
+           "talk_drop": "Drop the note it holds (%d)",
+           "talk_prompt": "What to tell the pet", "talk_sent": "delivered",
+           "settings": "🎨 Creature settings…",
+           "zone_edit": "🚫 Edit no-go zones", "zone_clear": "Clear no-go zones",
+           "zone_hint": "Drag to draw a zone · right-click or Esc to finish",
+           "roam": "Roam freely", "dock_reset": "Reset dock position",
+           "ask": "🎯 Pointer…",
+           "ask_prompt": "What would you like to know?",
+           "ask_hint": "🎯 Drag to select an area · right-click or Esc to cancel",
+           "ask_sent": "Asked. I'll show the answer when the session replies",
+           "ask_none": "No window found in that area",
+           "ask_again": "↩ Ask more about this area",
+           "history": "💬 Start a conversation…",
+           "chat_ph": "Say something · Enter sends it now",
+           "chat_ph_note": "Say something · Enter leaves it as a note",
+           "chat_send": "Send", "chat_note": "📝 Leave as a note",
+           "chat_about": "🎯 About %s  ✕"},
 }
 
 # 도크 재정렬 주기(ms): 앞자리 펫이 종료해 생긴 구멍을 뒷펫이 메워 대열을 다시
@@ -739,61 +742,266 @@ def pointer_cursor(cfg, load=None):
     return QCursor(pm, hx, hy)
 
 
+# 설정 페이지(configui)와 같은 팔레트. 창 테마를 따르지 않고 박아둔다 — 풍선
+# 색이 시스템 테마에 따라 흐려지면 "누가 한 말인지" 가 다시 안 보인다.
+CHAT_QSS = """
+QDialog#chat { background:#16161a; }
+QTabBar { qproperty-drawBase:0; }
+QTabBar::tab { background:transparent; color:#9A9AA8; border:none;
+               border-bottom:2px solid transparent; padding:8px 14px;
+               font-weight:600; }
+QTabBar::tab:selected { color:#ECECF0; border-bottom-color:#6B8AFF; }
+QToolButton#icon { color:#9A9AA8; background:transparent; border:none;
+                   border-radius:14px; min-width:28px; min-height:28px;
+                   font-size:14px; }
+QToolButton#icon:hover { background:#2A2A33; color:#ECECF0; }
+QToolButton#icon:checked { background:#1F2A4D; color:#B9C8FF; }
+QToolButton#icon:disabled { color:#44444f; }
+QToolButton#icon::menu-indicator { image:none; }
+QScrollArea, QWidget#log { background:#16161a; border:none; }
+QTextBrowser { background:#16161a; color:#ECECF0; border:none; }
+QLabel[role="me"] { background:#6B8AFF; color:#ffffff; border-radius:14px;
+                    padding:8px 12px; }
+QLabel[role="pet"] { background:#2A2A33; color:#ECECF0; border-radius:14px;
+                     padding:8px 12px; }
+QLabel[role="meta"] { color:#6E6E7C; font-size:11px; }
+QLabel[role="wait"] { color:#D9975F; font-style:italic; padding:2px 4px; }
+QLabel[role="seen"] { background:#0e0e12; color:#9A9AA8; border-radius:8px;
+                      padding:6px 8px; font-size:11px; }
+QLabel[role="empty"] { color:#6E6E7C; }
+QPushButton#chip { background:#1F2A4D; color:#B9C8FF; border:1px solid #6B8AFF;
+                   border-radius:11px; padding:3px 10px; text-align:left; }
+QFrame#bar { background:#212128; border:1px solid #33333d; border-radius:20px; }
+QLineEdit#input { background:transparent; border:none; color:#ECECF0;
+                  padding:6px 4px; selection-background-color:#6B8AFF; }
+QToolButton#send { background:#6B8AFF; color:#ffffff; border:none;
+                   border-radius:15px; min-width:30px; min-height:30px;
+                   font-size:14px; }
+QToolButton#send:hover { background:#8AA3FF; }
+QToolButton#point { background:transparent; color:#9A9AA8; border:none;
+                    border-radius:15px; min-width:30px; min-height:30px;
+                    font-size:15px; }
+QToolButton#point:hover { background:#2A2A33; }
+QMenu { background:#212128; color:#ECECF0; border:1px solid #33333d; }
+QMenu::item:selected { background:#33333d; }
+"""
+
+
+class _Stick:
+    """Keep a scroll view pinned to the newest line, unless the reader scrolled up.
+
+    Scrolling right after filling reaches only the OLD bottom: the new content's
+    height is laid out on a later turn of the loop. So the pin acts when the
+    range actually grows (rangeChanged). A re-render run through `around()`
+    keeps a reader who scrolled up at the place they were reading.
+    """
+    def __init__(self, bar):
+        self.bar = bar
+        self.on = True
+        self._hold = None
+        bar.rangeChanged.connect(self._range)
+        # 사람이 움직였을 때만 듣는다(휠·드래그·화살표). valueChanged 로 들으면
+        # QTextBrowser 가 문서를 나눠 깔면서 스스로 옮기는 것까지 "위로 올려 읽는
+        # 중" 으로 알아듣고 고정을 풀어버린다.
+        bar.actionTriggered.connect(self._moved)
+
+    def _range(self, _lo, hi):
+        if self.on:
+            self.bar.setValue(hi)
+        elif self._hold is not None:
+            self.bar.setValue(min(self._hold, hi))
+
+    def _moved(self, _action):
+        # actionTriggered 는 값이 바뀌기 직전에 온다 — 갈 자리는 sliderPosition
+        self.on = self.bar.sliderPosition() >= self.bar.maximum() - 4
+        self._hold = None
+
+    def around(self, render):
+        self._hold = None if self.on else self.bar.value()
+        render()
+        self._range(0, self.bar.maximum())
+
+
 class HistoryWindow(QDialog):
-    """This pet's own conversation log.
+    """This pet's conversation: the log, and a line to talk from.
 
     A real window rather than a bubble: a bubble holds one answer, and the
-    point here is to scan several exchanges and find the one you half remember.
+    point here is to scan several exchanges and find the one you half remember
+    -- and to keep talking without a trip through the right-click menu.
 
     Scoped to THIS pet's session -- each pet is paired with one agent session,
     so "what did I ask this creature" is the question being answered. The CLI
     (`claudlet-ask --history --all-sessions`) is where you go to see everything.
     """
-    def __init__(self, session_id, lang="ko", parent=None):
+    def __init__(self, session_id, lang="ko", parent=None, pet=None):
         super().__init__(parent)
+        en = lang == "en"
         self._session = session_id
         self._lang = lang
+        self._pet = pet
         self._full = False
-        self.setWindowTitle("claudlet — %s"
-                            % ("conversation" if lang == "en" else "대화 내역"))
-        self.resize(560, 460)
-
-        self._view = QTextBrowser(self)
-        self._view.setOpenExternalLinks(False)
+        self._bubbles = []
+        self.setObjectName("chat")
+        self.setStyleSheet(CHAT_QSS)
+        self.setWindowTitle("claudlet — %s" % ("conversation" if en else "대화"))
+        self.resize(440, 580)
 
         # Two views, because they answer different questions: "what did I ask
         # the creature" (the pet's own mailbox) and "what has this session been
         # doing" (the agent's transcript). Merging them would bury the handful
         # of pet exchanges under hundreds of tool calls.
         self._tabs = QTabBar(self)
-        self._tabs.addTab("펫과의 대화" if lang != "en" else "With the pet")
-        self._tabs.addTab("세션 활동" if lang != "en" else "Session activity")
+        self._tabs.addTab("With the pet" if en else "펫과의 대화")
+        self._tabs.addTab("Session activity" if en else "세션 활동")
         self._tabs.currentChanged.connect(lambda _i: self.refresh())
 
-        self._toggle = QPushButton(self)
+        # 자주 안 쓰는 둘은 탭 줄 오른쪽 아이콘으로 — 대화 밑에 버튼 줄로
+        # 늘어놓으면 입력칸보다 눈에 먼저 띈다. 👁 는 켜고 끄는 토글.
+        self._toggle = QToolButton(self)
+        self._toggle.setObjectName("icon")
+        self._toggle.setText("👁")
         self._toggle.setCheckable(True)
-        self._toggle.setText("보낸 화면 내용 보기" if lang != "en"
-                             else "Show what was sent")
+        self._toggle.setToolTip("Show what was sent" if en
+                                else "보낸 화면 내용 보기")
         self._toggle.toggled.connect(self._set_full)
+        self._clear = QToolButton(self)
+        self._clear.setObjectName("icon")
+        self._clear.setText("✕")
+        self._clear.setToolTip("Clear" if en else "내역 지우기")
+        self._clear.clicked.connect(self._confirm_clear)
 
-        self._clear = QPushButton("내역 지우기" if lang != "en" else "Clear",
-                                  self)
-        self._clear.clicked.connect(self._clear_history)
+        head = QHBoxLayout()
+        head.setContentsMargins(8, 4, 8, 0)
+        head.setSpacing(2)
+        head.addWidget(self._tabs)
+        head.addStretch(1)
+        if pet is not None:
+            # 포인터가 이 창에 사니 그 설정도 여기 둔다. 메뉴는 열 때마다 새로
+            # 채운다 — 설정 페이지나 CLI 가 그 사이 바꿨을 수 있다.
+            self._ptr = QToolButton(self)
+            self._ptr.setObjectName("icon")
+            self._ptr.setText("⚙")
+            self._ptr.setToolTip(pet.ui["ptr_menu"])
+            self._ptr.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            menu = QMenu(self._ptr)
+            menu.aboutToShow.connect(lambda: pet._fill_pointer_menu(menu))
+            self._ptr.setMenu(menu)
+            head.addWidget(self._ptr)
+        head.addWidget(self._toggle)
+        head.addWidget(self._clear)
 
-        close = QPushButton("닫기" if lang != "en" else "Close", self)
-        close.clicked.connect(self.close)
-
-        row = QHBoxLayout()
-        row.addWidget(self._toggle)
-        row.addWidget(self._clear)
-        row.addStretch(1)
-        row.addWidget(close)
+        self._log = QWidget()
+        self._log.setObjectName("log")
+        self._rows = QVBoxLayout(self._log)
+        self._rows.setContentsMargins(14, 10, 14, 10)
+        self._rows.setSpacing(4)
+        self._scroll = QScrollArea(self)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(self._log)
+        self._scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._stick = _Stick(self._scroll.verticalScrollBar())
+        self._view = QTextBrowser(self)          # the session tab
+        self._view.setOpenExternalLinks(False)
+        self._view_stick = _Stick(self._view.verticalScrollBar())
+        # 세션 활동은 훅마다 바뀐다. 보고 있는 동안만, 파일이 실제로 바뀌었을
+        # 때만 다시 그린다 — 긴 세션의 transcript 를 매번 파싱하면 비싸다.
+        self._seen_stamp = None
+        self._live = QTimer(self)
+        self._live.setInterval(2000)
+        self._live.timeout.connect(self._poll_session)
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self._scroll)
+        self._stack.addWidget(self._view)
 
         box = QVBoxLayout(self)
-        box.addWidget(self._tabs)
-        box.addWidget(self._view)
-        box.addLayout(row)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(0)
+        box.addLayout(head)
+        box.addWidget(self._stack, 1)
+        if pet is not None:
+            box.addLayout(self._talk_row(pet))
         self.refresh()
+
+    def _talk_row(self, pet):
+        """A chat bar: the log above, a line to type into below.
+
+        Enter sends straight to the session (demoted to a note when the host
+        can't take typed input); the send button's right-click leaves a note
+        on purpose. A region picked with 🎯 sits above the line as a chip and
+        rides along with the next line sent; ✕ drops it unsent.
+
+        On Linux this needs a Qt that carries the fcitx input context -- see
+        core/qtpick.py, which re-launches the pet on the system PyQt6 for that.
+        """
+        ui = pet.ui
+        self._chip = QPushButton(self)
+        self._chip.setObjectName("chip")
+        self._chip.clicked.connect(self._drop_target)
+
+        bar = QFrame(self)
+        bar.setObjectName("bar")
+        self._point = QToolButton(bar)
+        self._point.setObjectName("point")
+        self._point.setText("🎯")
+        self._point.setToolTip(ui["ask"])
+        self._point.clicked.connect(pet._start_ask)
+        self._input = QLineEdit(bar)
+        self._input.setObjectName("input")
+        self._input.setPlaceholderText(ui["chat_ph"])
+        self._input.returnPressed.connect(lambda: self.send(True))
+        self._send = QToolButton(bar)
+        self._send.setObjectName("send")
+        self._send.setText("➤")
+        self._send.setToolTip(ui["chat_send"])
+        self._send.clicked.connect(lambda: self.send(True))
+        self._send.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._send.customContextMenuRequested.connect(self._send_menu)
+        line = QHBoxLayout(bar)
+        line.setContentsMargins(6, 4, 5, 4)
+        line.setSpacing(4)
+        line.addWidget(self._point)
+        line.addWidget(self._input, 1)
+        line.addWidget(self._send)
+
+        col = QVBoxLayout()
+        col.setContentsMargins(12, 6, 12, 12)
+        col.setSpacing(6)
+        col.addWidget(self._chip, 0, Qt.AlignmentFlag.AlignLeft)
+        col.addWidget(bar)
+        return col
+
+    def _send_menu(self, pos):
+        m = QMenu(self)
+        note = m.addAction(self._pet.ui["chat_note"])
+        if m.exec(self._send.mapToGlobal(pos)) is note:
+            self.send(False)
+
+    def send(self, immediate):
+        """Send what is typed. `immediate=False` leaves it as a note."""
+        pet = self._pet
+        text = self._input.text().strip()
+        if not text:
+            return None
+        self._input.clear()
+        if pet._ask_target is not None:
+            pet.ask_window(pet._ask_target, text, region=pet._ask_region)
+            pet._ask_target = pet._ask_region = None     # 한 번 실려 갔다
+        else:
+            pet._talk(immediate, text)
+        self.refresh()
+        return text
+
+    def _drop_target(self):
+        self._pet._ask_target = None
+        self._pet._ask_region = None
+        self.refresh()
+
+    def focus_input(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._input.setFocus()
 
     def view(self):
         """Which tab is showing: "pet" or "session"."""
@@ -806,9 +1014,32 @@ class HistoryWindow(QDialog):
         except Exception:
             return []
 
+    def _session_stamp(self):
+        try:
+            st = os.stat(transcript.find_transcript(self._session) or "")
+            return (st.st_size, st.st_mtime)
+        except (OSError, TypeError):
+            return None
+
+    def _poll_session(self):
+        if not self.isVisible() or self.view() != "session":
+            self._live.stop()
+            return
+        if self._session_stamp() != self._seen_stamp:
+            self.refresh()
+
     def _set_full(self, on):
         self._full = bool(on)
         self.refresh()
+
+    def _confirm_clear(self):
+        # 오른쪽 위 ✕ 는 창 닫기로 착각하기 쉽고, 지운 내역은 돌아오지 않는다.
+        en = self._lang == "en"
+        yes = QMessageBox.question(
+            self, "claudlet",
+            "Clear this conversation log?" if en else "이 대화 내역을 지울까요?")
+        if yes == QMessageBox.StandardButton.Yes:
+            self._clear_history()
 
     def _clear_history(self):
         try:
@@ -825,21 +1056,130 @@ class HistoryWindow(QDialog):
             return []
 
     def refresh(self):
+        pet = self._pet
+        if pet is not None:
+            # 이 호스트가 프롬프트에 직접 써 넣지 못하면 엔터는 쪽지가 된다 —
+            # "바로 보내기" 라고 써두면 보냈는데 왜 안 가지 가 된다.
+            self._input.setPlaceholderText(
+                pet.ui["chat_ph"] if pet._can_talk_now() else pet.ui["chat_ph_note"])
+            win = pet._ask_target
+            self._chip.setVisible(win is not None)
+            if win is not None:
+                name = win.title or win.caption or "?"
+                if len(name) > 40:
+                    name = name[:39] + "…"
+                self._chip.setText(pet.ui["chat_about"] % name)
         if self.view() == "session":
             # The transcript is Claude Code's file; we only read it, so the
             # controls that write have nothing to act on here.
-            self._view.setHtml(transcript.render_html(self.timeline(), self._lang))
+            self._stack.setCurrentWidget(self._view)
+            self._seen_stamp = self._session_stamp()
+            html = transcript.render_html(self.timeline(), self._lang)
+            self._view_stick.around(lambda: self._view.setHtml(html))
             self._toggle.setEnabled(False)
             self._clear.setEnabled(False)
+            self._live.start()
             return
+        self._live.stop()
+        self._stack.setCurrentWidget(self._scroll)
         recs = self.records()
-        self._view.setHtml(askhistory.render_html(recs, self._lang, self._full))
+        self._fill(recs[::-1])             # 채팅처럼 최신이 아래, 입력칸 바로 위
         self._toggle.setEnabled(True)
         self._clear.setEnabled(bool(recs))
 
+    def _label(self, text, role):
+        lab = QLabel(text)
+        lab.setProperty("role", role)
+        # 화면에서 긁어 온 글자다 — 마크업으로 해석하면 안 된다
+        lab.setTextFormat(Qt.TextFormat.PlainText)
+        lab.setWordWrap(role != "meta")
+        lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        return lab
+
+    def _add(self, lab, right):
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        if right:
+            row.addStretch(1)
+        row.addWidget(lab)
+        if not right:
+            row.addStretch(1)
+        self._rows.addLayout(row)
+        if lab.property("role") in ("me", "pet", "seen"):
+            self._bubbles.append(lab)
+
+    def _fill(self, recs):
+        while self._rows.count():
+            item = self._rows.takeAt(0)
+            lay = item.layout()
+            if lay is not None:
+                while lay.count():
+                    w = lay.takeAt(0).widget()
+                    if w is not None:
+                        w.hide()            # deleteLater 는 다음 루프에서야 치운다
+                        w.deleteLater()
+            elif item.widget() is not None:
+                item.widget().deleteLater()
+        self._bubbles = []
+        en = self._lang == "en"
+        if not recs:
+            self._add(self._label("No conversations recorded yet" if en
+                                  else "아직 기록된 대화가 없어요", "empty"), False)
+        for rec in recs:
+            meta = askhistory.ago(rec.get("ts"), None, self._lang)
+            if rec.get("target"):
+                meta += " · " + rec["target"]
+            self._rows.addSpacing(8)
+            self._add(self._label(meta, "meta"), True)
+            if rec.get("question"):
+                self._add(self._label(rec["question"], "me"), True)
+            if self._full and rec.get("text"):
+                self._add(self._label(rec["text"], "seen"), True)
+            if rec.get("answer"):
+                self._add(self._label(rec["answer"], "pet"), False)
+            else:
+                self._add(self._label("waiting for an answer…" if en
+                                      else "답을 기다리는 중…", "wait"), False)
+        self._rows.addStretch(1)
+        self._stick.on = True              # 새 말이 왔다 — 그것을 보여준다
+        self._fit_bubbles()
+
+    def _fit_bubbles(self):
+        # 줄바꿈하는 QLabel 은 폭 상한이 없으면 한 줄로 늘어나 창 끝까지 간다.
+        # 채팅 풍선처럼 창 폭의 3/4 에서 접히게 한다.
+        # 상한만 주면 레이아웃이 풍선을 최소 폭으로 접어버리니, 글자가 한 줄에
+        # 들어갈 폭(상한까지)으로 딱 맞춘다.
+        cap = max(160, int(self._scroll.viewport().width() * 0.75))
+        for lab in self._bubbles:
+            lab.ensurePolished()     # 스타일시트 글꼴·패딩이 먹은 뒤에 잰다
+            fm = lab.fontMetrics()
+            natural = max((fm.horizontalAdvance(ln)
+                           for ln in lab.text().splitlines() or [""]), default=0)
+            w = min(cap, natural + 30)                  # 30 = 좌우 padding + 여유
+            lab.setFixedWidth(w)
+            lab.setFixedHeight(lab.heightForWidth(w))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit_bubbles()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._stick.on = True
+        self._fit_bubbles()          # 처음 채울 땐 뷰포트 폭이 아직 0 이다
+
     def html(self):
-        """What is displayed -- what tests assert on."""
-        return self._view.toHtml()
+        """What is displayed, as text -- what tests assert on."""
+        if self.view() == "session":
+            return self._view.toHtml()
+        out = []
+        for i in range(self._rows.count()):
+            lay = self._rows.itemAt(i).layout()
+            for j in range(lay.count() if lay is not None else 0):
+                w = lay.itemAt(j).widget()
+                if isinstance(w, QLabel):
+                    out.append(w.text())
+        return "\n".join(out)
 
 
 class PointerOverlay(QWidget):
@@ -3035,11 +3375,19 @@ class Pet(QWidget):
         answered = self._ask_waiting
         if answered:
             self._end_thinking()
+        self._deliver_answer(self._say, reply=answered)
+
+    def _deliver_answer(self, text, reply):
+        """답을 내역에 붙이고 보여준다. 대화창이 떠 있으면 거기에 쌓이고,
+        닫혀 있을 때만 말풍선으로 뜬다."""
         try:
-            askhistory.record_answer(self.session_id, self._say)
+            askhistory.record_answer(self.session_id, text)
         except Exception:
             pass
-        self.say(self._say, reply=answered)
+        if self._chat_open() is not None:
+            self._refresh_chat()
+            return
+        self.say(text, reply=reply)
 
     # 턴이 끝난 뒤 대사를 기다리는 간격/횟수. 0.2s x 25 = 5초까지 지켜본다.
     REPLY_POLL_MS = 200
@@ -3208,7 +3556,10 @@ class Pet(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)          # 놓으면 다시 펼친 손
         if not self._moved:
             self._note_click(time.monotonic())
-            self._activate_claude()
+            if self._claude_pid:
+                self._activate_claude()
+            else:
+                self.show_history()        # 띄울 콘솔이 없다 — 대화창을 연다
             self.mode = "roam"
             if self._docked:
                 self._dock_snap()          # 클릭만으로 1~2px 밀렸어도 칸에 되맞춘다
@@ -3354,47 +3705,15 @@ class Pet(QWidget):
             a_comp_del = QAction(self.ui["comp_del"], m)
             m.addAction(a_comp_del)
         m.addSeparator()
-        a_talk_now = None
-        if self._can_talk_now():
-            a_talk_now = QAction(self.ui["talk_now"], m)
-            m.addAction(a_talk_now)
-        a_talk_note = QAction(self.ui["talk_note"], m)
-        m.addAction(a_talk_note)
+        # 말 걸기·쪽지·포인터·내역은 전부 대화창 안에 있다 — 메뉴에는 여는
+        # 항목 하나만 둔다.
+        a_hist = QAction(self.ui["history"], m)
+        m.addAction(a_hist)
         a_talk_drop = None
         if self._notes:
             a_talk_drop = QAction(self.ui["talk_drop"] % self._notes, m)
             m.addAction(a_talk_drop)
         m.addSeparator()
-        a_ask = QAction(self.ui["ask"], m)
-        m.addAction(a_ask)
-
-        pcfg = self._pointer_cfg()
-        psub = m.addMenu(self.ui["ptr_menu"])
-        cursor_sub = psub.addMenu(self.ui["ptr_cursor"])
-        cursor_acts = {}
-        current = pcfg.get("cursor") or petconfig.DEFAULT_POINTER_CURSOR
-        for name in petconfig.POINTER_CURSORS:
-            act = QAction(name, cursor_sub, checkable=True)
-            act.setChecked(name == current and not pcfg.get("image"))
-            cursor_sub.addAction(act)
-            cursor_acts[act] = name
-        a_pimg = QAction(self.ui["ptr_image"], psub)
-        psub.addAction(a_pimg)
-        a_pimg_clear = None
-        if pcfg.get("image"):
-            a_pimg_clear = QAction(self.ui["ptr_image_clear"], psub)
-            psub.addAction(a_pimg_clear)
-        psub.addSeparator()
-        a_pdir = QAction(self.ui["ptr_dir"], psub)
-        psub.addAction(a_pdir)
-        a_pdir_clear = None
-        if pcfg.get("claude_config_dir"):
-            a_pdir_clear = QAction(self.ui["ptr_dir_clear"], psub)
-            psub.addAction(a_pdir_clear)
-
-        a_hist = QAction(self.ui["history"], m)
-        m.addAction(a_hist)
-
         a_settings = QAction(self.ui["settings"], m)
         m.addAction(a_settings)
         a_zone_edit = QAction(self.ui["zone_edit"], m)
@@ -3409,11 +3728,7 @@ class Pet(QWidget):
         chosen = m.exec(gpos)
         if chosen is None:
             return
-        if chosen == a_talk_now:
-            self._talk(immediate=True)
-        elif chosen == a_talk_note:
-            self._talk(immediate=False)
-        elif chosen == a_talk_drop:
+        if chosen == a_talk_drop:
             outbox.drop(self.session_id)
             self._refresh_notes()
         elif chosen == a_follow:
@@ -3435,21 +3750,6 @@ class Pet(QWidget):
             self._spawn_test_companion(+1)
         elif a_comp_del is not None and chosen == a_comp_del:
             self._spawn_test_companion(-1)
-        elif chosen == a_ask:
-            self._start_ask()
-        elif chosen in cursor_acts:
-            # Picking a shape clears a custom image: otherwise the image keeps
-            # winning and the shape they just ticked does nothing.
-            self._save_pointer({"cursor": cursor_acts[chosen], "image": None,
-                                "hotspot": None})
-        elif chosen == a_pimg:
-            self._pick_pointer_image()
-        elif a_pimg_clear is not None and chosen == a_pimg_clear:
-            self._save_pointer({"image": None, "hotspot": None})
-        elif chosen == a_pdir:
-            self._pick_pointer_dir()
-        elif a_pdir_clear is not None and chosen == a_pdir_clear:
-            self._save_pointer({"claude_config_dir": None})
         elif chosen == a_hist:
             self.show_history()
         elif chosen == a_settings:
@@ -3473,9 +3773,54 @@ class Pet(QWidget):
                 return win
             except RuntimeError:
                 pass          # the window was closed and destroyed; remake it
-        self._history_win = HistoryWindow(self.session_id, self.lang)
+        self._history_win = HistoryWindow(self.session_id, self.lang, pet=self)
+        # 펫 창은 절대 활성화되지 않는 Tool 창이라 그 밑에 달면 안 된다(_ask_text
+        # 참고). 독립 창으로 두되 펫처럼 위에 떠 있게 한다.
+        self._history_win.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
         self._history_win.show()
         return self._history_win
+
+    def _chat_open(self):
+        """The conversation window, when it is showing; else None."""
+        win = getattr(self, "_history_win", None)
+        try:
+            return win if win is not None and win.isVisible() else None
+        except RuntimeError:
+            return None                # closed and destroyed
+
+    def _refresh_chat(self):
+        win = self._chat_open()
+        if win is not None:
+            win.refresh()
+
+    def _fill_pointer_menu(self, menu):
+        """포인터 설정 메뉴를 (다시) 채운다. 대화창의 ⚙ 가 연다."""
+        menu.clear()
+        pcfg = self._pointer_cfg()
+        shapes = menu.addMenu(self.ui["ptr_cursor"])
+        current = pcfg.get("cursor") or petconfig.DEFAULT_POINTER_CURSOR
+        for name in petconfig.POINTER_CURSORS:
+            act = shapes.addAction(name)
+            act.setCheckable(True)
+            # 이미지가 있으면 그것이 이기므로 모양에 체크하면 거짓말이 된다
+            act.setChecked(name == current and not pcfg.get("image"))
+            # 모양을 고르면 이미지는 지운다: 안 그러면 이미지가 계속 이겨서
+            # 방금 체크한 모양이 아무 일도 안 한다.
+            act.triggered.connect(
+                lambda _c=False, n=name: self._save_pointer(
+                    {"cursor": n, "image": None, "hotspot": None}))
+        menu.addAction(self.ui["ptr_image"]).triggered.connect(
+            lambda: self._pick_pointer_image())
+        if pcfg.get("image"):
+            menu.addAction(self.ui["ptr_image_clear"]).triggered.connect(
+                lambda: self._save_pointer({"image": None, "hotspot": None}))
+        menu.addSeparator()
+        menu.addAction(self.ui["ptr_dir"]).triggered.connect(
+            lambda: self._pick_pointer_dir())
+        if pcfg.get("claude_config_dir"):
+            menu.addAction(self.ui["ptr_dir_clear"]).triggered.connect(
+                lambda: self._save_pointer({"claude_config_dir": None}))
+        return menu
 
     def _save_pointer(self, updates, notify=True):
         """Merge into the `pointer` config section and confirm it.
@@ -3652,6 +3997,7 @@ class Pet(QWidget):
             self._refresh_notes()
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
+        self._refresh_chat()
         return ctx
 
     def _begin_thinking(self):
@@ -3720,17 +4066,6 @@ class Pet(QWidget):
         """
         self.enter_pointer()
 
-    def _prompt_question(self, target=""):
-        """Modal asking what they want to know. "" when cancelled or empty.
-
-        The only thing in this feature that takes focus, and only after the user
-        acted -- the bubble and the overlay both stay focus-free.
-        """
-        label = self.ui["ask_prompt"]
-        if target:
-            label = "%s\n%s" % (target, label)
-        return self._ask_text(label)
-
     def enter_pointer(self):
         """Arm pointer mode: crosshair cursor, drag to select a region."""
         if self._pointer_overlays:
@@ -3746,11 +4081,10 @@ class Pet(QWidget):
             if win is None:
                 self.say(self.ui["ask_none"])
                 return
-            q = self._prompt_question(inspectmod.describe_window(win))
-            if not q:
-                self.say(self.ui["ask_cancel"])
-                return
-            self.ask_window(win, q, region=rect)
+            # 고른 영역은 대화창 입력칸 위에 칩으로 붙고, 다음에 보내는 말에
+            # 같이 실려 간다. 질문을 따로 묻는 창은 띄우지 않는다.
+            self._ask_target, self._ask_region = win, rect
+            self.show_history().focus_input()
 
         def _done():
             self.exit_pointer()
@@ -3817,11 +4151,7 @@ class Pet(QWidget):
             return
         if text:
             self._end_thinking()
-            try:
-                askhistory.record_answer(self.session_id, text)
-            except Exception:
-                pass
-            self.say(text, reply=True)
+            self._deliver_answer(text, reply=True)
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
     def _toggle_follow(self):
@@ -3854,7 +4184,11 @@ class Pet(QWidget):
         if hasattr(os, "setsid"):
             kw["start_new_session"] = True          # POSIX: 펫과 함께 죽지 않게
         env = dict(os.environ)
-        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
+        # claudlet 패키지를 품은 디렉터리. hostinfo 는 claudlet/core/ 에 있으니
+        # 세 단계를 올라가야 한다 — 두 단계면 패키지 자신을 가리켜, venv 에 깔린
+        # claudlet 이 없을 때(시스템 Qt 로 갈아탄 펫, core/qtpick) import 가 깨진다.
+        src_dir = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(hostinfo.__file__))))
         env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
         env.pop("QT_QPA_PLATFORM", None)   # 펫은 xcb 를 강제한다; 미리보기는 offscreen
         try:
@@ -3998,6 +4332,9 @@ class Pet(QWidget):
             # the tray is the pet's menu for people who can't catch a roaming
             # creature, so it carries the same entries rather than a subset
             m.addSeparator()
+            act_chat = QAction(self.ui["history"], m)
+            m.addAction(act_chat)
+            act_chat.triggered.connect(self.show_history)
             act_settings = QAction(self.ui["settings"], m)
             m.addAction(act_settings)
             act_settings.triggered.connect(self._open_settings)
@@ -4144,8 +4481,9 @@ class Pet(QWidget):
         ok = d.exec()
         return d.textValue().strip() if ok else ""
 
-    def _talk(self, immediate):
-        text = self._ask_text()
+    def _talk(self, immediate, text=None):
+        if text is None:
+            text = self._ask_text()
         if not text:
             return
         # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
@@ -4480,6 +4818,8 @@ def _lock_exclusive_nonblocking(fd):
 def main():
     import argparse
     import signal
+    from claudlet.core import qtpick
+    qtpick.maybe_reexec()                 # 리눅스 fcitx: 한글이 쳐지는 Qt 로
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="default")
     ap.add_argument("--host", default="unknown")

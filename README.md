@@ -196,12 +196,20 @@ happening at a glance.
 
 ## Talking to it
 
-The pet no longer only listens. **Right-click → 💬 Ask now** opens a one-line
-prompt and types what you wrote straight into this session, submitted. **📝 Leave
-a note** has the pet **hold the note in its mouth** until the next hook boundary —
+The pet no longer only listens. **Right-click → 💬 Start a conversation…** opens a
+chat window: the exchange above, a line to type into below. **Enter** types what
+you wrote straight into this session, submitted. **Right-click ➤ → 📝 Leave as a
+note** has the pet **hold the note in its mouth** until the next hook boundary —
 if the agent is working it lands at the next tool call, and if it's idle it rides
 along with your next prompt. You can always see what it's carrying, so nothing
-goes along without you knowing, and the menu drops it if you change your mind.
+goes along without you knowing, and the right-click menu drops it if you change
+your mind.
+
+**🎯** left of the input lets you drag over part of the screen: that window sits
+above the input as a chip and what was read off it rides along with the next line
+you send (✕ drops it). Pointer settings — cursor shape, session profile — live
+under **⚙** at the top of the window. A pet started without a session opens the
+chat window when clicked.
 
 ![talking to the pet](docs/talk.png)
 
@@ -216,13 +224,18 @@ defaults — the slime drawls, the astronaut sounds like radio comms — and any
 you write wins.
 
 Works with both Claude Code and Codex, but only while they run **in a terminal** —
-**Ask now** types into a real prompt. On KDE it shows up only when Konsole's
-*Enable the security sensitive parts of the DBus API* is on; elsewhere you get
-notes only.
+sending straight away types into a real prompt. On KDE that needs Konsole's
+*Enable the security sensitive parts of the DBus API*; elsewhere Enter leaves a
+note instead (the input says so).
+
+> **Hangul/CJK input on Linux (fcitx):** the pip-installed Qt carries no fcitx
+> input method, so the input can't take it. With the distro PyQt6 installed
+> (`sudo apt install python3-pyqt6`) the pet relaunches itself on that Qt and it
+> works.
 
 > **Not in the desktop apps.** The Claude desktop app and the Codex app have no
 > prompt to type into — this feature assumes the CLI running in a terminal.
-> On macOS, even in a terminal, there is no **Ask now** yet: notes only.
+> On macOS, even in a terminal, sending straight away isn't there yet: notes only.
 
 ## Make it yours
 

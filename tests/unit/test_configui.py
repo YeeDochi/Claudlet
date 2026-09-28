@@ -1224,3 +1224,33 @@ def test_reload_tells_pets_to_re_read_without_saving(tmp_path, monkeypatch):
     assert json.loads(sent[0]) == {"cmd": "restyle", "reload": True}
     assert out["pets"] == 2 and out["applied"] == []
     assert path.read_text(encoding="utf-8") == before      # nothing written
+
+
+def test_the_prefs_tab_saves_the_pointer_without_restyling(tmp_path, monkeypatch):
+    path = _cfg(tmp_path, monkeypatch, pointer={"hotspot": [3, 4]})
+    sent = []
+    out = U.apply({"pointer": {"cursor": "arrow", "image": "~/cur.png",
+                               "claude_config_dir": None}},
+                  broadcast=lambda line: sent.append(line) or 1)
+    raw = json.loads(path.read_text(encoding="utf-8"))["pointer"]
+    assert raw["cursor"] == "arrow"
+    assert raw["image"] == os.path.expanduser("~/cur.png")
+    assert "hotspot" not in raw            # belonged to the old (no) image
+    assert "claude_config_dir" not in raw
+    assert sent == []                      # the pet re-reads it on its own
+    assert out["pointer"]["cursor"] == "arrow"
+
+
+def test_the_prefs_tab_drops_a_bogus_pointer(tmp_path, monkeypatch):
+    path = _cfg(tmp_path, monkeypatch)
+    U.apply({"pointer": {"cursor": "; rm -rf /", "image": "/etc/passwd"}},
+            broadcast=lambda line: 0)
+    raw = json.loads(path.read_text(encoding="utf-8"))["pointer"]
+    assert raw == {"cursor": petconfig.DEFAULT_POINTER_CURSOR}
+
+
+def test_the_page_has_a_prefs_tab_with_the_pointer_settings(tmp_path, monkeypatch):
+    _cfg(tmp_path, monkeypatch)
+    html = U.page()
+    assert 'id="prefs"' in html and 'id="ptrCursor"' in html
+    assert U.state_payload()["pointer_cursors"] == list(petconfig.POINTER_CURSORS)

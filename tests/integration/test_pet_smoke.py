@@ -2348,3 +2348,33 @@ def test_an_answer_attaches_to_a_question_asked_from_the_menu(pet, monkeypatch, 
     asked = [r for r in history.load(pet.session_id)
              if "이거 왜 느려?" in (r.get("question") or "")]
     assert asked and asked[-1].get("answer") == "인덱스가 없어서 그렇다"
+
+
+def test_the_creatures_line_lands_in_the_open_conversation_window(pet, monkeypatch, tmp_path):
+    # 대화창을 띄워두고 물었는데 답이 말풍선으로만 뜨고 창은 그대로면, 창을
+    # 닫았다 열어야 답이 보인다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    win = pet.show_history()
+    try:
+        pet._talk(immediate=False, text="잘 보여?")
+        send_hook(pet, "say", cmd="say", text="다 보인데이")
+        assert "다 보인데이" in win.html()
+        assert pet._bubble is None
+    finally:
+        win.close()
+
+
+def test_the_settings_process_can_find_claudlet_on_its_own(pet, monkeypatch):
+    # 시스템 Qt 로 갈아탄 펫(core/qtpick)은 claudlet 이 깔린 venv 밖에서 돈다.
+    # 설정 프로세스에 건네는 PYTHONPATH 만으로 claudlet 이 import 돼야 한다.
+    import subprocess as sp
+    seen = {}
+    monkeypatch.setattr(P.subprocess, "Popen",
+                        lambda cmd, env=None, **kw: seen.update(env=env))
+    pet._open_settings()
+    monkeypatch.undo()                  # subprocess.run 도 Popen 을 쓴다
+    env = dict(seen["env"])
+    out = sp.run([sys.executable, "-S", "-c", "import claudlet.core.hostinfo"],
+                 env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr

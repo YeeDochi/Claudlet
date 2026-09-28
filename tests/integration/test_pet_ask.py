@@ -468,68 +468,76 @@ def test_the_pointer_arms_before_anything_is_typed(pet, monkeypatch):  # noqa: F
         pet.exit_pointer()
 
 
-def test_the_question_is_asked_after_the_region_is_picked(pet, monkeypatch):  # noqa: F811
-    seen = []
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, seen=seen)
+def _pick(pet, monkeypatch, backend=None, **win):  # noqa: F811
+    """Drag a region with the pointer; returns the chat window it lands in."""
+    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win(**win)])
+    monkeypatch.setattr(pet, "_ask_backend", lambda: backend)
     pet.enter_pointer()[0].on_region(_rect())
-    assert len(seen) == 1
-    posted = _posted(pet)
-    assert posted is not None and "what is this?" in posted["prompt"]
+    return pet._chat_open()
 
 
-def test_the_prompt_names_what_was_selected(pet, monkeypatch):  # noqa: F811
-    seen = []
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win(title="Ledger")])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, seen=seen)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert "Ledger" in seen[0]
+def _type_and_send(chat, text, immediate=True):
+    chat._input.setText(text)
+    return chat.send(immediate)
 
 
-def test_a_region_hitting_nothing_never_asks_the_question(pet, monkeypatch):  # noqa: F811
-    # the point of selecting first: don't make someone type before finding out
-    seen = []
+def test_a_picked_region_waits_above_the_input_naming_the_window(pet, monkeypatch):  # noqa: F811
+    chat = _pick(pet, monkeypatch, title="Ledger")
+    try:
+        assert chat is not None
+        assert chat._chip.isVisibleTo(chat) and "Ledger" in chat._chip.text()
+        assert _posted(pet) is None             # nothing goes until you send
+    finally:
+        chat.close()
+
+
+def test_the_region_rides_along_with_the_next_message(pet, monkeypatch):  # noqa: F811
+    backend = _RegionBackend()
+    chat = _pick(pet, monkeypatch, backend=backend)
+    try:
+        _type_and_send(chat, "what is this?")
+        posted = _posted(pet)
+        assert posted is not None and "what is this?" in posted["prompt"]
+        assert "region text" in posted["prompt"]
+        assert backend.calls == [("region", (150.0, 150.0, 100.0, 80.0))]
+        assert not chat._chip.isVisibleTo(chat)  # sent once, then gone
+    finally:
+        chat.close()
+
+
+def test_dropping_the_chip_sends_the_message_on_its_own(pet, monkeypatch, _hist):  # noqa: F811
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    chat = _pick(pet, monkeypatch, backend=_RegionBackend())
+    try:
+        chat._chip.click()
+        _type_and_send(chat, "just chatting", immediate=False)
+        assert _posted(pet)["prompt"] == "just chatting"
+    finally:
+        chat.close()
+
+
+def test_a_region_hitting_nothing_attaches_nothing(pet, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    _dialog(monkeypatch, seen=seen)
     pet.enter_pointer()[0].on_region(_rect(9000, 9000, 10, 10))
-    assert seen == []
+    assert pet._ask_target is None
     assert _posted(pet) is None
 
 
-def test_cancelling_the_question_after_selecting_posts_nothing(pet, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, answer="", ok=False)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert _posted(pet) is None
-    assert pet._bubble is not None          # told the user it was cancelled
-
-
-def test_an_empty_question_after_selecting_posts_nothing(pet, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch, answer="   ", ok=True)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert _posted(pet) is None
+def test_an_empty_line_sends_nothing(pet, monkeypatch):  # noqa: F811
+    chat = _pick(pet, monkeypatch)
+    try:
+        assert _type_and_send(chat, "   ") is None
+        assert _posted(pet) is None
+    finally:
+        chat.close()
 
 
 def test_picking_a_region_disarms_the_pointer(pet, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
-    _dialog(monkeypatch)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert pet._pointer_overlays == []
-
-
-def test_the_region_survives_into_the_posted_question(pet, monkeypatch):  # noqa: F811
-    backend = _RegionBackend()
-    monkeypatch.setattr(pet, "_ask_windows", lambda: [_win()])
-    monkeypatch.setattr(pet, "_ask_backend", lambda: backend)
-    _dialog(monkeypatch)
-    pet.enter_pointer()[0].on_region(_rect())
-    assert backend.calls == [("region", (150.0, 150.0, 100.0, 80.0))]
+    chat = _pick(pet, monkeypatch)
+    try:
+        assert pet._pointer_overlays == []
+    finally:
+        chat.close()
 
 
 def test_the_menu_entry_arms_the_pointer_directly(pet, monkeypatch):  # noqa: F811
@@ -956,7 +964,7 @@ def test_a_broken_pointer_config_still_arms_the_pointer(pet, monkeypatch):  # no
         pet.exit_pointer()
 
 
-# ---------- pointer settings in the right-click menu ----------
+# ---------- the right-click menu ----------
 
 def _menu_tree(pet):  # noqa: F811
     """Build the context menu without showing it, as a plain data tree.
@@ -1002,47 +1010,50 @@ def _pcfg(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_the_menu_has_a_pointer_settings_submenu(pet, _pcfg):  # noqa: F811
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")
-    assert sub is not None and sub["sub"]
+def _ptr_menu(pet):  # noqa: F811
+    """The chat window's ⚙ menu as a data tree (same shape as _menu_tree)."""
+    from PyQt6.QtWidgets import QMenu
+
+    def snap(menu):
+        return [{"text": a.text(), "checked": a.isChecked(),
+                 "sub": snap(a.menu()) if a.menu() else None}
+                for a in menu.actions() if not a.isSeparator()]
+    return snap(pet._fill_pointer_menu(QMenu()))
 
 
 def test_every_cursor_shape_is_offered(pet, _pcfg):  # noqa: F811
     from claudlet.core import petconfig as PC
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    shapes = _find(sub, "커서 모양")["sub"]
+    shapes = _find(_ptr_menu(pet), "커서 모양")["sub"]
     assert [i["text"] for i in shapes] == list(PC.POINTER_CURSORS)
 
 
 def test_the_active_cursor_is_ticked(pet, _pcfg):  # noqa: F811
     pet._save_pointer({"cursor": "arrow"}, notify=False)
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    shapes = _find(sub, "커서 모양")["sub"]
+    shapes = _find(_ptr_menu(pet), "커서 모양")["sub"]
     assert [i["text"] for i in shapes if i["checked"]] == ["arrow"]
 
 
 def test_no_shape_is_ticked_while_an_image_is_set(pet, _pcfg):  # noqa: F811
     """The image wins, so ticking a shape as well would misreport what is used."""
     pet._save_pointer({"image": "/tmp/x.png"}, notify=False)
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    shapes = _find(sub, "커서 모양")["sub"]
+    shapes = _find(_ptr_menu(pet), "커서 모양")["sub"]
     assert not any(i["checked"] for i in shapes)
 
 
 def test_clear_entries_appear_only_when_there_is_something_to_clear(pet, _pcfg):  # noqa: F811
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    assert _find(sub, "커서 이미지 지우기") is None
-    pet._save_pointer({"image": "/tmp/x.png"}, notify=False)
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    assert _find(sub, "커서 이미지 지우기") is not None
+    assert _find(_ptr_menu(pet), "커서 이미지 지우기") is None
+    assert _find(_ptr_menu(pet), "세션 프로필 해제") is None
+    pet._save_pointer({"image": "/tmp/x.png", "claude_config_dir": "/p"}, notify=False)
+    assert _find(_ptr_menu(pet), "커서 이미지 지우기") is not None
+    assert _find(_ptr_menu(pet), "세션 프로필 해제") is not None
 
 
-def test_the_profile_clear_entry_is_conditional_too(pet, _pcfg):  # noqa: F811
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    assert _find(sub, "세션 프로필 해제") is None
-    pet._save_pointer({"claude_config_dir": "/profiles/dev"}, notify=False)
-    sub = _find(_menu_tree(pet), "🎯 포인터 설정")["sub"]
-    assert _find(sub, "세션 프로필 해제") is not None
+def test_the_chat_window_carries_the_pointer_settings(pet, _pcfg):  # noqa: F811
+    win = pet.show_history()
+    try:
+        assert win._ptr.menu() is not None
+    finally:
+        win.close()
 
 
 def test_saving_a_setting_keeps_the_others(pet, _pcfg):  # noqa: F811
@@ -1116,7 +1127,65 @@ def test_picking_a_profile_saves_it(pet, _pcfg, monkeypatch):  # noqa: F811
 # ---------- the pet's own conversation log ----------
 
 def test_the_menu_offers_the_conversation_log(pet, _pcfg):  # noqa: F811
-    assert _find(_menu_tree(pet), "🗒 대화 내역") is not None
+    assert _find(_menu_tree(pet), "💬 대화 시작") is not None
+
+
+def test_the_pointer_lives_in_the_conversation_window_not_the_menu(pet, _pcfg):  # noqa: F811
+    texts = [i["text"] for i in _menu_tree(pet)]
+    assert pet.ui["ask"] not in texts
+
+
+def test_a_line_typed_in_the_window_shows_up_in_it(pet, _hist, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "_can_talk_now", lambda: False)
+    win = pet.show_history()
+    try:
+        _type_and_send(win, "typed in the window")
+        assert "typed in the window" in win.html()
+        assert win._input.text() == ""
+    finally:
+        win.close()
+
+
+def test_the_note_option_leaves_a_note_instead_of_sending(pet, _hist, monkeypatch):  # noqa: F811
+    sent = []
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: sent.append(t) or True)
+    win = pet.show_history()
+    try:
+        _type_and_send(win, "for later", immediate=False)
+        assert sent == []
+        assert _posted(pet)["prompt"] == "for later"
+    finally:
+        win.close()
+
+
+def test_an_answer_lands_in_the_open_window_instead_of_a_bubble(pet, _hist):  # noqa: F811
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "what is it?")
+    win = pet.show_history()
+    try:
+        askbox.post_answer(pet.session_id, "a text editor")
+        pet._poll_answer()
+        assert pet._bubble is None
+        assert "a text editor" in win.html()
+    finally:
+        win.close()
+
+
+def test_clicking_a_standalone_pet_opens_the_conversation(pet, _hist):  # noqa: F811
+    """No session console to raise -- the click opens the window instead."""
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    pet._claude_pid = 0
+    for kind in (QMouseEvent.Type.MouseButtonPress, QMouseEvent.Type.MouseButtonRelease):
+        ev = QMouseEvent(kind, QPointF(5, 5), QPointF(5, 5),
+                         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier)
+        (pet.mousePressEvent if kind == QMouseEvent.Type.MouseButtonPress
+         else pet.mouseReleaseEvent)(ev)
+    try:
+        assert pet._chat_open() is not None
+    finally:
+        pet._history_win.close()
 
 
 def test_the_log_shows_this_pets_exchanges(pet, _hist):  # noqa: F811
@@ -1375,3 +1444,109 @@ def test_only_the_latest_pointer_question_waits(pet, monkeypatch):  # noqa: F811
     pet.ask_about((200, 200), "둘째 질문")
     assert pet.snapshot()["notes"] == 1
     assert "둘째 질문" in _posted(pet)["prompt"]
+
+
+def test_markup_read_off_the_screen_is_shown_as_text(pet, _hist):  # noqa: F811
+    """Records hold text scraped off the user's screen; it is data, not markup."""
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "<b>bold</b>")
+    win = pet.show_history()
+    try:
+        labels = [w for w in win.findChildren(P.QLabel) if w.text() == "<b>bold</b>"]
+        assert labels and labels[0].textFormat() == P.Qt.TextFormat.PlainText
+    finally:
+        win.close()
+
+
+def test_the_log_scrolls_to_the_newest_line(pet, _hist):  # noqa: F811
+    from claudlet.core import history as H
+    for i in range(30):
+        H.record_question(pet.session_id, "question %d" % i)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        H.record_question(pet.session_id, "the newest one")
+        win.refresh()
+        for _ in range(5):
+            P.QApplication.processEvents()
+        bar = win._scroll.verticalScrollBar()
+        assert bar.maximum() > 0 and bar.value() == bar.maximum()
+    finally:
+        win.close()
+
+
+def test_the_clear_icon_asks_before_wiping_the_log(pet, _hist, monkeypatch):  # noqa: F811
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "keep me")
+    monkeypatch.setattr(P.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: P.QMessageBox.StandardButton.No))
+    win = pet.show_history()
+    try:
+        win._clear.click()
+        assert [r["question"] for r in win.records()] == ["keep me"]
+    finally:
+        win.close()
+
+
+def _long_transcript(pet, tmp_path, monkeypatch, n=80):  # noqa: F811
+    import json
+    from claudlet.core import transcript as T
+    proj = tmp_path / "proj"
+    proj.mkdir(exist_ok=True)
+    path = proj / ("%s.jsonl" % pet.session_id)
+    path.write_text("\n".join(json.dumps(
+        {"type": "user", "message": {"role": "user", "content": "step %d" % i}})
+        for i in range(n)) + "\n")
+    monkeypatch.setattr(T, "transcript_roots", lambda *a, **k: [str(tmp_path)])
+    return path
+
+
+def _settle():
+    for _ in range(5):
+        P.QApplication.processEvents()
+
+
+def test_session_activity_opens_on_the_newest_step(pet, _hist, tmp_path, monkeypatch):  # noqa: F811
+    _long_transcript(pet, tmp_path, monkeypatch)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        win._tabs.setCurrentIndex(1)
+        _settle()
+        bar = win._view.verticalScrollBar()
+        assert bar.maximum() > 0 and bar.value() == bar.maximum()
+    finally:
+        win.close()
+
+
+def test_session_activity_follows_new_steps_while_watched(pet, _hist, tmp_path, monkeypatch):  # noqa: F811
+    import json
+    path = _long_transcript(pet, tmp_path, monkeypatch, n=3)
+    win = pet.show_history()
+    try:
+        win._tabs.setCurrentIndex(1)
+        with open(path, "a") as f:
+            f.write(json.dumps({"type": "user", "message": {
+                "role": "user", "content": "a brand new step"}}) + "\n")
+        win._poll_session()                 # what the 2s timer does
+        assert "a brand new step" in win.html()
+    finally:
+        win.close()
+
+
+def test_a_reader_who_scrolled_up_keeps_their_place(pet, _hist, tmp_path, monkeypatch):  # noqa: F811
+    _long_transcript(pet, tmp_path, monkeypatch)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        win._tabs.setCurrentIndex(1)
+        _settle()
+        bar = win._view.verticalScrollBar()
+        bar.triggerAction(bar.SliderAction.SliderToMinimum)   # the reader scrolls up
+        bar.triggerAction(bar.SliderAction.SliderSingleStepAdd)
+        place = bar.value()
+        win.refresh()
+        _settle()
+        assert 0 < place < bar.maximum() and bar.value() == place
+    finally:
+        win.close()
