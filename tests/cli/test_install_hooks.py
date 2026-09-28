@@ -301,7 +301,7 @@ def test_codex_gets_the_pet_rule_in_its_instructions_without_losing_the_user_s(t
     ih.main(["x", "--agent", "codex"], home=str(tmp_path))       # 두 번 해도
     text = agents_md.read_text()
     assert text.startswith("# Iris\n이모지 금지.\n")
-    assert text.count(ih.BLOCK_BEGIN) == 1 and "[claudlet]" in text
+    assert text.count(ih.BLOCK_BEGIN) == 1 and "[claudlet ·" in text
     ih.main(["x", "--remove", "--agent", "codex"], home=str(tmp_path))
     assert agents_md.read_text() == "# Iris\n이모지 금지.\n"
 
