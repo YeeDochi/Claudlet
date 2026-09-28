@@ -1550,3 +1550,23 @@ def test_a_reader_who_scrolled_up_keeps_their_place(pet, _hist, tmp_path, monkey
         assert 0 < place < bar.maximum() and bar.value() == place
     finally:
         win.close()
+
+
+def test_the_window_says_which_creature_you_are_talking_to(pet, _hist):  # noqa: F811
+    pet._nickname = "슈텐도지"
+    win = pet.show_history()
+    try:
+        assert win._who.text() == "슈텐도지"
+        assert win._what.text() == pet.avatar.name     # and what it is
+        assert "슈텐도지" in win.windowTitle()
+    finally:
+        win.close()
+
+
+def test_without_a_nickname_the_creature_name_is_not_repeated(pet, _hist):  # noqa: F811
+    pet._nickname = ""
+    win = pet.show_history()
+    try:
+        assert win._who.text() == pet.avatar.name and win._what.text() == ""
+    finally:
+        win.close()

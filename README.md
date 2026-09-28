@@ -205,9 +205,12 @@ along with your next prompt. You can always see what it's carrying, so nothing
 goes along without you knowing, and the right-click menu drops it if you change
 your mind.
 
+<p align="center"><img src="docs/chat.en.png" width="440" alt="the chat window"></p>
+
 **🎯** left of the input lets you drag over part of the screen: that window sits
 above the input as a chip and what was read off it rides along with the next line
-you send (✕ drops it). Pointer settings — cursor shape, session profile — live
+you send (✕ drops it). The top of the window shows the creature you are talking to — its face and its
+name (the nickname, if you gave it one). Pointer settings — cursor shape, session profile — live
 under **⚙** at the top of the window. A pet started without a session opens the
 chat window when clicked.
 
