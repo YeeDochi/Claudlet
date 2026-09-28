@@ -93,26 +93,49 @@ def accepted(response):
     return bool(result.get("success"))
 
 
+def _read_reply(recv):
+    """응답 한 프레임이 올 때까지 `recv()` 로 읽어 받아들였는지 본다."""
+    buf = b""
+    while True:
+        msg, buf = unframe(buf)
+        if msg is not None:
+            return accepted(msg)
+        chunk = recv()
+        if not chunk:
+            return False
+        buf += chunk
+
+
+def _send_pipe(path, request):
+    """윈도우: 앱은 같은 프로토콜을 named pipe(\\\\.\\pipe\\codex-browser-use\\…)로
+    연다(앱 번들 코드). named pipe 는 파일처럼 열어 읽고 쓸 수 있다.
+
+    ponytail: 타임아웃이 없다 — 앱이 답을 안 하면 펫이 멈춘다. 리눅스에서는
+    앱이 곧바로 답했다. 실기에서 걸리면 스레드로 옮긴다. (윈도우 실기 미확인)"""
+    with open(path, "r+b", buffering=0) as f:
+        f.write(frame(request))
+        return _read_reply(lambda: f.read(65536))
+
+
 def send_message(path, thread_id, text, timeout=5):
     """그 스레드에 말을 넣는다. 실패는 False — 호출자가 쪽지로 강등한다."""
-    # ponytail: 유닉스 소켓만. 윈도우 앱은 named pipe 일 텐데 재보지 않았다.
-    if not path or not thread_id or not hasattr(socket, "AF_UNIX"):
+    if not path or not thread_id:
+        return False
+    request = send_request(thread_id, text)
+    if os.name == "nt":
+        try:
+            return _send_pipe(path, request)
+        except (OSError, ValueError):
+            return False
+    if not hasattr(socket, "AF_UNIX"):
         return False
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(timeout)
         try:
             s.connect(path)
-            s.sendall(frame(send_request(thread_id, text)))
-            buf = b""
-            while True:
-                msg, buf = unframe(buf)
-                if msg is not None:
-                    return accepted(msg)
-                chunk = s.recv(65536)
-                if not chunk:
-                    return False
-                buf += chunk
+            s.sendall(frame(request))
+            return _read_reply(lambda: s.recv(65536))
         finally:
             s.close()
     except (OSError, ValueError):

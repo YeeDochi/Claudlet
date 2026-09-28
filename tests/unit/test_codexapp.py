@@ -87,3 +87,21 @@ def test_a_turn_start_is_read_off_the_rollout_even_split_across_reads():
     assert n == 0
     n, rest = codexapp.turn_starts(rest + start[10:] + b"\n")
     assert (n, rest) == (1, b"")
+
+
+def test_the_windows_pipe_speaks_the_same_frames(tmp_path, monkeypatch):
+    # named pipe 는 파일처럼 열린다 — 여기선 보통 파일로 같은 읽기·쓰기를 흉내 낸다.
+    import io
+    reply = codexapp.frame({"id": 1, "jsonrpc": "2.0", "result": {"success": True}})
+    written = []
+
+    class Pipe(io.BytesIO):
+        def write(self, b):
+            written.append(bytes(b))
+            return len(b)
+
+    monkeypatch.setattr("builtins.open", lambda *a, **k: Pipe(reply))
+    assert codexapp._send_pipe(r"\\.\pipe\codex-browser-use\x",
+                               codexapp.send_request("t", "안녕")) is True
+    msg, _ = codexapp.unframe(written[0])
+    assert msg["params"]["arguments"]["prompt"] == "안녕"
