@@ -4553,7 +4553,7 @@ class Pet(QWidget):
         적이 있는 세션(Claude Code — IDE 터미널, 데스크톱 앱 어디든).
         아니면 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
         if (self._codex_pipe or outbox.can_wake(self.session_id)
-                or (self.agent == "codex" and codexd.socket_path())):
+                or (self.agent == "codex" and codexd.available())):
             return True
         return self._can_type_now()
 

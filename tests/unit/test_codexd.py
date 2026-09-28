@@ -84,3 +84,21 @@ def test_a_thread_the_daemon_does_not_hold_is_left_alone():
     assert codexd.start_turn("th-1", "안녕", path=path) is False
     srv.close()
     assert not [c for c in calls if c.get("method") == "turn/start"]
+
+
+def test_without_unix_sockets_the_turn_goes_through_codex_s_own_proxy(monkeypatch, tmp_path):
+    # 윈도우 기본 파이썬엔 AF_UNIX 가 없다 — `codex app-server proxy` 의 stdio 로 같은 바이트를 보낸다
+    out = bytearray()
+    replies = [b"HTTP/1.1 101 Switching Protocols\r\n\r\n",
+               _server_frame({"id": 1, "result": {}}),
+               _server_frame({"id": 2, "result": {"data": ["th-1"]}}),
+               _server_frame({"id": 3, "result": {"turn": {"id": "t"}}})]
+    monkeypatch.delattr(socket, "AF_UNIX", raising=False)
+    monkeypatch.setattr(codexd, "_proxy",
+                        lambda timeout: (out.extend, lambda: replies.pop(0), lambda: None))
+    assert codexd.start_turn("th-1", "안녕", path=str(tmp_path / "d.sock")) is True
+    frames, buf = [], bytes(out).split(b"\r\n\r\n", 1)[1]
+    while (got := codexd.read_frame(buf)):
+        frames.append(json.loads(got[1]))
+        buf = got[2]
+    assert frames[-1]["method"] == "turn/start"

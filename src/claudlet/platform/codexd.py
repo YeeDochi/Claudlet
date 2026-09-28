@@ -11,13 +11,19 @@
 돌고 있는 턴이 있으면 turn/start 가 그 턴에 끼어든다(steer).
 
 와이어: 유닉스 소켓 위의 WebSocket(텍스트 프레임 하나 = JSON-RPC 한 통).
-소켓은 CODEX_HOME/app-server-control/app-server-control.sock.
+소켓은 CODEX_HOME/app-server-control/app-server-control.sock. 유닉스 소켓을 못
+여는 파이썬(윈도우 기본 빌드엔 AF_UNIX 가 없다)은 `codex app-server proxy` —
+그 소켓을 stdio 로 이어주는 공식 명령 — 를 거친다. 같은 바이트가 오간다(리눅스
+에서 핸드셰이크·initialize 까지 실측).
 """
 import base64
 import json
 import os
+import shutil
 import socket
 import struct
+import subprocess
+import threading
 
 SOCK = os.path.join("app-server-control", "app-server-control.sock")
 
@@ -28,6 +34,13 @@ def socket_path(env=None):
     home = env.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
     path = os.path.join(home, SOCK)
     return path if os.path.exists(path) else None
+
+
+def available():
+    """데몬에 닿을 길이 있나 — 소켓을 직접 열 수 있거나, 프록시할 codex 가 있거나."""
+    if socket_path() is None:
+        return False
+    return hasattr(socket, "AF_UNIX") or shutil.which("codex") is not None
 
 
 def client_frame(obj, mask=None):
@@ -69,18 +82,48 @@ def read_frame(buf):
     return op, payload, buf[at + n:]
 
 
+def _unix(path, timeout):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect(path)
+    return s.sendall, lambda: s.recv(65536), s.close
+
+
+def _proxy(timeout):
+    """`codex app-server proxy` 의 stdio 를 통로로. 타임아웃은 프로세스를 죽여서 —
+    그러면 막혀 있던 read 가 빈 바이트로 풀린다."""
+    exe = shutil.which("codex")
+    if not exe:
+        raise OSError("codex not on PATH")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    p = subprocess.Popen([exe, "app-server", "proxy"], stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+    timer = threading.Timer(timeout, p.kill)
+    timer.daemon = True
+    timer.start()
+
+    def send(b):
+        p.stdin.write(b)
+        p.stdin.flush()
+
+    def close():
+        timer.cancel()
+        p.kill()
+
+    return send, lambda: os.read(p.stdout.fileno(), 65536), close
+
+
 class _Conn:
-    def __init__(self, path, timeout):
-        self.s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.s.settimeout(timeout)
-        self.s.connect(path)
+    def __init__(self, send, recv, close):
+        self._send, self._recv, self._close = send, recv, close
         key = base64.b64encode(os.urandom(16)).decode()
-        self.s.sendall(("GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
+        self._send(("GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
                         "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
                         "Sec-WebSocket-Version: 13\r\n\r\n" % key).encode())
         buf = b""
         while b"\r\n\r\n" not in buf:
-            chunk = self.s.recv(4096)
+            chunk = self._recv()
             if not chunk:
                 raise OSError("daemon closed during handshake")
             buf += chunk
@@ -89,7 +132,7 @@ class _Conn:
             raise OSError("daemon refused the websocket upgrade")
 
     def send(self, obj):
-        self.s.sendall(client_frame(obj))
+        self._send(client_frame(obj))
 
     def recv(self):
         while True:
@@ -101,7 +144,7 @@ class _Conn:
                 if op == 0x8:
                     raise OSError("daemon closed")
                 continue                      # ping/pong 등은 넘긴다
-            chunk = self.s.recv(65536)
+            chunk = self._recv()
             if not chunk:
                 raise OSError("daemon closed")
             self.buf += chunk
@@ -114,17 +157,18 @@ class _Conn:
                 return msg                    # 그 사이 알림(notification)은 버린다
 
     def close(self):
-        self.s.close()
+        self._close()
 
 
 def start_turn(thread_id, text, path=None, timeout=5):
     """그 스레드에 사용자 턴을 넣는다. 데몬이 그 스레드를 들고 있지 않거나 실패하면
     False — 호출자가 다른 길(쪽지)로 간다."""
     path = path or socket_path()
-    if not path or not thread_id or not hasattr(socket, "AF_UNIX"):
+    if not path or not thread_id:
         return False
     try:
-        c = _Conn(path, timeout)
+        c = _Conn(*(_unix(path, timeout) if hasattr(socket, "AF_UNIX")
+                    else _proxy(timeout)))
         try:
             if "result" not in c.call(1, "initialize",
                                       {"clientInfo": {"name": "claudlet", "version": "1"}}):
