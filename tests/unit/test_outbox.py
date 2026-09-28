@@ -355,3 +355,16 @@ def test_without_a_mark_the_whole_answer_can_be_the_reply():
     assert outbox.whole_reply("안녕하십니까,\n주인.") == ("안녕하십니까, 주인.", True)
     assert outbox.whole_reply("짧아") == ("짧아", False)
     assert outbox.whole_reply("") == (None, False)
+
+
+def test_an_answer_written_before_the_app_s_message_is_not_its_answer():
+    def said(text):
+        return json.dumps({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant", "phase": "final_answer",
+            "content": [{"type": "output_text", "text": text}]}})
+    delegation = json.dumps({"type": "response_item", "payload": {
+        "type": "function_call_output", "output": "<codex_delegation><input>test</input></codex_delegation>"}})
+    lines = [said("하던 일 끝"), delegation]
+    assert outbox.last_assistant_text(lines, final_only=True) is None
+    assert outbox.last_assistant_text(lines + [said("테스트 받았어")],
+                                      final_only=True) == "테스트 받았어"

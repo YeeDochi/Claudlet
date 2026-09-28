@@ -279,6 +279,11 @@ def last_assistant_text(lines, final_only=False):
             content = (rec.get("message") or {}).get("content")
         else:
             pay = rec.get("payload") or {}
+            # 코덱스 앱이 넣은 말(위임)보다 앞선 답은 그 말에 대한 답이 아니다 —
+            # 일하는 중에 보내면 같은 턴에 끼어들어, 하던 일의 답이 먼저 나온다
+            if (final_only and pay.get("type") == "function_call_output"
+                    and str(pay.get("output", "")).startswith("<codex_delegation>")):
+                return None
             if (pay.get("type") != "message" or pay.get("role") != "assistant"):
                 continue
             # 코덱스는 턴 중간에도 commentary 로 말한다 — 답은 final_answer 다
