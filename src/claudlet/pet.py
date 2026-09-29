@@ -5029,13 +5029,16 @@ class Pet(QWidget):
     def _raise_window(self, wid, unmax=False):
         """Start fetching `wid`: dash off-screen first; the raise happens once
         the pet is out of sight. Ignores ids the finder doesn't list. `unmax`
-        (`raise --pull`): a maximized window is un-maximized and hauled over
-        too, instead of only coming up in place (Windows)."""
+        (`raise --pull`): a maximized window is un-maximized where it is and
+        then grabbed and dragged over like any open one, instead of only coming
+        up in place (Windows)."""
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
             return
         if self.mode == "thrown":
             self.mode = "roam"                 # the fetch owns motion now (physics would run first)
+        if unmax and self._pull_by_pet and not win.hidden and not self._can_drag(win):
+            win = self._unmaximize(win) or win
         if self._can_drag(win):
             # already on screen: go over, grab the edge that leads toward
             # here, and drag it back
@@ -5063,6 +5066,22 @@ class Pet(QWidget):
                        "icon": self._app_sprite(win.title),   # 물고 갈 앱 아이콘, 없으면 None
                        "size": (win.w, win.h),                # 끌어올릴 창 크기
                        "unmax": unmax}
+
+    def _unmaximize(self, win):
+        """Restore a maximized `win` in place (Windows) and return it with its
+        new geometry — also swapped into the feed so the dash aims at it before
+        the next poll — or None when it could not be."""
+        try:
+            from claudlet.platform.geom import win32
+            geo = win32.unmaximize(win.wid)
+        except Exception:
+            return None
+        if not geo:
+            return None
+        x, y, w, h = (int(v) for v in geo)
+        new = win._replace(x=x, y=y, w=w, h=h)
+        self._wins = [new if str(o.wid) == str(win.wid) else o for o in self._wins]
+        return new
 
     def _can_drag(self, win):
         """A window already on screen is fetched by walking over and dragging

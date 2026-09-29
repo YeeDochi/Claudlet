@@ -534,6 +534,26 @@ def pull_begin(hwnd, x, y, unmax=False):
         return False
 
 
+def unmaximize(hwnd):
+    """Un-maximize `hwnd` where it is, back to its normal size, and return its
+    logical visible (x, y, w, h) — or None when it isn't maximized or can't be
+    read. Lets `raise --pull` grab and drag a maximized window like any other."""
+    if user32 is None:
+        return None
+    try:
+        hwnd = int(hwnd)
+        if not user32.IsZoomed(hwnd):
+            return None
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        r = _visible_rect(hwnd)
+        if r is None:
+            return None
+        return _to_logical(r.left, r.top, r.right - r.left, r.bottom - r.top,
+                           _dpi_scale(hwnd))
+    except Exception:
+        return None
+
+
 def move_visible(hwnd, x, y):
     """Put the VISIBLE top-left of `hwnd` (what the feed reports) at logical
     (x, y). SetWindowPos places the outer rect, which on Win10/11 carries an

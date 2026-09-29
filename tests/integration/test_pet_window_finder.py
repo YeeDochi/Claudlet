@@ -231,20 +231,22 @@ def test_windows_style_the_pet_hauls_the_window_itself(pet):
     assert snap["fetch_phase"] == "ride" and abs(pet.y + pet.foot_y - hy) < 1
 
 
-def test_raise_pull_hauls_a_maximized_window_un_maximized(pet):
-    # plain raise leaves a maximized window in place; --pull asks for its
-    # normal size and hands the un-maximize along with the haul
+def test_raise_pull_grabs_and_drags_a_maximized_window(pet):
+    # plain raise leaves a maximized window in place and the pet dives to it;
+    # --pull restores it where it is, then runs over and drags it like any
+    # open window (not up out of the floor)
     pet._can_pull, pet._pull_by_pet = True, True
-    pet._move_window = lambda wid, x, y: None
-    asked, plans = [], []
-    pet._raise_now = lambda wid, pull_from=None: plans.append(pull_from) or True
-    pet._pull_size = lambda f: asked.append(f.get("unmax")) or (500, 250)
     row = _row("w9", "chrome", 0, 0, 10000, 10000, "GitHub")          # maximized
     pet._on_geom(row)
     pet._finder_windows = lambda: geom.parse_dump(row, hidden=True)   # not the host's
+    send_hook(pet, cmd="raise", id="w9")
+    assert pet.snapshot()["fetch_phase"] == "out"
+    pet._fetch = None
+    restored = []
+    pet._unmaximize = lambda win: restored.append(win.wid) or win._replace(
+        x=900, y=300, w=500, h=250)
     send_hook(pet, cmd="raise", id="w9", pull=True)
-    assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
-    assert asked == [True] and plans[-1]["unmax"] is True
+    assert restored == ["w9"] and pet.snapshot()["fetch_phase"] == "run"
 
 
 def _beside_left(pet, x):
