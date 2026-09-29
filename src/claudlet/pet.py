@@ -5008,8 +5008,6 @@ class Pet(QWidget):
     # 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
     FETCH_HOP = 0.35       # hop height before the dive, in body heights
     FETCH_GRAVITY = 2.0    # x normal gravity: a snappy hop, a quick plunge
-    FETCH_DIG_DRAG = 0.92  # per tick: the floor eats this much of the dive speed...
-    FETCH_DIG_MIN = 18.0   # ...down to this many px/tick (so the dig never stalls)
     FETCH_GONE_SECS = 3.0  # give up waiting for the window to show after this
     FETCH_RIDE_SECS = 4.0  # stay on the fetched window before carrying on
     FETCH_CHEER_SECS = 2.5
@@ -5114,17 +5112,17 @@ class Pet(QWidget):
         """One tick of the fetch. Owns position and render while it runs."""
         f = self._fetch
         if f["phase"] == "out":
-            # one hop, then straight down: whatever it is standing on, it falls
-            # to the floor without stopping and carries that speed into the dig
+            # one hop, then straight down: nothing stops the fall — not the
+            # window it stood on, not the floor. Below the floor line it is
+            # masked away (sink), so it drops through the ground and is gone.
             self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
             self.y += self.vy
             self._render_state = "jump" if self.vy < 0 else "falling"
             if self.y + self.foot_y >= f["line"]:
-                f["phase"] = "sink"           # feet hit the floor: dig in
+                f["phase"] = "sink"           # feet through the floor
             return
         if f["phase"] == "sink":
-            # the ground slows it, but it keeps burrowing — never stalls
-            self.vy = max(self.FETCH_DIG_MIN, self.vy * self.FETCH_DIG_DRAG)
+            self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
             self.y += self.vy
             self._render_state = "falling"
             if self.y < f["line"]:
