@@ -1625,7 +1625,7 @@ class Pet(QWidget):
         # every frame, and knows where it is from the same curve (the 220ms
         # window poll would lag the ride). KWin eases the window on its own.
         self._pull_by_pet = os.name == "nt"
-        self._pull_anim = None               # (wid, start, target, t0, secs) while hauling
+        self._pull_anim = None               # (wid, plan, t0) while hauling (Windows)
         self._pull_timer = None
         self._move_window = None             # (wid, x, y) -> None; Win32 by default
 
@@ -2114,7 +2114,7 @@ class Pet(QWidget):
             "following": self._follow,
             "chat_open": self._chat_open(),      # 대화창이 떠 있다
             "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
-            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | pull | gone | ride; on-screen: leap | grip | pull | ride
+            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | pull | gone | ride; on-screen: run | leap | grip | pull | ride
             "fetch_icon": bool(self._fetch and self._fetch.get("icon")),  # carrying the app's icon
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
@@ -5039,18 +5039,12 @@ class Pet(QWidget):
             home = self._haul_target(origin[0], origin[1], (win.w, win.h))
             edge = follow_nav.pick_edge((win.x, win.y), home)
             off = follow_nav.grab_off((win.x, win.y, win.w, win.h), self.w, self.h, edge, fx, fy)
-            f = {"edge": edge, "off": off}
-            tx, ty = self._hold(f, win)
-            dist = math.hypot(tx - fx, ty - fy)
             self._contain = None
             self.vx = self.vy = 0.0
-            self._fetch = {"wid": wid, "phase": "leap", "until": None,
+            self._fetch = {"wid": wid, "phase": "run", "until": None, "t0": None,
                            "icon": self._app_sprite(win.title), "size": (win.w, win.h),
                            "edge": edge, "hold": off, "home": home,
                            "origin": origin,
-                           "from": (fx, fy), "t0": None,      # clock starts on the first frame
-                           "secs": min(0.9, max(0.4, 0.3 + dist / 2500.0)),
-                           "arc": 60.0 + 0.25 * dist,
                            "line": 10 ** 9}           # nothing to sink through: never masked
             return
         # it dives through whatever it stands on — a window top, a window's
@@ -5074,6 +5068,45 @@ class Pet(QWidget):
         area = next((g for g in self._screens if g.left() <= cx <= g.right()),
                     self.screen_rect)
         return not (win.w >= area.width() - 2 and win.h >= area.height() - 2)
+
+    FETCH_RUN_SPEED = 22.0   # px/tick dashing toward a window to fetch
+    FETCH_RUN_SECS = 1.2     # longest dash; a farther window is leapt the rest
+    FETCH_LEAP_RANGE = 320.0  # sideways gap it takes in one jump
+
+    def _run_step(self, f, win, now):
+        """Dash along whatever it stands on toward the window (falling off a
+        ledge on the way, like a walk would), then jump the last stretch."""
+        if f["t0"] is None:
+            f["t0"] = now
+        land = self._hold({"edge": f["edge"], "off": f["hold"]}, win)
+        dx = land[0] - self.x
+        if abs(dx) <= self.FETCH_LEAP_RANGE or now - f["t0"] >= self.FETCH_RUN_SECS:
+            dist = math.hypot(dx, land[1] - self.y)
+            f.update(phase="leap", t0=None, **{"from": (self.x, self.y)},
+                     secs=min(1.0, max(0.55, 0.45 + dist / 1800.0)),
+                     arc=60.0 + 0.2 * dist)
+            self._leap_step(f, win, now)
+            return
+        self.facing = 1 if dx > 0 else -1
+        self.x += self.facing * min(self.FETCH_RUN_SPEED, abs(dx) - self.FETCH_LEAP_RANGE)
+        _l, _r, _t, floor = self._bounds()
+        if self.y < floor - 2:                # ran off a ledge: fall while running
+            self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
+            self.y = min(self.y + self.vy, floor)
+        else:
+            self.vy, self.y = 0.0, float(floor)
+        self._render_state = "walk"
+
+    def _leap_step(self, f, win, now):
+        land = self._hold({"edge": f["edge"], "off": f["hold"]}, win)
+        if f["t0"] is None:
+            f["t0"] = now
+        t = (now - f["t0"]) / f["secs"]
+        self.x, self.y = follow_nav.leap_at(f["from"], land, t, f["arc"])
+        self._render_state = "leap"
+        if t >= 1.0:
+            f["phase"], f["ticks"] = "grip", 0
+            f["off"] = f["hold"]
 
     def _hold(self, f, win):
         """Box top-left while holding f["edge"] of `win` at f["off"]. A pet on
@@ -5108,9 +5141,10 @@ class Pet(QWidget):
         from another desktop. Only an id the finder itself lists is accepted —
         the id is spliced into a KWin script. Returns whether it was sent.
 
-        `pull_from` (KDE): ((x0, y0), (x, y)) — park the window's top-left at
-        the first (below the screen), then haul it to the second — a timer
-        inside KWin eases it, so it is smooth whatever our tick rate. A
+        `pull_from`: a _pull_plan — park the window's top-left at "start",
+        then haul it through "points", each leg eased over "tug" seconds with
+        "pause" between (KDE: a timer inside KWin runs it, so it is smooth
+        whatever our tick rate; Windows: the pet runs the same plan). A
         maximized window is re-maximized at the end, on the monitor it now
         sits on (KWin lets a script move it, but a later plain geometry set
         on it is ignored)."""
@@ -5129,13 +5163,12 @@ class Pet(QWidget):
             elif os.name == "nt":
                 from claudlet.platform.geom import win32
                 if pull_from is not None:
-                    return win32.pull_begin(int(wid), *pull_from[0])
+                    return win32.pull_begin(int(wid), *pull_from["start"])
                 win32.activate_hwnd(int(wid))
             elif sys.platform.startswith("linux"):
                 self._run_kwin_script(
                     'var ID = ' + json.dumps(wid) + ';'
                     'var PULL = ' + json.dumps(pull_from) + ';'
-                    'var MS = ' + str(int(self.FETCH_PULL_MS)) + ';'
                     'var cs = (typeof workspace.windowList === "function") '
                     '? workspace.windowList() : workspace.clientList();'
                     'for (var i = 0; i < cs.length; i++) {'
@@ -5143,7 +5176,8 @@ class Pet(QWidget):
                     '  if (("" + t.internalId) !== ID) continue;'
                     '  var g = t.frameGeometry, X = g.x, Y = g.y, W = g.width, H = g.height;'
                     '  var M = t.maximizeMode, P = PULL !== null && t.moveable && !t.fullScreen;'
-                    '  if (P) { var X0 = PULL[0][0], Y0 = PULL[0][1]; X = PULL[1][0]; Y = PULL[1][1];'
+                    '  if (P) { var X0 = PULL.start[0], Y0 = PULL.start[1];'
+                    '           var PTS = PULL.points; X = PTS[PTS.length - 1][0]; Y = PTS[PTS.length - 1][1];'
                     '           t.frameGeometry = {x: X0, y: Y0, width: W, height: H}; }'
                     '  t.minimized = false;'
                     '  if (!t.onAllDesktops) {'
@@ -5152,12 +5186,24 @@ class Pet(QWidget):
                     '  }'
                     '  try { workspace.activeWindow = t; } catch (e) { workspace.activeClient = t; }'
                     '  if (P) {'
-                    '    var n = 0, N = Math.max(1, Math.round(MS / 16)), tm = new QTimer();'
+                    # leg by leg: ease out to the next point, rest, next (follow_nav.tug_at)
+                    '    var NT = Math.max(1, Math.round(PULL.tug * 1000 / 16)),'
+                    '        NP = Math.round(PULL.pause * 1000 / 16);'
+                    '    var seg = 0, n = 0, px = X0, py = Y0, tm = new QTimer();'
                     '    tm.interval = 16;'
                     '    tm.timeout.connect(function () {'
-                    '      n++; var e = 1 - Math.pow(1 - n / N, 3);'   # ease-out: yanked, then settles
-                    '      t.frameGeometry = {x: X0 + (X - X0) * e, y: Y0 + (Y - Y0) * e, width: W, height: H};'
-                    '      if (n < N) return;'
+                    '      n++;'
+                    '      if (n <= NT) {'
+                    '        var e = 1 - Math.pow(1 - n / NT, 3);'   # ease-out: heave, then settle
+                    '        t.frameGeometry = {x: px + (PTS[seg][0] - px) * e,'
+                    '                           y: py + (PTS[seg][1] - py) * e, width: W, height: H};'
+                    '        return;'
+                    '      }'
+                    '      if (seg < PTS.length - 1) {'
+                    '        if (n < NT + NP) return;'                # catching its breath
+                    '        px = PTS[seg][0]; py = PTS[seg][1]; seg++; n = 0;'
+                    '        return;'
+                    '      }'
                     '      tm.stop();'
                     '      if (M) { t.setMaximize(false, false); t.setMaximize((M & 1) != 0, (M & 2) != 0); }'
                     '      else t.frameGeometry = {x: X, y: Y, width: W, height: H};'
@@ -5201,34 +5247,30 @@ class Pet(QWidget):
                 cx = self.x + self.w / 2.0
                 f["size"] = size
                 f["home"] = self._haul_target(cx, f["line"], size)
-                pull_from = ((f["home"][0], self._screen_bottom_at(cx) + 1), f["home"])
+                pull_from = self._pull_plan((f["home"][0], self._screen_bottom_at(cx) + 1),
+                                            f["home"], tugs=False)
             if not self._raise_now(f["wid"], pull_from if pull else None):
                 self._fetch = None
                 return
             f["phase"] = "pull" if pull else "gone"
             if pull and self._pull_by_pet:
                 f["by_pet"] = True
-                self._start_pull_anim(f["wid"], pull_from[0], pull_from[1], now)
-            f["until"] = now + self.FETCH_GONE_SECS + (self.FETCH_PULL_MS / 1000.0 if pull else 0)
+                self._start_pull_anim(f["wid"], pull_from, now)
+            f["until"] = now + self.FETCH_GONE_SECS + (self._plan_secs(pull_from) if pull else 0)
             return
         if f["phase"] == "pull":
             self._pull_step(f, now)
             return
-        if f["phase"] in ("leap", "grip"):
+        if f["phase"] in ("run", "leap", "grip"):
             win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
             if win is None:
                 self._fetch = None            # it went away under us
                 return
+            if f["phase"] == "run":
+                self._run_step(f, win, now)
+                return
             if f["phase"] == "leap":
-                land = self._hold({"edge": f["edge"], "off": f["hold"]}, win)
-                if f["t0"] is None:
-                    f["t0"] = now
-                t = (now - f["t0"]) / f["secs"]
-                self.x, self.y = follow_nav.leap_at(f["from"], land, t, f["arc"])
-                self._render_state = "leap"
-                if t >= 1.0:
-                    f["phase"], f["ticks"] = "grip", 0
-                    f["off"] = f["hold"]
+                self._leap_step(f, win, now)
                 return
             # grip: dig in on the edge for a beat, then haul it home
             self.x, self.y = self._hold(f, win)
@@ -5243,15 +5285,15 @@ class Pet(QWidget):
             if size != f["size"]:             # Windows measures it afresh
                 f["size"] = size
                 f["home"] = self._haul_target(f["origin"][0], f["origin"][1], size)
-            pull_from = ((win.x, win.y), f["home"])
+            pull_from = self._pull_plan((win.x, win.y), f["home"], tugs=True)
             if not self._raise_now(f["wid"], pull_from):
                 self._fetch = None
                 return
             f["phase"] = "pull"
-            f["until"] = now + self.FETCH_GONE_SECS + self.FETCH_PULL_MS / 1000.0
+            f["until"] = now + self.FETCH_GONE_SECS + self._plan_secs(pull_from)
             if self._pull_by_pet:
                 f["by_pet"] = True
-                self._start_pull_anim(f["wid"], pull_from[0], pull_from[1], now)
+                self._start_pull_anim(f["wid"], pull_from, now)
             return
         if f["phase"] == "gone":
             win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
@@ -5298,8 +5340,26 @@ class Pet(QWidget):
                 return None
         return f["size"]
 
-    def _start_pull_anim(self, wid, start, target, now):
-        self._pull_anim = (wid, start, target, now, self.FETCH_PULL_MS / 1000.0)
+    FETCH_TUG_SECS = 0.32   # one heave of a dragged window...
+    FETCH_TUG_REST = 0.2    # ...then a breath before the next
+
+    def _pull_plan(self, start, target, tugs):
+        """How a window travels: from `start` to `target` in one smooth haul,
+        or (`tugs`) heave-ho steps no longer than the pet can manage at once —
+        about two of its own widths."""
+        if not tugs:
+            return {"start": start, "points": [target],
+                    "tug": self.FETCH_PULL_MS / 1000.0, "pause": 0.0}
+        return {"start": start,
+                "points": follow_nav.tug_points(start, target, max(120.0, 2.0 * self.w)),
+                "tug": self.FETCH_TUG_SECS, "pause": self.FETCH_TUG_REST}
+
+    @staticmethod
+    def _plan_secs(plan):
+        return follow_nav.tug_secs(len(plan["points"]), plan["tug"], plan["pause"])
+
+    def _start_pull_anim(self, wid, plan, now):
+        self._pull_anim = (wid, plan, now)
         if self._pull_timer is None:
             self._pull_timer = QTimer(self)
             self._pull_timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -5307,8 +5367,10 @@ class Pet(QWidget):
         self._pull_timer.start(16)
 
     def _pull_pos(self, now):
-        _wid, start, target, t0, secs = self._pull_anim
-        return follow_nav.pull_at(start, target, (now - t0) / secs), (now - t0) >= secs
+        """(pos, moving, done) of the window we are hauling ourselves."""
+        _wid, plan, t0 = self._pull_anim
+        return follow_nav.tug_at(plan["start"], plan["points"], now - t0,
+                                 plan["tug"], plan["pause"])
 
     def _pull_frame(self):
         """One frame of hauling the window (Windows). Runs to the end even if
@@ -5316,7 +5378,7 @@ class Pet(QWidget):
         if self._pull_anim is None:
             self._pull_timer.stop()
             return
-        (x, y), done = self._pull_pos(time.monotonic())
+        (x, y), _moving, done = self._pull_pos(time.monotonic())
         move = self._move_window
         if move is None:
             from claudlet.platform.geom import win32
@@ -5332,7 +5394,8 @@ class Pet(QWidget):
         a maximized window's top is off the screen — drop into it."""
         if f.get("by_pet"):
             # we are moving it ourselves: it is exactly where the curve says
-            (x, y), _done = self._pull_pos(now)
+            (x, y), moving, _done = self._pull_pos(now)
+            f["moving"] = moving
             win = geom.Win(f["wid"], int(round(x)), int(round(y)),
                            int(f["size"][0]), int(f["size"][1]), "")
         else:
@@ -5346,7 +5409,12 @@ class Pet(QWidget):
             f["off"] = follow_nav.grab_off((win.x, win.y, win.w, win.h), self.w, self.h,
                                            "top", win.x + (win.w - self.w) / 2.0, 0)
         self.x, self.y = self._hold(f, win)   # hang on where we grabbed it
-        self._render_state = "strain"
+        if not f.get("by_pet"):
+            last = f.get("last")
+            f["moving"] = last is None or last != (win.x, win.y)
+            f["last"] = (win.x, win.y)
+        # heave while it moves, catch a breath between tugs
+        self._render_state = "strain" if f.get("moving", True) else "settle"
         if (abs(win.x - f["home"][0]) > 1 or abs(win.y - f["home"][1]) > 1) \
                 and now <= f["until"]:
             return

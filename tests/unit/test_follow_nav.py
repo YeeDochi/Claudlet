@@ -287,15 +287,6 @@ def test_fetch_spot_centres_on_the_pet_with_its_bottom_on_the_line():
     assert fetch_spot(900, 860, 1920, 1176, area) == (0, 24)         # too big: top-left
 
 
-def test_pull_at_eases_out_from_start_to_target():
-    from claudlet.core.follow_nav import pull_at
-    assert pull_at((0, 1000), (100, 200), 0) == (0, 1000)
-    assert pull_at((0, 1000), (100, 200), 1) == (100, 200)
-    assert pull_at((0, 1000), (100, 200), 5) == (100, 200)          # clamped
-    x, y = pull_at((0, 1000), (0, 200), 0.5)
-    assert 200 < y < 600                                              # past halfway: ease-out
-
-
 def test_leap_at_arcs_between_start_and_end():
     from claudlet.core.follow_nav import leap_at
     assert leap_at((0, 500), (400, 300), 0, 100) == (0, 500)
@@ -326,3 +317,18 @@ def test_grab_and_hold_on_each_edge():
     assert (x, y + fy) == (1200, 200)                               # feet on the top edge
     x, y = hold_pos(win, bw, bh, fy, "bottom", 0)
     assert y < 600 < y + bh
+
+
+def test_tugs_split_the_drag_and_rest_between():
+    from claudlet.core.follow_nav import tug_points, tug_at, tug_secs
+    pts = tug_points((0, 0), (1000, 0), 300)
+    assert len(pts) == 4 and pts[-1] == (1000, 0)            # ceil(1000/300) heaves
+    assert all(abs(b[0] - a[0]) <= 300 for a, b in zip([(0, 0)] + pts, pts))
+    tug, rest = 0.3, 0.2
+    pos, moving, done = tug_at((0, 0), pts, 0.15, tug, rest)
+    assert moving and 0 < pos[0] < pts[0][0]                  # mid-heave
+    pos, moving, done = tug_at((0, 0), pts, 0.4, tug, rest)
+    assert (pos, moving, done) == (pts[0], False, False)      # catching its breath
+    pos, moving, done = tug_at((0, 0), pts, tug_secs(4, tug, rest), tug, rest)
+    assert pos == (1000, 0) and done
+    assert tug_points((5, 5), (5, 5), 300) == [(5, 5)]        # nowhere to go: one no-op

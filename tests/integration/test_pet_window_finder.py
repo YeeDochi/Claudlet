@@ -221,7 +221,8 @@ def test_windows_style_the_pet_hauls_the_window_itself(pet):
     hx, hy = _home(pet)
     pet._pull_frame()
     assert moves and moves[-1][0] == "w9" and moves[-1][2] > hy   # still below, coming up
-    pet._pull_anim = pet._pull_anim[:3] + (pet._pull_anim[3] - 5.0, pet._pull_anim[4])
+    wid, plan, t0 = pet._pull_anim
+    pet._pull_anim = (wid, plan, t0 - 60.0)                   # every tug done
     pet._pull_frame()
     assert moves[-1][1:] == (hx, hy)                          # landed where it should
     pet._tick()
@@ -239,9 +240,12 @@ def test_an_open_window_is_fetched_by_going_over_and_dragging_it_back(pet):
     pet.x = 100.0
     line = pet.y + pet.foot_y
     send_hook(pet, cmd="raise", id="w9")
-    assert pet.snapshot()["fetch_phase"] == "leap"
+    assert pet.snapshot()["fetch_phase"] == "run"
+    x0 = pet.x
     pet._tick()
-    assert pet.snapshot()["render"] == "leap"                 # off it goes
+    assert pet.snapshot()["render"] == "walk" and pet.x > x0 and pet.facing == 1  # dashes over
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "leap", n=60)
+    assert 900 - pet.x <= pet.FETCH_LEAP_RANGE + pet.w       # jumps only the last stretch
     pet._fetch["t0"] -= 5.0                                   # the leap has played out
     pet._tick()
     assert pet.snapshot()["fetch_phase"] == "grip"
@@ -269,7 +273,9 @@ def test_a_window_pulled_upward_is_held_from_the_top(pet):
     pet.x, pet.y = 150.0, 100.0                               # up high, right above it
     send_hook(pet, cmd="raise", id="w9")
     assert pet._fetch["edge"] == "top"
-    pet._fetch["t0"] = -1e9
+    pet._tick()                                               # right above it: no dash, jump
+    assert pet.snapshot()["fetch_phase"] == "leap"
+    pet._fetch["t0"] -= 5.0
     pet._tick()
     pet._tick()
     assert abs(pet.y + pet.foot_y - (r.bottom() - 260)) < 1  # standing on it

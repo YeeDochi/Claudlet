@@ -9,6 +9,7 @@ and gets an intent tuple back. pet.py's follow branch is a thin adapter.
 
 Design: docs/superpowers/specs/2026-07-13-jump-window-navigation-design.md.
 """
+import math
 from collections import namedtuple
 
 from claudlet.core import physics
@@ -317,15 +318,6 @@ def fetch_spot(cx, line, w, h, area):
     return max(x, ax), max(y, ay)
 
 
-def pull_at(start, target, t):
-    """Where a hauled window's top-left is at progress t (0..1): ease-out
-    cubic from `start` to `target` — yanked, then settles. The same curve the
-    KWin script runs, so both backends look alike. Pure."""
-    t = min(max(t, 0.0), 1.0)
-    e = 1 - (1 - t) ** 3
-    return (start[0] + (target[0] - start[0]) * e,
-            start[1] + (target[1] - start[1]) * e)
-
 
 def leap_at(start, end, t, arc):
     """Top-left of a pet leaping from `start` to `end` at progress t (0..1):
@@ -378,3 +370,33 @@ def hold_pos(win, box_w, box_h, foot_y, edge, off):
     if edge == "left":
         return (x - box_w * (1 - ov), y + off)
     return (x + w - box_w * ov, y + off)
+
+
+def tug_points(start, target, step):
+    """Waypoints for dragging a window from `start` to `target` in tugs of at
+    most `step` px each (heave, ho, ...), ending exactly on `target`. Pure."""
+    dx, dy = target[0] - start[0], target[1] - start[1]
+    n = max(1, int(math.ceil(math.hypot(dx, dy) / float(step)))) if step > 0 else 1
+    return [(start[0] + dx * i / n, start[1] + dy * i / n) for i in range(1, n + 1)]
+
+
+def tug_at(start, points, t, tug, pause):
+    """Window top-left `t` seconds into a tugged drag: each tug eases out to
+    the next waypoint over `tug` s, then it rests `pause` s. Returns
+    (pos, moving, done) — moving is False while resting. Pure."""
+    period = tug + pause
+    i = int(t // period) if period > 0 else len(points)
+    if i >= len(points):
+        return points[-1], False, True
+    frac = (t - i * period) / tug if tug > 0 else 1.0
+    if frac >= 1.0:
+        return points[i], False, i == len(points) - 1
+    prev = start if i == 0 else points[i - 1]
+    e = 1 - (1 - frac) ** 3
+    return ((prev[0] + (points[i][0] - prev[0]) * e,
+             prev[1] + (points[i][1] - prev[1]) * e), True, False)
+
+
+def tug_secs(n, tug, pause):
+    """How long a drag of n tugs takes (no rest after the last). Pure."""
+    return n * tug + max(0, n - 1) * pause
