@@ -256,6 +256,8 @@ title; the pet does the rest, carrying **that app's icon in its mouth**:
 Saying "bring it **here**" hauls a maximized window over too (un-maximizing it).
 `claudlet-window chat` brings back the pet's own chat window.
 
+<p align="center"><img src="docs/window-fetch.gif" width="100%" alt="the pet fetching a window"></p>
+
 Works on KDE Plasma (including other virtual desktops) and Windows. On macOS
 minimized windows aren't listed and it fronts the whole app, not one window.
 

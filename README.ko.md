@@ -239,6 +239,8 @@ Claude Code 와 Codex 둘 다 돼요. 다만 **터미널에서 돌고 있을 때
 "**여기로** 끌고 와" 라고 하면 최대화된 창도 최대화를 풀고 끌고 와요.
 `claudlet-window chat` 은 펫 대화창을 다시 불러와요.
 
+<p align="center"><img src="docs/window-fetch.gif" width="100%" alt="펫이 창을 찾아오는 모습"></p>
+
 KDE Plasma(다른 가상 데스크톱 포함)와 Windows 에서 동작해요. macOS 에선 최소화된 창이
 목록에 안 나오고, 창 하나가 아니라 앱 전체를 앞으로 가져와요.
 
