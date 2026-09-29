@@ -69,3 +69,20 @@ def test_raise_ignores_ids_the_finder_does_not_list(pet):
 def test_chat_opens_the_pets_own_chat_window(pet):
     send_hook(pet, cmd="chat")
     assert pet.snapshot()["chat_open"]
+
+
+def test_grabbing_the_pet_mid_fetch_calls_the_fetch_off(pet):
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "sink", n=60)
+    pet._tick()
+    assert pet.snapshot()["masked"]                    # half sunk
+    pet.mousePressEvent(QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress, QPointF(5, 5), QPointF(5, 5),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier))
+    pet._tick()
+    snap = pet.snapshot()
+    assert snap["fetching"] is None and not snap["masked"]   # whole pet in hand

@@ -3656,6 +3656,7 @@ class Pet(QWidget):
             self._moved = False
             self._vel_samples = [(time.monotonic(), self._press_global)]
             self.mode = "held"
+            self._fetch = None             # 잡으면 창 찾기는 취소 — 놓은 자리에서 가라앉지 않게
             self.setCursor(Qt.CursorShape.ClosedHandCursor)   # 쥔 손: 집고 있는 동안
             self._held_chain = []
             self._held_chain_prev = []
