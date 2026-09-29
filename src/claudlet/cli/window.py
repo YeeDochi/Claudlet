@@ -7,6 +7,10 @@ Usage:
   claudlet-window raise <id>    bring that window to the front (restoring it,
                                 and on KDE fetching it from another desktop);
                                 the pet then brings it back
+  claudlet-window raise <id> --wait
+                                ...and wait until it is really up front:
+                                exit 0 when it is, 3 (with its last state on
+                                stderr) when it never came up
   claudlet-window chat          open (or bring back) the pet's own chat window,
                                 which `list` never shows
 
@@ -18,6 +22,7 @@ import json
 import os
 import socket
 import sys
+import time
 
 from claudlet.cli import utf8_output
 from claudlet.core import hostinfo
@@ -57,6 +62,42 @@ def _talk(line, want_reply, timeout=1.0):
     return None
 
 
+WAIT_SECS = 12.0    # the pet sinks out of sight first (~2-4s), then raises
+POLL_SECS = 0.4
+
+
+def raised(rows, wid):
+    """Is `wid` shown and topmost in a `windows` reply? Pure."""
+    return bool(rows) and rows[0].get("id") == wid and rows[0].get("state") == "shown"
+
+
+def _windows():
+    reply = _talk(json.dumps({"cmd": "windows"}) + "\n", True)
+    if reply is None:
+        return None
+    try:
+        return json.loads(reply.splitlines()[0])["windows"]
+    except (ValueError, KeyError, IndexError):
+        return None
+
+
+def _wait_raised(wid, clock=time.monotonic, sleep=time.sleep):
+    """0 once `wid` is up front, 3 when WAIT_SECS pass without it."""
+    end = clock() + WAIT_SECS
+    rows = None
+    while clock() < end:
+        rows = _windows() or rows
+        if raised(rows, wid):
+            return 0
+        sleep(POLL_SECS)
+    row = next((r for r in rows or [] if r.get("id") == wid), None)
+    where = "gone" if row is None else row.get("state")
+    if row is not None and where == "shown":
+        where = "shown but not in front"
+    print("the window did not come up (%s)" % where, file=sys.stderr)
+    return 3
+
+
 def main(argv):
     if argv[:1] == ["list"]:
         reply = _talk(json.dumps({"cmd": "windows"}) + "\n", True)
@@ -70,11 +111,11 @@ def main(argv):
             return 1
         print(json.dumps(wins, ensure_ascii=False, indent=1))
         return 0
-    if argv[:1] == ["raise"] and len(argv) == 2:
+    if argv[:1] == ["raise"] and len(argv) in (2, 3) and argv[2:] in ([], ["--wait"]):
         if _talk(json.dumps({"cmd": "raise", "id": argv[1]}) + "\n", False) is None:
             print("no running claudlet pet", file=sys.stderr)
             return 1
-        return 0
+        return _wait_raised(argv[1]) if argv[2:] else 0
     if argv == ["chat"]:
         if _talk(json.dumps({"cmd": "chat"}) + "\n", False) is None:
             print("no running claudlet pet", file=sys.stderr)
