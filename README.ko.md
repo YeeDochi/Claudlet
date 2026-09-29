@@ -225,6 +225,23 @@ Claude Code 와 Codex 둘 다 돼요. 다만 **터미널에서 돌고 있을 때
 > 넣을 프롬프트가 없어요 — 이 기능은 터미널에서 도는 CLI 를 전제로 해요.
 > macOS 는 터미널이어도 바로 보내기가 아직 없고 쪽지만 돼요.
 
+## 창 찾아오기
+
+창 열 개 뒤에 묻혔거나, 최소화했거나, 다른 데스크톱에 두고 온 창이 있나요?
+에이전트한테 "슬랙 창 꺼내줘", "아까 보던 PR 창 찾아줘" 하면 **펫이 가서 가져와요**.
+에이전트가 목록에서 제목을 보고 창을 고르고, 나머지는 펫이 **그 앱 아이콘을 입에 물고** 해요:
+
+- **최소화·최대화된 창** — 펫이 딛고 선 자리에서 폴짝 뛰어 뚫고 사라지면, 창이
+  **바로 그 자리로** 올라와요. 펫은 창 윗변을 타고 올라와 아이콘을 치켜들어요.
+- **이미 떠 있는데 가려진 창** — 펫이 달려가 이쪽을 향한 모서리에 뛰어올라 붙잡고,
+  몸 두 배씩 **낑차낑차 끌고 와요**.
+
+"**여기로** 끌고 와" 라고 하면 최대화된 창도 최대화를 풀고 끌고 와요.
+`claudlet-window chat` 은 펫 대화창을 다시 불러와요.
+
+KDE Plasma(다른 가상 데스크톱 포함)와 Windows 에서 동작해요. macOS 에선 최소화된 창이
+목록에 안 나오고, 창 하나가 아니라 앱 전체를 앞으로 가져와요.
+
 ## 내 맘대로 꾸미기
 
 ![설정 화면](docs/settings-ui.png)
@@ -312,6 +329,8 @@ from a sprite sheet** 절에 있어요.
 | `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
 | `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
 | `claudlet-install-hooks` | `claudlet-install`의 훅 부분만, 감지된 에이전트 전부에 (`--agent codex`로 좁히기, `--remove`로 취소). |
+| `claudlet-window` | 창 찾아서 펫이 가져오게 하기: `list` (JSON, 맨 위부터), `raise <id>` (`--wait` 정말 앞에 뜰 때까지 대기, `--pull` 최대화 창도 끌고 오기), `chat` 은 펫 대화창. |
+| `claudlet-doctor` | 뭐가 꺼져 있어서 뭐가 안 되는지 알려줘요 (`--quiet`: 문제 있을 때만). |
 | `claudlet-macos-diag` | macOS 창 좌표 원본 출력 (perch 문제 진단). |
 | `claudlet-hook` | 내부용 — Claude Code 훅이 호출, 직접 쓰는 게 아님. |
 
@@ -328,6 +347,7 @@ Claude Code 에서도 Codex 에서도 프롬프트로 바로 펫을 조종할 �
 - `/claudlet export <크리처>` / `/claudlet import <경로>` — 크리처를 zip 으로 주고받기 (가져올 땐 내용물을 먼저 보여줘요)
 - `/claudlet make <설명>` — 펫이 입을 새 크리처를 만들어줘요
 - `/claudlet config` — 설정 보기, 또는 자연어로 요청("Bash 돌 때 점프하게")하면 Claude가 대신 편집
+- `/claudlet window <무엇>` — 묻히거나 최소화된 창을 찾아 펫이 가져와요 (그냥 "브라우저 꺼내줘" 라고 해도 돼요)
 - `/claudlet update` — 최신 릴리즈로 업데이트 (`update latest`면 develop 최신); 버전 보여주고 단계 안내
 
 ## 문서

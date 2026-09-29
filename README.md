@@ -240,6 +240,25 @@ note instead (the input says so).
 > prompt to type into — this feature assumes the CLI running in a terminal.
 > On macOS, even in a terminal, sending straight away isn't there yet: notes only.
 
+## Fetching a window
+
+Lost a window behind ten others, minimized it, or left it on another desktop?
+Ask the agent — "bring up the Slack window", "find the PR I was looking at" —
+and **the pet goes and gets it**. The agent picks the window from the list by its
+title; the pet does the rest, carrying **that app's icon in its mouth**:
+
+- **Minimized or maximized** — the pet hops and dives through the spot it stood
+  on, and the window rises up **right there**, with the pet riding its top edge
+  and holding the icon up.
+- **Already open, just buried** — the pet dashes over, jumps onto the edge facing
+  you and **tugs it back in steps**, a couple of body lengths at a time.
+
+Saying "bring it **here**" hauls a maximized window over too (un-maximizing it).
+`claudlet-window chat` brings back the pet's own chat window.
+
+Works on KDE Plasma (including other virtual desktops) and Windows. On macOS
+minimized windows aren't listed and it fronts the whole app, not one window.
+
 ## Make it yours
 
 ![The settings page](docs/settings-ui.png)
@@ -335,6 +354,8 @@ install that fails leaves the creature you already had untouched.
 | `claudlet-attach` | Attach a pet to the current Claude Code session. |
 | `claudlet-motion <name>` | Play a motion on running pets (`jump`, `wave`, … ; `stop`, `list`). |
 | `claudlet-install-hooks` | Just the hooks half of `claudlet-install`, for every detected agent (`--agent codex` to narrow, `--remove` to undo). |
+| `claudlet-window` | Find a window and have the pet fetch it: `list` (JSON, topmost first), `raise <id>` (`--wait` until it is really up front, `--pull` to haul a maximized one over), `chat` for the pet's chat window. |
+| `claudlet-doctor` | Tell you what is switched off and what that breaks (`--quiet`: only when something is). |
 | `claudlet-macos-diag` | Print raw macOS window coordinates (perch troubleshooting). |
 | `claudlet-hook` | Internal — invoked by Claude Code's hooks, not by you. |
 
@@ -351,6 +372,7 @@ can drive the pet straight from a prompt — in Claude Code or in Codex:
 - `/claudlet export <creature>` / `/claudlet import <path>` — share a creature as a zip (an import shows you what is inside first)
 - `/claudlet make <description>` — write a new creature for the pet to wear
 - `/claudlet config` — show the config, or just ask in plain language ("jump when I run Bash") and Claude edits it for you
+- `/claudlet window <what>` — find a buried or minimized window and have the pet fetch it (or just ask: "bring up my browser")
 - `/claudlet update` — update to the latest release (`update latest` for the tip of develop); shows your version and walks you through it
 
 ## Docs
