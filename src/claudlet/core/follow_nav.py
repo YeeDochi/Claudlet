@@ -334,3 +334,47 @@ def leap_at(start, end, t, arc):
     t = min(max(t, 0.0), 1.0)
     return (start[0] + (end[0] - start[0]) * t,
             start[1] + (end[1] - start[1]) * t - arc * 4 * t * (1 - t))
+
+
+# How far the pet overlaps the window it holds on to (fraction of its box),
+# so its hands, not the empty padding of its box, are what touch the edge.
+HOLD_OVERLAP = 0.12
+
+
+def pick_edge(start, target):
+    """Which edge of a window to hold while dragging it from `start` to
+    `target` (top-lefts): the leading one, so the pet pulls instead of riding
+    along. Mostly sideways -> "left"/"right", mostly vertical -> "top"/"bottom";
+    not moving at all -> "top" (stand on it). Pure."""
+    dx, dy = target[0] - start[0], target[1] - start[1]
+    if abs(dx) < 1 and abs(dy) < 1:
+        return "top"
+    if abs(dx) >= abs(dy):
+        return "left" if dx < 0 else "right"
+    return "top" if dy < 0 else "bottom"
+
+
+def grab_off(win, box_w, box_h, edge, px, py):
+    """Where along `edge` the pet takes hold — as near to where it is (px, py:
+    its box top-left) as the edge allows: an x offset from the window's left
+    for top/bottom, a y offset from its top for left/right. `win` is
+    (x, y, w, h). Pure."""
+    x, y, w, h = win
+    if edge in ("top", "bottom"):
+        return min(max(px - x, 0.0), max(0.0, w - box_w))
+    return min(max(py - y, 0.0), max(0.0, h - box_h))
+
+
+def hold_pos(win, box_w, box_h, foot_y, edge, off):
+    """Box top-left of a pet holding `edge` of `win` (x, y, w, h) at `off`:
+    standing on the top, hanging under the bottom, or beside a side, just
+    overlapping it by HOLD_OVERLAP so the hands grip the edge. Pure."""
+    x, y, w, h = win
+    ov = HOLD_OVERLAP
+    if edge == "top":
+        return (x + off, y - foot_y)
+    if edge == "bottom":
+        return (x + off, y + h - box_h * ov)
+    if edge == "left":
+        return (x - box_w * (1 - ov), y + off)
+    return (x + w - box_w * ov, y + off)

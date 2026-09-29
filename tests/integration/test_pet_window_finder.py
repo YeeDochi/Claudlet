@@ -229,11 +229,15 @@ def test_windows_style_the_pet_hauls_the_window_itself(pet):
     assert snap["fetch_phase"] == "ride" and abs(pet.y + pet.foot_y - hy) < 1
 
 
+def _beside_left(pet, x):
+    return pet.x < x < pet.x + pet.w and pet.facing == -1     # hands on its left side
+
+
 def test_an_open_window_is_fetched_by_going_over_and_dragging_it_back(pet):
     pet._can_pull, pet._pull_by_pet = True, False
     pet._on_geom(_row("w9", "slack", 900, 300, 500, 250, "Slack"))       # on screen
     pet.x = 100.0
-    cx, line = pet.x + pet.w / 2.0, pet.y + pet.foot_y
+    line = pet.y + pet.foot_y
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetch_phase"] == "leap"
     pet._tick()
@@ -243,19 +247,32 @@ def test_an_open_window_is_fetched_by_going_over_and_dragging_it_back(pet):
     assert pet.snapshot()["fetch_phase"] == "grip"
     pet._tick()
     snap = pet.snapshot()
-    assert snap["fetch_phase"] == "grip" and snap["render"] == "strain"
-    assert abs(pet.y + pet.foot_y - 300) < 1 and 900 <= pet.x <= 1400   # on its top edge
+    # it comes this way (left), so the pet holds its LEFT side and pulls
+    assert snap["render"] == "strain" and _beside_left(pet, 900)
+    assert 300 <= pet.y <= 550
     assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=20)
     hx, hy = _home(pet)
     assert abs(hy + 250 - line) < 1                          # it will sit where we came from
-    # the window slides over; the pet rides it the whole way, where it grabbed
-    off = pet.x - 900
-    for x, y in ((700, 400), (hx, hy)):
+    dy = pet.y - 300
+    for x, y in ((700, 300 + (hy - 300) // 2), (hx, hy)):
         pet._on_geom(_row("w9", "slack", x, y, 500, 250, "Slack"))
         pet._tick()
-        assert abs(pet.x - (x + off)) < 1 and abs(pet.y + pet.foot_y - y) < 1
+        assert _beside_left(pet, x) and abs(pet.y - (y + dy)) < 1   # leading the way
     snap = pet.snapshot()
     assert snap["fetch_phase"] == "ride" and not snap["hidden"] and not snap["masked"]
+
+
+def test_a_window_pulled_upward_is_held_from_the_top(pet):
+    pet._can_pull, pet._pull_by_pet = True, False
+    r = pet.screen_rect
+    pet._on_geom(_row("w9", "slack", 100, r.bottom() - 260, 500, 250, "Slack"))
+    pet.x, pet.y = 150.0, 100.0                               # up high, right above it
+    send_hook(pet, cmd="raise", id="w9")
+    assert pet._fetch["edge"] == "top"
+    pet._fetch["t0"] = -1e9
+    pet._tick()
+    pet._tick()
+    assert abs(pet.y + pet.foot_y - (r.bottom() - 260)) < 1  # standing on it
 
 
 def test_a_maximized_open_window_still_comes_up_the_floor(pet):

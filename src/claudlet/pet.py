@@ -5032,15 +5032,22 @@ class Pet(QWidget):
         if self.mode == "thrown":
             self.mode = "roam"                 # the fetch owns motion now (physics would run first)
         if self._can_drag(win):
-            # already on screen: go over, grab it, and drag it back here
+            # already on screen: go over, grab the edge that leads toward
+            # here, and drag it back
             fx, fy = self.x, self.y
-            tx, ty = self._grab_spot(win, fx)
+            origin = (fx + self.w / 2.0, fy + self.foot_y)
+            home = self._haul_target(origin[0], origin[1], (win.w, win.h))
+            edge = follow_nav.pick_edge((win.x, win.y), home)
+            off = follow_nav.grab_off((win.x, win.y, win.w, win.h), self.w, self.h, edge, fx, fy)
+            f = {"edge": edge, "off": off}
+            tx, ty = self._hold(f, win)
             dist = math.hypot(tx - fx, ty - fy)
             self._contain = None
             self.vx = self.vy = 0.0
             self._fetch = {"wid": wid, "phase": "leap", "until": None,
                            "icon": self._app_sprite(win.title), "size": (win.w, win.h),
-                           "origin": (fx + self.w / 2.0, fy + self.foot_y),
+                           "edge": edge, "hold": off, "home": home,
+                           "origin": origin,
                            "from": (fx, fy), "t0": None,      # clock starts on the first frame
                            "secs": min(0.9, max(0.4, 0.3 + dist / 2500.0)),
                            "arc": 60.0 + 0.25 * dist,
@@ -5068,11 +5075,19 @@ class Pet(QWidget):
                     self.screen_rect)
         return not (win.w >= area.width() - 2 and win.h >= area.height() - 2)
 
-    def _grab_spot(self, win, px):
-        """Where the pet lands to grab `win`: on its top edge, as close to
-        where it jumped from as the edge allows."""
-        x = min(max(px, float(win.x)), float(win.x + win.w - self.w))
-        return x, max(float(win.y - self.foot_y), float(self.screen_rect.top()))
+    def _hold(self, f, win):
+        """Box top-left while holding f["edge"] of `win` at f["off"]. A pet on
+        the top of a window near the top of the screen stays on the screen.
+        Facing: toward where a side is being pulled."""
+        x, y = follow_nav.hold_pos((win.x, win.y, win.w, win.h), self.w, self.h,
+                                   self.foot_y, f.get("edge", "top"), f["off"])
+        if f.get("edge", "top") == "top":
+            y = max(y, float(self.screen_rect.top()))
+        if f.get("edge") == "left":
+            self.facing = -1
+        elif f.get("edge") == "right":
+            self.facing = 1
+        return float(x), float(y)
 
     def _finder_windows(self):
         """Every window the finder may pull out, minimized ones included.
@@ -5205,7 +5220,7 @@ class Pet(QWidget):
                 self._fetch = None            # it went away under us
                 return
             if f["phase"] == "leap":
-                land = self._grab_spot(win, f["from"][0])
+                land = self._hold({"edge": f["edge"], "off": f["hold"]}, win)
                 if f["t0"] is None:
                     f["t0"] = now
                 t = (now - f["t0"]) / f["secs"]
@@ -5213,11 +5228,10 @@ class Pet(QWidget):
                 self._render_state = "leap"
                 if t >= 1.0:
                     f["phase"], f["ticks"] = "grip", 0
-                    f["off"] = self.x - win.x
+                    f["off"] = f["hold"]
                 return
-            # grip: dig in on its top edge for a beat, then haul it home
-            self.x = win.x + f["off"]
-            self.y = max(float(win.y - self.foot_y), float(self.screen_rect.top()))
+            # grip: dig in on the edge for a beat, then haul it home
+            self.x, self.y = self._hold(f, win)
             self._render_state = "strain"
             f["ticks"] += 1
             if f["ticks"] < self.FETCH_GRIP_TICKS:
@@ -5226,8 +5240,9 @@ class Pet(QWidget):
             if size is None:
                 self._fetch = None
                 return
-            f["size"] = size
-            f["home"] = self._haul_target(f["origin"][0], f["origin"][1], size)
+            if size != f["size"]:             # Windows measures it afresh
+                f["size"] = size
+                f["home"] = self._haul_target(f["origin"][0], f["origin"][1], size)
             pull_from = ((win.x, win.y), f["home"])
             if not self._raise_now(f["wid"], pull_from):
                 self._fetch = None
@@ -5326,12 +5341,11 @@ class Pet(QWidget):
             if now > f["until"]:
                 self._fetch = None            # never showed: just come back
             return
-        if "off" not in f:                    # first sighting: grab the edge here
-            px = min(max(win.x + win.w / 2.0 - self.w / 2.0, float(win.x)),
-                     float(win.x + win.w - self.w))
-            f["off"] = px - win.x
-        self.x = win.x + f["off"]             # hang on where we grabbed it
-        self.y = max(float(win.y - self.foot_y), float(self.screen_rect.top()))
+        if "off" not in f:                    # up out of the floor: grab the top, mid-way
+            f["edge"] = "top"
+            f["off"] = follow_nav.grab_off((win.x, win.y, win.w, win.h), self.w, self.h,
+                                           "top", win.x + (win.w - self.w) / 2.0, 0)
+        self.x, self.y = self._hold(f, win)   # hang on where we grabbed it
         self._render_state = "strain"
         if (abs(win.x - f["home"][0]) > 1 or abs(win.y - f["home"][1]) > 1) \
                 and now <= f["until"]:
@@ -5340,14 +5354,16 @@ class Pet(QWidget):
 
     def _arrive(self, f, win, now):
         """The fetched window is up: celebrate on it for a while."""
-        if win.y - self.foot_y < self.screen_rect.top():
+        top = f.get("edge", "top") == "top"
+        if top and win.y - self.foot_y < self.screen_rect.top():
             # maximized: its top edge is off the screen — fall in and land
             self._contain = win
             self.vx = self.vy = 0.0
             self.mode = "thrown"
         elif "off" in f:
-            # it rode the window in: stay where it has been holding on
-            self.y = float(win.y - self.foot_y)
+            # it brought the window in: stay where it has been holding on
+            # (hanging off a side or the bottom, it lets go and drops after)
+            self.x, self.y = self._hold(f, win)
             self.vx = self.vy = 0.0
         else:
             self._ride(win)

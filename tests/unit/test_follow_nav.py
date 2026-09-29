@@ -301,3 +301,28 @@ def test_leap_at_arcs_between_start_and_end():
     assert leap_at((0, 500), (400, 300), 0, 100) == (0, 500)
     assert leap_at((0, 500), (400, 300), 1, 100) == (400, 300)
     assert leap_at((0, 500), (400, 300), 0.5, 100) == (200, 300)    # 400 midway, lifted 100
+
+
+def test_pick_edge_is_the_leading_edge():
+    from claudlet.core.follow_nav import pick_edge
+    assert pick_edge((500, 300), (100, 350)) == "left"
+    assert pick_edge((100, 300), (500, 250)) == "right"
+    assert pick_edge((100, 800), (120, 200)) == "top"
+    assert pick_edge((100, 100), (120, 700)) == "bottom"
+    assert pick_edge((100, 100), (100, 100)) == "top"
+
+
+def test_grab_and_hold_on_each_edge():
+    from claudlet.core.follow_nav import grab_off, hold_pos
+    win, bw, bh, fy = (1000, 200, 600, 400), 100, 80, 70
+    # beside the left side, at the pet's own height, clamped onto the side
+    off = grab_off(win, bw, bh, "left", 300, 900)
+    assert off == 400 - 80
+    x, y = hold_pos(win, bw, bh, fy, "left", off)
+    assert x + bw > 1000 > x and y == 200 + off                    # hands on the edge
+    x, y = hold_pos(win, bw, bh, fy, "right", 0)
+    assert x < 1600 < x + bw
+    x, y = hold_pos(win, bw, bh, fy, "top", grab_off(win, bw, bh, "top", 1200, 0))
+    assert (x, y + fy) == (1200, 200)                               # feet on the top edge
+    x, y = hold_pos(win, bw, bh, fy, "bottom", 0)
+    assert y < 600 < y + bh
