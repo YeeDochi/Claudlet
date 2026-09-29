@@ -294,3 +294,10 @@ def test_pull_at_eases_out_from_start_to_target():
     assert pull_at((0, 1000), (100, 200), 5) == (100, 200)          # clamped
     x, y = pull_at((0, 1000), (0, 200), 0.5)
     assert 200 < y < 600                                              # past halfway: ease-out
+
+
+def test_leap_at_arcs_between_start_and_end():
+    from claudlet.core.follow_nav import leap_at
+    assert leap_at((0, 500), (400, 300), 0, 100) == (0, 500)
+    assert leap_at((0, 500), (400, 300), 1, 100) == (400, 300)
+    assert leap_at((0, 500), (400, 300), 0.5, 100) == (200, 300)    # 400 midway, lifted 100

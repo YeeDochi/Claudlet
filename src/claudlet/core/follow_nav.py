@@ -325,3 +325,12 @@ def pull_at(start, target, t):
     e = 1 - (1 - t) ** 3
     return (start[0] + (target[0] - start[0]) * e,
             start[1] + (target[1] - start[1]) * e)
+
+
+def leap_at(start, end, t, arc):
+    """Top-left of a pet leaping from `start` to `end` at progress t (0..1):
+    straight across, lifted by a parabola `arc` px high at the middle. No
+    collisions — it is a scripted jump onto a window. Pure."""
+    t = min(max(t, 0.0), 1.0)
+    return (start[0] + (end[0] - start[0]) * t,
+            start[1] + (end[1] - start[1]) * t - arc * 4 * t * (1 - t))

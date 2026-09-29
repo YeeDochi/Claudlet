@@ -227,3 +227,38 @@ def test_windows_style_the_pet_hauls_the_window_itself(pet):
     pet._tick()
     snap = pet.snapshot()
     assert snap["fetch_phase"] == "ride" and abs(pet.y + pet.foot_y - hy) < 1
+
+
+def test_an_open_window_is_fetched_by_going_over_and_dragging_it_back(pet):
+    pet._can_pull, pet._pull_by_pet = True, False
+    pet._on_geom(_row("w9", "slack", 900, 300, 500, 250, "Slack"))       # on screen
+    pet.x = 100.0
+    cx, line = pet.x + pet.w / 2.0, pet.y + pet.foot_y
+    send_hook(pet, cmd="raise", id="w9")
+    assert pet.snapshot()["fetch_phase"] == "leap"
+    pet._fetch["t0"] -= 5.0                                   # the leap has played out
+    pet._tick()
+    assert pet.snapshot()["fetch_phase"] == "grip"
+    pet._tick()
+    snap = pet.snapshot()
+    assert snap["fetch_phase"] == "grip" and snap["render"] == "strain"
+    assert abs(pet.y + pet.foot_y - 300) < 1 and 900 <= pet.x <= 1400   # on its top edge
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=20)
+    hx, hy = _home(pet)
+    assert abs(hy + 250 - line) < 1                          # it will sit where we came from
+    # the window slides over; the pet rides it the whole way, where it grabbed
+    off = pet.x - 900
+    for x, y in ((700, 400), (hx, hy)):
+        pet._on_geom(_row("w9", "slack", x, y, 500, 250, "Slack"))
+        pet._tick()
+        assert abs(pet.x - (x + off)) < 1 and abs(pet.y + pet.foot_y - y) < 1
+    snap = pet.snapshot()
+    assert snap["fetch_phase"] == "ride" and not snap["hidden"] and not snap["masked"]
+
+
+def test_a_maximized_open_window_still_comes_up_the_floor(pet):
+    pet._can_pull = True
+    r = pet.screen_rect
+    pet._on_geom(_row("w9", "code", r.x(), r.y(), r.width(), r.height(), "code"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert pet.snapshot()["fetch_phase"] == "out"
