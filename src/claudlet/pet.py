@@ -1089,8 +1089,10 @@ class HistoryWindow(QDialog):
         self._icon = icon
         self._face.setPixmap(icon.pixmap(36, 36))
         self._who.setText(name)
-        # 별명을 붙였으면 무슨 크리처인지도 옆에 흐리게
-        self._what.setText(creature if creature != name else "")
+        # 별명을 붙였으면 무슨 크리처인지도 옆에 흐리게, 그리고 어느 세션인지(펫 호버 툴팁과 같은 것)
+        parts = [creature] if creature != name else []
+        parts.append(pet._session_tip())
+        self._what.setText(" · ".join(parts))
         self.setWindowTitle("claudlet — %s" % name)
 
     def refresh(self):
