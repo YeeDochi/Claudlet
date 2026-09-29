@@ -1,3 +1,5 @@
+import json
+
 from claudlet.cli import window
 
 
@@ -15,6 +17,18 @@ def test_raised_means_shown_and_topmost():
     assert not window.raised([{"id": "a", "state": "min"}], "a")
     assert not window.raised([{"id": "b", "state": "shown"}, {"id": "a", "state": "shown"}], "a")
     assert not window.raised(None, "a")
+
+
+def test_raise_pull_asks_the_pet_to_haul_it(monkeypatch):
+    sent = []
+    monkeypatch.setattr(window, "_talk", lambda line, want: sent.append(line) or "")
+    monkeypatch.setattr(window, "_wait_raised", lambda wid: 0)
+    assert window.main(["raise", "a"]) == 0
+    assert window.main(["raise", "a", "--pull", "--wait"]) == 0
+    assert window.main(["raise", "a", "--wait", "--pull"]) == 0
+    assert [json.loads(s).get("pull") for s in sent] == [None, True, True]
+    assert window.main(["raise", "a", "--pull", "--pull"]) == 2
+    assert window.main(["raise", "a", "--drag"]) == 2
 
 
 def test_raised_counts_a_window_it_owns_on_top():

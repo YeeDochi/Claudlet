@@ -11,7 +11,12 @@ Usage:
                                 ...and wait until it is really up front:
                                 exit 0 when it is, 3 (with its last state on
                                 stderr) when it never came up
-  claudlet-window chat          open (or bring back) the pet's own chat window,
+  claudlet-window raise <id> --pull [--wait]
+                                ...and haul it over even when it is maximized
+                                (un-maximizing it; Windows) — for "끌고 와",
+                                where plain raise leaves a maximized window
+                                where it is and the pet goes to it
+  claudlet-window chat         open (or bring back) the pet's own chat window,
                                 which `list` never shows
 
 The pet does the work — it already holds the window feed and owns the
@@ -135,11 +140,16 @@ def main(argv):
             return 1
         print(json.dumps(wins, ensure_ascii=False, indent=1))
         return 0
-    if argv[:1] == ["raise"] and len(argv) in (2, 3) and argv[2:] in ([], ["--wait"]):
-        if _talk(json.dumps({"cmd": "raise", "id": argv[1]}) + "\n", False) is None:
+    flags = set(argv[2:])
+    if (argv[:1] == ["raise"] and len(argv) >= 2 and flags <= {"--wait", "--pull"}
+            and len(flags) == len(argv) - 2):
+        msg = {"cmd": "raise", "id": argv[1]}
+        if "--pull" in flags:
+            msg["pull"] = True
+        if _talk(json.dumps(msg) + "\n", False) is None:
             print("no running claudlet pet", file=sys.stderr)
             return 1
-        return _wait_raised(argv[1]) if argv[2:] else 0
+        return _wait_raised(argv[1]) if "--wait" in flags else 0
     if argv == ["chat"]:
         if _talk(json.dumps({"cmd": "chat"}) + "\n", False) is None:
             print("no running claudlet pet", file=sys.stderr)

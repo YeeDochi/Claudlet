@@ -1933,7 +1933,7 @@ class Pet(QWidget):
             self.show_history()          # 펫 자신의 대화창: 창 목록엔 없다(claudlet 클래스)
             return
         if ev.get("cmd") == "raise":
-            self._raise_window(str(ev.get("id") or ""))
+            self._raise_window(str(ev.get("id") or ""), unmax=bool(ev.get("pull")))
             return
         # A motion command is a user override, NOT a Claude event: it must not
         # touch the engine or the SessionEnd quit timer.
@@ -5026,9 +5026,11 @@ class Pet(QWidget):
     FETCH_PULL_MS = 1000   # KDE: the window is hauled up from below the screen this long
     FETCH_GRIP_TICKS = 6   # an on-screen window: brace on its edge this long before dragging
 
-    def _raise_window(self, wid):
+    def _raise_window(self, wid, unmax=False):
         """Start fetching `wid`: dash off-screen first; the raise happens once
-        the pet is out of sight. Ignores ids the finder doesn't list."""
+        the pet is out of sight. Ignores ids the finder doesn't list. `unmax`
+        (`raise --pull`): a maximized window is un-maximized and hauled over
+        too, instead of only coming up in place (Windows)."""
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
             return
@@ -5047,7 +5049,7 @@ class Pet(QWidget):
             self._fetch = {"wid": wid, "phase": "run", "until": None, "t0": None,
                            "icon": self._app_sprite(win.title), "size": (win.w, win.h),
                            "edge": edge, "hold": off, "home": home,
-                           "origin": origin,
+                           "origin": origin, "unmax": unmax,
                            "line": 10 ** 9}           # nothing to sink through: never masked
             return
         # it dives through whatever it stands on — a window top, a window's
@@ -5059,7 +5061,8 @@ class Pet(QWidget):
                              * max(20.0, self.FETCH_HOP * self.h))   # 폴짝
         self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None,
                        "icon": self._app_sprite(win.title),   # 물고 갈 앱 아이콘, 없으면 None
-                       "size": (win.w, win.h)}                # 끌어올릴 창 크기
+                       "size": (win.w, win.h),                # 끌어올릴 창 크기
+                       "unmax": unmax}
 
     def _can_drag(self, win):
         """A window already on screen is fetched by walking over and dragging
@@ -5166,7 +5169,8 @@ class Pet(QWidget):
             elif os.name == "nt":
                 from claudlet.platform.geom import win32
                 if pull_from is not None:
-                    return win32.pull_begin(int(wid), *pull_from["start"])
+                    return win32.pull_begin(int(wid), *pull_from["start"],
+                                            unmax=bool(pull_from.get("unmax")))
                 win32.activate_hwnd(int(wid))
             elif sys.platform.startswith("linux"):
                 self._run_kwin_script(
@@ -5252,6 +5256,7 @@ class Pet(QWidget):
                 f["home"] = self._haul_target(cx, f["line"], size)
                 pull_from = self._pull_plan((f["home"][0], self._screen_bottom_at(cx) + 1),
                                             f["home"], tugs=False)
+                pull_from["unmax"] = f.get("unmax", False)
             if not self._raise_now(f["wid"], pull_from if pull else None):
                 self._fetch = None
                 return
@@ -5338,7 +5343,7 @@ class Pet(QWidget):
         if self._pull_by_pet:
             try:
                 from claudlet.platform.geom import win32
-                return win32.pull_size(f["wid"])
+                return win32.pull_size(f["wid"], unmax=f.get("unmax", False))
             except Exception:
                 return None
         return f["size"]

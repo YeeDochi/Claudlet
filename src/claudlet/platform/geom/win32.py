@@ -471,21 +471,23 @@ def _placement(hwnd):
     return p if user32.GetWindowPlacement(hwnd, ctypes.byref(p)) else None
 
 
-def pull_size(hwnd):
+def pull_size(hwnd, unmax=False):
     """Logical (w, h) the window will have once shown normally, or None when
     it can't be hauled: it is (or will restore) maximized, which a move would
-    undo. A minimized window's live rect is meaningless — its restored size is
-    rcNormalPosition."""
+    undo — unless `unmax`, when it is un-maximized to its normal size and
+    hauled at that. A minimized or maximized window's live rect is not the
+    size it will be hauled at — that is rcNormalPosition."""
     if user32 is None:
         return None
     try:
         hwnd = int(hwnd)
         p = _placement(hwnd)
-        if p is None or user32.IsZoomed(hwnd):
+        if p is None:
             return None
-        if user32.IsIconic(hwnd):
-            if p.flags & WPF_RESTORETOMAXIMIZED:
-                return None
+        iconic, zoomed = user32.IsIconic(hwnd), user32.IsZoomed(hwnd)
+        if not unmax and (zoomed or (iconic and p.flags & WPF_RESTORETOMAXIMIZED)):
+            return None
+        if iconic or zoomed:
             r = p.rcNormalPosition
         else:
             r = _visible_rect(hwnd)
@@ -497,15 +499,16 @@ def pull_size(hwnd):
         return None
 
 
-def pull_begin(hwnd, x, y):
+def pull_begin(hwnd, x, y, unmax=False):
     """Show `hwnd` normally with its top-left at logical (x, y) and bring it
     to the front. A minimized window is restored straight there (its normal
-    position is rewritten first), so it never flashes up in its old spot."""
+    position is rewritten first), so it never flashes up in its old spot;
+    with `unmax` a maximized one is un-maximized there the same way."""
     if user32 is None:
         return False
     try:
         hwnd = int(hwnd)
-        if user32.IsIconic(hwnd):
+        if user32.IsIconic(hwnd) or (unmax and user32.IsZoomed(hwnd)):
             p = _placement(hwnd)
             if p is None:
                 return False
@@ -519,6 +522,8 @@ def pull_begin(hwnd, x, y):
             r.right, r.bottom = r.left + w, r.top + h
             p.rcNormalPosition = r
             p.showCmd = SW_SHOWNORMAL
+            if unmax:
+                p.flags &= ~WPF_RESTORETOMAXIMIZED
             if not user32.SetWindowPlacement(hwnd, ctypes.byref(p)):
                 return False
         else:

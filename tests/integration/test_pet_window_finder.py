@@ -2,6 +2,7 @@
 then brings it back. Driven through the socket; world set via the geom feed."""
 from urllib.parse import quote
 
+from claudlet.platform import geom
 from harness import pet, send_hook, window_list  # noqa: F401
 
 
@@ -228,6 +229,22 @@ def test_windows_style_the_pet_hauls_the_window_itself(pet):
     pet._tick()
     snap = pet.snapshot()
     assert snap["fetch_phase"] == "ride" and abs(pet.y + pet.foot_y - hy) < 1
+
+
+def test_raise_pull_hauls_a_maximized_window_un_maximized(pet):
+    # plain raise leaves a maximized window in place; --pull asks for its
+    # normal size and hands the un-maximize along with the haul
+    pet._can_pull, pet._pull_by_pet = True, True
+    pet._move_window = lambda wid, x, y: None
+    asked, plans = [], []
+    pet._raise_now = lambda wid, pull_from=None: plans.append(pull_from) or True
+    pet._pull_size = lambda f: asked.append(f.get("unmax")) or (500, 250)
+    row = _row("w9", "chrome", 0, 0, 10000, 10000, "GitHub")          # maximized
+    pet._on_geom(row)
+    pet._finder_windows = lambda: geom.parse_dump(row, hidden=True)   # not the host's
+    send_hook(pet, cmd="raise", id="w9", pull=True)
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
+    assert asked == [True] and plans[-1]["unmax"] is True
 
 
 def _beside_left(pet, x):

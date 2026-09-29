@@ -219,7 +219,12 @@ claudlet-window raise <id>    # state: shown | min (minimized) | desk (other des
    described — read `title` (the window's caption: page/file/chat name) and
    `app` (its class: `firefox`, `slack`, `code`, ...). A fuzzy description
    ("아까 보던 PR") means reading the titles, not string-matching the words.
-2. Run `claudlet-window raise <id> --wait` with that entry's `id`, verbatim. It
+2. Run `claudlet-window raise <id> --wait` with that entry's `id`, verbatim —
+   or `claudlet-window raise <id> --pull --wait` when the user asked for it to
+   be brought OVER, to them or the pet ("끌고 와", "당겨 와", "내 쪽으로",
+   "네 위치로", "bring it here"). Without `--pull` a maximized window only
+   comes up in place and the pet goes to it; `--pull` un-maximizes it and
+   hauls it over (Windows). Just finding/showing a window → no `--pull`. It
    returns once the window is up front and the pet has finished bringing it
    over (exit 0), or after ~20s with
    exit 3 and the state it got stuck in (`min`, `gone`, `shown but not in
