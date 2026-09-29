@@ -5021,8 +5021,9 @@ class Pet(QWidget):
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
             return
-        bottom = self._screen_bottom_at(self.x + self.w / 2.0)
-        line = follow_nav.floor_feet(bottom, self._nav_box())   # floor feet y
+        # it dives through whatever it stands on — a window top, a window's
+        # floor, the desktop floor — right here, not after a trip to the floor
+        line = self.y + self.foot_y
         self._contain = None
         self.vx = 0.0
         self.vy = -math.sqrt(2 * physics.GRAVITY * self.FETCH_GRAVITY
@@ -5114,9 +5115,9 @@ class Pet(QWidget):
         """One tick of the fetch. Owns position and render while it runs."""
         f = self._fetch
         if f["phase"] == "out":
-            # one hop, then straight down: nothing stops the fall — not the
-            # window it stood on, not the floor. Below the floor line it is
-            # masked away (sink), so it drops through the ground and is gone.
+            # one hop, then straight back down through the spot it jumped
+            # from: below that line it is masked away (sink), so it drops
+            # through the surface it stood on and is gone.
             self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
             self.y += self.vy
             self._render_state = "jump" if self.vy < 0 else "falling"

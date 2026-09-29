@@ -184,3 +184,13 @@ def test_sinking_slides_the_art_down_not_the_window_off_screen(pet):
         if rows:
             seen.append(rows[0])
     assert len(seen) >= 2 and seen[-1] > seen[0]              # the art moved down
+
+
+def test_a_perched_pet_dives_through_the_window_it_stands_on(pet):
+    pet._can_pull = False
+    pet._on_geom("|".join([_row("w1", "konsole", 100, 200, 600, 300, "claude"),
+                           _row("w9", "slack", 200, 400, 500, 300, "Slack", "min")]))
+    pet.x, pet.y = 300.0, 200.0 - pet.foot_y             # standing on w1's top
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["hidden"], n=60)
+    assert pet.y + pet.foot_y < 200 + pet.h + 60          # gone right there, not at the floor
