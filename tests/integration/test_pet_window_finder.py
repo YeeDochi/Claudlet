@@ -28,13 +28,17 @@ def _tick_until(pet, cond, n=600):
     return False
 
 
-def test_fetch_dashes_off_then_comes_back_riding_the_window(pet):
+def test_fetch_sinks_into_the_floor_then_comes_back_riding_the_window(pet):
     # docked by default: fetching must still leave the slot
     pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
+    pet.y = 100.0                                      # up high: drops first
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetch_phase"] == "out"
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "sink", n=40)
+    pet._tick()
+    assert pet.snapshot()["masked"] and not pet.snapshot()["hidden"]  # half sunk
     # the window must NOT come up before the pet is out of sight
-    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone", n=30)  # ~1.5s
     assert pet.snapshot()["hidden"]
     pet._tick()
     assert pet.snapshot()["fetch_phase"] == "gone"     # still waiting on the WM

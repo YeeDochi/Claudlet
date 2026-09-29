@@ -2098,7 +2098,7 @@ class Pet(QWidget):
 
             "following": self._follow,
             "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
-            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | gone | ride
+            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | gone | ride
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -3234,8 +3234,13 @@ class Pet(QWidget):
         wandering the wallpaper). No-op without an active geometry feed."""
         # 도크 중엔 창을 타고 있지 않다(고정 좌표에 떠 있다) -> 가릴 근거가 없다.
         # 마스킹을 그대로 두면 코너에 겹친 최대화 창이 펫을 통째로 지워버린다.
-        if self._fetch is not None and self._fetch["phase"] == "gone":
-            self._hide_fully()           # off fetching the window: out of sight
+        if self._fetch is not None and self._fetch["phase"] in ("sink", "gone"):
+            # sinking: only what's still above the floor line shows
+            above = int(self._fetch["line"] - self.y)
+            if self._fetch["phase"] == "gone" or above <= 0:
+                self._hide_fully()
+            else:
+                self._apply_mask(QRegion(QRect(0, 0, self.w, above)))
             return
         if (not getattr(self, "_geom_active", False)
                 or self.mode == "held" or self._floating or self._docked):
@@ -4944,10 +4949,12 @@ class Pet(QWidget):
         except Exception:
             pass
 
-    # 창 찾아오기: 펫이 화면 가장자리로 달려나가 사라졌다가(out → gone),
-    # 그 사이 창을 올리고, 창 윗변에 탄 채로 다시 나타난다(ride). 창이 혼자
-    # 먼저 뜨면 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
-    FETCH_RUN = 14.0       # px/tick dash toward the screen edge
+    # 창 찾아오기: 펫이 바닥으로 떨어져(out) 바닥선 아래로 잠겨 사라졌다가
+    # (sink → gone) — 최소화된 창이 사는 작업표시줄 쪽이다 — 그 사이 창을
+    # 올리고, 창 윗변에 탄 채로 다시 나타난다(ride). 창이 혼자 먼저 뜨면
+    # 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
+    FETCH_DROP = 30.0      # px/tick falling to the floor
+    FETCH_SINK = 9.0       # px/tick sinking below it (~0.5s for the body)
     FETCH_GONE_SECS = 3.0  # give up waiting for the window to show after this
     FETCH_RIDE_SECS = 4.0  # stay on the fetched window before carrying on
     FETCH_CHEER_SECS = 2.5
@@ -4957,13 +4964,10 @@ class Pet(QWidget):
         the pet is out of sight. Ignores ids the finder doesn't list."""
         if not any(str(w.wid) == wid for w in self._finder_windows()):
             return
-        scr = self.screen_rect
-        cx = self.x + self.w / 2.0
-        left_edge = cx - scr.left() < scr.right() - cx
-        edge = (scr.left() - self.w * 0.5 if left_edge
-                else scr.right() - self.w * 0.5)
+        bottom = self._screen_bottom_at(self.x + self.w / 2.0)
+        line = follow_nav.floor_feet(bottom, self._nav_box())   # floor feet y
         self._contain = None
-        self._fetch = {"wid": wid, "phase": "out", "edge": edge, "until": None}
+        self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None}
 
     def _finder_windows(self):
         """Every window the finder may pull out, minimized ones included.
@@ -5023,13 +5027,19 @@ class Pet(QWidget):
         """One tick of the fetch. Owns position and render while it runs."""
         f = self._fetch
         if f["phase"] == "out":
-            dx = f["edge"] - self.x
-            if abs(dx) > self.FETCH_RUN:
-                self.facing = 1 if dx > 0 else -1
-                self.x += self.FETCH_RUN * self.facing
-                self._render_state = "walk"
+            floor_y = f["line"] - self.foot_y
+            if self.y < floor_y - self.FETCH_DROP:
+                self.y += self.FETCH_DROP
+                self._render_state = "jump"
                 return
-            self.x = f["edge"]
+            self.y = floor_y
+            f["phase"] = "sink"
+            return
+        if f["phase"] == "sink":
+            self.y += self.FETCH_SINK
+            self._render_state = "climbdown"
+            if self.y < f["line"]:
+                return                        # head still above the floor
             if not self._raise_now(f["wid"]):
                 self._fetch = None
                 return
