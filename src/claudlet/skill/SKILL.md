@@ -1,6 +1,6 @@
 ---
 name: claudlet
-description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, switch or share its creature, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet setting" opens the appearance page (which creature, and its colour/size/special mode); "/claudlet wear <creature> [for <agent>]" switches which creature a pet wears from the command line; "/claudlet export <creature>" / "/claudlet import <path or url>" share a creature as a zip; "/claudlet make <설명>" writes a NEW creature package for the pet to wear; "/claudlet update" pulls the latest version and reinstalls; "/claudlet window <what>" finds a window buried behind others or minimized and pulls it to the front. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "크리처 설정", "make a new creature", "코덱스 펫은 슬라임으로", "change the codex pet to the slime", "크리처 내보내기", "크리처 가져오기", "export this creature", "import this creature", "share my creature", "창 찾아줘", "창 꺼내줘", "슬랙 창 띄워줘", "그 창 어디 갔어", "find that window", "bring up the window".
+description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, switch or share its creature, or update it. "$claudlet" in Codex ("/claudlet" in Claude Code) attaches a pet to the CURRENT session; the same command with standalone launches an unattached roaming pet, a motion name plays it, config/setting edits it, wear switches its creature, export/import shares one, make writes a NEW creature package, update reinstalls, and window finds a buried or minimized window. Use for "$claudlet", "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "크리처 설정", "make a new creature", "코덱스 펫은 슬라임으로", "change the codex pet to the slime", "크리처 내보내기", "크리처 가져오기", "export this creature", "import this creature", "share my creature", "창 찾아줘", "창 꺼내줘", "슬랙 창 띄워줘", "그 창 어디 갔어", "find that window", or "bring up the window".
 ---
 
 # claudlet — launch the desktop buddy
@@ -41,7 +41,8 @@ which is all `cpet` does once claudlet is installed.
 
 ## Routing
 
-Look at the argument the user passed after `/claudlet`:
+Look at the argument the user passed after `$claudlet` (Codex) or `/claudlet`
+(Claude Code). `$claudlet` is a skill mention, not a slash command:
 
 - a **motion name** (`jump`, `wave`, `sing`, `juggle`, `float`, `celebrate`,
   `thinking`, `sleeping`, `error`, `attention`), or `list`, or `stop`/`clear`
@@ -161,15 +162,17 @@ installing software, not opening a file.** For `/claudlet import <path>` or "이
 ```bash
 cpet attach
 ```
-`claudlet-attach` finds this session (`$CLAUDE_CODE_SESSION_ID`, else the
-newest transcript under `~/.claude/projects/`), detects the host terminal/IDE
+`claudlet-attach` finds this session (`$CODEX_SESSION_ID` in Codex or
+`$CLAUDE_CODE_SESSION_ID` in Claude Code; only Claude falls back to the newest
+transcript under `~/.claude/projects/`), detects the agent from that marker,
+detects the host terminal/IDE
 and walks up to the agent process so click-to-focus targets the right window,
 skips if a pet is already attached (the same liveness handshake the hook uses —
 a bare connect can't tell a live pet from a reused stale port), and launches a
 detached pet bound to the session. It prints `attached to session ...` or
-`already attached ...`. Add `--agent <name>` for a non-Claude session (`codex`);
-without it the walk looks for Claude Code and prints `no agent pid ->
-host-window tracking off` if it can't find one.
+`already attached ...`. An explicit `--agent <name>` overrides auto-detection.
+If the agent process is not in the caller's ancestor chain, it prints
+`no agent pid -> host-window tracking off`.
 
 **Reactions require hooks.** The pet only reacts to this session if the
 claudlet hooks are installed (`claudlet-install`) AND this session loaded
@@ -200,15 +203,23 @@ reacted; if it says `-> 0 pet(s)`, none is running — offer to attach one with
 The user wants a window that is buried behind others, minimized, or (KDE) on
 another virtual desktop brought to the front. You pick the window; the pet
 dashes off-screen, and comes back riding it as it pops up.
+
+This capability is provided by claudlet itself. **Run the installed
+`claudlet-window` command directly with the shell/terminal tool.** Do not look
+for a separate Codex window-control tool, do not substitute a computer-use
+tool, and do not say window control is unavailable before trying this command.
+Each command is self-contained; it does not depend on the temporary `cpet`
+shell helper defined earlier in this document. On Windows the installed
+`claudlet-window.exe` is the same command and PowerShell resolves it from PATH.
 ```bash
-cpet window list          # JSON, topmost first: [{"id","app","title","state"}]
-cpet window raise <id>    # state: shown | min (minimized) | desk (other desktop)
+claudlet-window list          # JSON, topmost first: [{"id","app","title","state"}]
+claudlet-window raise <id>    # state: shown | min (minimized) | desk (other desktop)
 ```
-1. `cpet window list`, then choose the ONE entry that matches what the user
+1. Run `claudlet-window list`, then choose the ONE entry that matches the user
    described — read `title` (the window's caption: page/file/chat name) and
    `app` (its class: `firefox`, `slack`, `code`, ...). A fuzzy description
    ("아까 보던 PR") means reading the titles, not string-matching the words.
-2. `cpet window raise <id> --wait` with that entry's `id`, verbatim. It
+2. Run `claudlet-window raise <id> --wait` with that entry's `id`, verbatim. It
    returns once the window is up front and the pet has finished bringing it
    over (exit 0), or after ~20s with
    exit 3 and the state it got stuck in (`min`, `gone`, `shown but not in
@@ -218,7 +229,7 @@ cpet window raise <id>    # state: shown | min (minimized) | desk (other desktop
 
 The pet's OWN chat window (the messenger window the user talks to the pet
 in — "대화창", "너랑 대화하는 창", "펫이랑 얘기하는 창") is never in the list;
-`cpet window chat` opens or brings it back. When the request came from the
+`claudlet-window chat` opens or brings it back. When the request came from the
 pet (a `[claudlet` note) and says "대화창", it means this one.
 
 `no running claudlet pet` → none is running; offer `/claudlet`. On macOS

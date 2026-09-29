@@ -27,7 +27,7 @@ utf8_output()
 
 
 def _newest_session_id():
-    """Fallback when $CLAUDE_CODE_SESSION_ID is unset: the session id of the
+    """Fallback when the agent's session env var is unset: the session id of the
     most recently modified transcript under ~/.claude/projects/."""
     files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
     if not files:
@@ -137,13 +137,14 @@ def main(argv=None):
               % session_id)
         return 1
 
-    agent = _arg_value(argv, "--agent") or agents.DEFAULT
+    agent = (_arg_value(argv, "--agent") or agents.session_agent()
+             or agents.DEFAULT)
     host = hostinfo.detect_host()
     asked_for = _arg_value(argv, "--session")
     claude_pid = _claude_pid(agent)
 
     session_id = (asked_for
-                  or os.environ.get("CLAUDE_CODE_SESSION_ID")
+                  or agents.session_id(agent)
                   or (_newest_session_id() if claude_pid else None))
 
     # Nothing to attach to: no id was given, we are not running inside a

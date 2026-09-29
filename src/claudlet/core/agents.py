@@ -20,6 +20,7 @@ AGENTS = {
         "settings": os.path.join(".claude", "settings.json"),
         "skills": os.path.join(".claude", "skills"),
         "proc": "claude",                    # the reaper's ancestor needle
+        "session_env": "CLAUDE_CODE_SESSION_ID",
         # Flag that makes the agent adopt an id WE choose, so a pet and the
         # session it starts are paired exactly instead of racing to spot the
         # newest transcript. None = this agent can't be started that way.
@@ -48,6 +49,7 @@ AGENTS = {
         "settings": os.path.join(".codex", "hooks.json"),
         "skills": os.path.join(".codex", "skills"),
         "proc": "codex",
+        "session_env": "CODEX_SESSION_ID",
         # Not set: codex was not installed on the machine this was written on,
         # so whether it accepts a caller-chosen session id is unverified. Left
         # None rather than guessed -- a wrong flag produces a command that fails
@@ -93,6 +95,18 @@ def get(name=None):
     """The agent's entry; an unknown or missing name resolves to the default,
     so a stale config or an old hook command can never crash a hook."""
     return AGENTS.get(name) or AGENTS[DEFAULT]
+
+
+def session_id(name=None, environ=None):
+    """The current session id exported by `name`, or None."""
+    env = os.environ if environ is None else environ
+    return env.get(get(name).get("session_env", "")) or None
+
+
+def session_agent(environ=None):
+    """The agent whose session marker is present, or None when outside one."""
+    env = os.environ if environ is None else environ
+    return next((name for name in AGENTS if session_id(name, env)), None)
 
 
 def _home(home=None):

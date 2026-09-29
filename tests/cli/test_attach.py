@@ -41,7 +41,7 @@ def test_attach_launches_when_dead(monkeypatch, pinned_pid):
     monkeypatch.setattr(attach.hostinfo, "pet_alive", lambda sid, **k: False)
     launched = []
     monkeypatch.setattr(attach, "_launch", lambda args: launched.append(args))
-    assert attach.main(["--session", "s1"]) == 0
+    assert attach.main(["--session", "s1", "--agent", "claude"]) == 0
     assert launched == [["--session", "s1", "--host", "konsole",
                          "--agent", "claude", "--claude-pid", "4242"]]
 
@@ -55,6 +55,22 @@ def test_attach_session_from_env(monkeypatch, pinned_pid):
     attach.main([])                                # no --session -> use env
     assert launched == [["--session", "envsid", "--host", "code",
                          "--agent", "claude", "--claude-pid", "4242"]]
+
+
+def test_codex_session_from_env_also_selects_codex(monkeypatch, pinned_pid):
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-envsid")
+    monkeypatch.setattr(attach.hostinfo, "detect_host", lambda: "unknown")
+    monkeypatch.setattr(attach.hostinfo, "pet_alive", lambda sid, **k: False)
+    launched = []
+    terminals = []
+    monkeypatch.setattr(attach, "_launch", lambda args: launched.append(args))
+    monkeypatch.setattr(attach.termlaunch, "launch",
+                        lambda command: terminals.append(command) or True)
+    attach.main([])
+    assert launched == [["--session", "codex-envsid", "--host", "unknown",
+                         "--agent", "codex", "--claude-pid", "4242"]]
+    assert terminals == []
 
 
 def test_attach_passes_the_named_agent(monkeypatch, pinned_pid):
@@ -141,10 +157,10 @@ def test_the_pet_is_bound_to_that_session():
     assert spy.pet_argv[spy.pet_argv.index("--session") + 1] == sid
 
 
-def test_the_session_starts_in_the_requested_directory():
+def test_the_session_starts_in_the_requested_directory(tmp_path):
     spy = _Spy()
-    A.new_session("claude", "/tmp", spy.term, spy.pet)
-    assert spy.command.startswith("cd '/tmp' &&")
+    A.new_session("claude", str(tmp_path), spy.term, spy.pet)
+    assert str(tmp_path) in spy.command
 
 
 def test_each_call_makes_a_different_session():
@@ -217,6 +233,7 @@ def test_plain_attach_still_does_not_start_a_session(monkeypatch):
 def _detached(monkeypatch):
     """Not inside a session: no env id, no claude ancestor."""
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
     monkeypatch.setattr(A, "_claude_pid", lambda agent: 0)
     monkeypatch.setattr(A.hostinfo, "pet_alive", lambda sid: False)
     spy = _Spy()
@@ -252,6 +269,7 @@ def test_a_stale_transcript_is_not_attached_to(_detached, monkeypatch):
 def test_a_transcript_is_used_when_we_are_inside_a_session(monkeypatch, capsys):
     """Being inside one is what makes the newest transcript trustworthy."""
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
     monkeypatch.setattr(A, "_claude_pid", lambda agent: 4242)
     monkeypatch.setattr(A, "_newest_session_id", lambda: "live-one")
     monkeypatch.setattr(A.hostinfo, "pet_alive", lambda sid: False)
@@ -292,6 +310,7 @@ def test_no_start_keeps_the_old_loose_pet(_detached, capsys):
 
 def test_no_terminal_is_reported_rather_than_guessed_at(monkeypatch, capsys):
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
     monkeypatch.setattr(A, "_claude_pid", lambda agent: 0)
     monkeypatch.setattr(A.termlaunch, "available", lambda: False)
     assert A.main([]) == 2
@@ -300,6 +319,7 @@ def test_no_terminal_is_reported_rather_than_guessed_at(monkeypatch, capsys):
 
 def test_an_agent_that_cannot_be_started_says_what_to_do(monkeypatch, capsys):
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("CODEX_SESSION_ID", raising=False)
     monkeypatch.setattr(A, "_claude_pid", lambda agent: 0)
     monkeypatch.setattr(A.termlaunch, "available", lambda: True)
     monkeypatch.setattr(A, "_launch", lambda argv: None)

@@ -34,12 +34,19 @@ def test_skills_path_is_under_home(tmp_path):
 
 def test_every_agent_declares_the_full_shape():
     keys = {"label", "marker", "settings", "skills", "proc", "events",
-            "tool_events", "avatar", "tools", "raw_events"}
+            "session_env", "tool_events", "avatar", "tools", "raw_events"}
     for name, a in agents.AGENTS.items():
         assert keys <= set(a), name
         assert a["events"], name
         # tool_events must be a subset of the events we actually register
         assert set(a["tool_events"]) <= set(a["events"]), name
+
+
+def test_session_agent_and_id_follow_the_exported_marker():
+    env = {"CODEX_SESSION_ID": "codex-one"}
+    assert agents.session_agent(env) == "codex"
+    assert agents.session_id("codex", env) == "codex-one"
+    assert agents.session_id("claude", env) is None
 
 
 def test_codex_event_set_matches_what_codex_supports():

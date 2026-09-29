@@ -16,20 +16,21 @@ Usage:
 
 The pet does the work — it already holds the window feed and owns the
 platform raise — so this only talks to it: this session's pet
-($CLAUDE_CODE_SESSION_ID) when there is one, else any running pet.
+($CLAUDE_CODE_SESSION_ID / $CODEX_SESSION_ID) when there is one, else any
+running pet.
 """
 import json
-import os
 import socket
 import sys
 import time
 
 from claudlet.cli import utf8_output
-from claudlet.core import hostinfo
+from claudlet.core import agents, hostinfo
 
 
 def _ports():
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    current = agents.session_agent()
+    sid = agents.session_id(current) if current else None
     own = hostinfo.read_session_port(sid) if sid else None
     rest = [hostinfo.read_port_file(p) for p in hostinfo.port_files()]
     return [p for p in [own] + rest if p is not None]

@@ -1,6 +1,15 @@
 from claudlet.cli import window
 
 
+def test_ports_put_the_codex_sessions_pet_first(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-session")
+    monkeypatch.setattr(window.hostinfo, "read_session_port",
+                        lambda sid: 111 if sid == "codex-session" else None)
+    monkeypatch.setattr(window.hostinfo, "port_files", lambda: [])
+    assert window._ports() == [111]
+
+
 def test_raised_means_shown_and_topmost():
     assert window.raised([{"id": "a", "state": "shown"}, {"id": "b", "state": "min"}], "a")
     assert not window.raised([{"id": "a", "state": "min"}], "a")
