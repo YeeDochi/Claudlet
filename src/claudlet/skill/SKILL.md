@@ -208,7 +208,11 @@ cpet window raise <id>    # state: shown | min (minimized) | desk (other desktop
    described — read `title` (the window's caption: page/file/chat name) and
    `app` (its class: `firefox`, `slack`, `code`, ...). A fuzzy description
    ("아까 보던 PR") means reading the titles, not string-matching the words.
-2. `cpet window raise <id>` with that entry's `id`, verbatim.
+2. `cpet window raise <id> --wait` with that entry's `id`, verbatim. It
+   returns once the window is up front and the pet has finished bringing it
+   over (exit 0), or after ~20s with
+   exit 3 and the state it got stuck in (`min`, `gone`, `shown but not in
+   front`) — then say it didn't come up instead of claiming it did.
 3. Say in one line which window you brought up. Several plausible matches →
    raise none and ask which, listing their titles. Nothing matches → say so.
 

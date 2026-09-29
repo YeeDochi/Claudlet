@@ -104,6 +104,7 @@ from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
 from claudlet.core import agents
+from claudlet.core import appicon
 from claudlet.core import ask as askbox
 from claudlet.core import avatars
 from claudlet.core import bubble as bubblegeom
@@ -1581,6 +1582,7 @@ class Pet(QWidget):
         # 포인터로 고른 순간 찍은 PNG(메모리). 질문에 실리거나 버려진다.
         self._ask_shot = None
         self._capture = screenshot.capture   # 테스트는 가짜 PNG 를 주는 것으로 바꾼다
+        self._app_sprite = appicon.sprite_for   # 앱 아이콘 스프라이트 — 테스트는 가짜로 바꾼다
         shotmod.clear(self.session_id)       # 지난번에 죽으며 남긴 캡처
         self._ask_waiting = False            # holding `thinking` for an answer
         self._ask_waiting_since = 0.0        # when that hold started
@@ -1616,6 +1618,16 @@ class Pet(QWidget):
         self._behavior_timer = 0             # ticks left before choosing a new behavior
         self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
         self._fetch = None                   # 창 찾아오기 진행 상태 (_raise_window), 없으면 None
+        # KDE 는 창을 바닥 밑에서 끌어올린다(KWin 스크립트 안 타이머). 다른 OS 는
+        # 창이 스스로 뜨길 기다렸다가 올라탄다(gone)
+        self._can_pull = sys.platform.startswith("linux") or os.name == "nt"
+        # Windows has no script inside the WM: the pet moves the window itself,
+        # every frame, and knows where it is from the same curve (the 220ms
+        # window poll would lag the ride). KWin eases the window on its own.
+        self._pull_by_pet = os.name == "nt"
+        self._pull_anim = None               # (wid, plan, t0) while hauling (Windows)
+        self._pull_timer = None
+        self._move_window = None             # (wid, x, y) -> None; Win32 by default
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -1847,7 +1859,10 @@ class Pet(QWidget):
             if want_windows:
                 try:
                     conn.sendall((json.dumps(
-                        {"windows": geom.finder_rows(self._finder_windows())},
+                        {"windows": geom.finder_rows(self._finder_windows()),
+                         # so `raise --wait` can wait out the show, not just the WM
+                         "fetching": self._fetch["wid"] if self._fetch else None,
+                         "fetch_phase": self._fetch["phase"] if self._fetch else None},
                         ensure_ascii=False) + "\n").encode("utf-8"))
                 except OSError:
                     pass
@@ -2102,7 +2117,8 @@ class Pet(QWidget):
             "following": self._follow,
             "chat_open": self._chat_open(),      # 대화창이 떠 있다
             "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
-            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | gone | ride
+            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | pull | gone | ride; on-screen: run | leap | grip | pull | ride
+            "fetch_icon": bool(self._fetch and self._fetch.get("icon")),  # carrying the app's icon
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -2289,7 +2305,7 @@ class Pet(QWidget):
         elif self._social_act is None:
             self._social_start(now)
 
-        self.move(int(self.x), int(self.y))
+        self.move(int(self.x), int(self.y - self._sunk_dy()))
         # Keep the bubble beside the creature. Must come AFTER the move above:
         # placing it first leaves it a tick behind, which is visible as the
         # bubble lagging the pet while it roams. moveEvent covers dragging, but
@@ -3238,13 +3254,14 @@ class Pet(QWidget):
         wandering the wallpaper). No-op without an active geometry feed."""
         # 도크 중엔 창을 타고 있지 않다(고정 좌표에 떠 있다) -> 가릴 근거가 없다.
         # 마스킹을 그대로 두면 코너에 겹친 최대화 창이 펫을 통째로 지워버린다.
-        if self._fetch is not None and self._fetch["phase"] in ("sink", "gone"):
-            # sinking: only what's still above the floor line shows
+        if self._fetch is not None and self._fetch["phase"] in ("sink", "gone", "pull"):
+            # sinking: only what's still above the floor line shows (in window
+            # coords — the window itself is held at the screen edge, see _sunk_dy)
             above = int(self._fetch["line"] - self.y)
             if self._fetch["phase"] == "gone" or above <= 0:
                 self._hide_fully()
             else:
-                self._apply_mask(QRegion(QRect(0, 0, self.w, above)))
+                self._apply_mask(QRegion(QRect(0, 0, self.w, above + self._sunk_dy())))
             return
         if (not getattr(self, "_geom_active", False)
                 or self.mode == "held" or self._floating or self._docked):
@@ -3431,6 +3448,7 @@ class Pet(QWidget):
             (self.w / 2, self.h / 2),
         ) if pocket or self._follow else (0.0, 0.0)
         # facing handled inside draw_creature (body mirrors, text upright)
+        p.translate(0, self._sunk_dy())    # below the floor: art slides down inside the window
         if getattr(self, "_in_notch", False):
             u = _companion_scale(self.u, self.avatar)   # 노치에서는 축소해 그린다
             # centring lands on a half pixel when window and art box differ by
@@ -3449,7 +3467,10 @@ class Pet(QWidget):
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
-        if self._notes:
+        icon = self._fetch.get("icon") if self._fetch else None
+        if icon:
+            self._draw_fetch_icon(p, icon, now)   # 입이 차 있으니 쪽지 대신
+        elif self._notes:
             self._draw_note(p)
         p.end()
 
@@ -3612,6 +3633,33 @@ class Pet(QWidget):
             ly = y + h * (0.3 + 0.25 * i)
             p.fillRect(QRectF(x + w * 0.18, ly, w * 0.64, max(1.0, h * 0.1)), line)
 
+    FETCH_TOSS_SECS = 0.45     # 올라탄 순간 입에서 머리 위로 던져 올리는 시간
+
+    def _draw_fetch_icon(self, p, icon, now):
+        """창 찾기 동안 그 앱의 아이콘을 물고 간다. 창 위에 올라타면 톡 들어
+        올려(찾아왔다!) 환호가 끝날 때까지 들고 있다. 쪽지와 같은 자리."""
+        f = self._fetch
+        if f["phase"] == "ride" and now >= f["cheer"]:
+            return                            # 다 보여줬다 — 평소 모습으로
+        side, high, size = self._note_anchor()
+        u = self.u
+        n = len(icon)
+        cell = max(1, round(size * u * 1.4 / n))
+        x0 = round(self.w / 2 + side * u * self.facing - n * cell / 2)
+        y0 = (PAD_Y + high) * u - n * cell / 2
+        if f["phase"] == "ride":
+            # 입에서 곧장 위로 톡 — 옆으로는 옮기지 않는다: 몸 폭은 크리처마다
+            # 달라서(박스보다 훨씬 좁은 것도 있다) 옆으로 가면 몸에서 떨어져 보인다
+            t = min(1.0, (now - f["rode_at"]) / self.FETCH_TOSS_SECS)
+            t = 1 - (1 - t) ** 3              # ease-out: 빨리 솟았다가 살며시 멈춘다
+            y0 -= high * u * 0.5 * t
+        y0 = round(y0)
+        p.setPen(Qt.PenStyle.NoPen)
+        for j, row in enumerate(icon):
+            for i, c in enumerate(row):
+                if c is not None:
+                    p.fillRect(x0 + i * cell, y0 + j * cell, cell, cell, QColor(*c))
+
     def _draw_hearts(self, p, age):
         # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
         # (창 안)에서 살짝 떠오르며 페이드. age 0..1. 크고 뚜렷하게.
@@ -3656,6 +3704,7 @@ class Pet(QWidget):
             self._moved = False
             self._vel_samples = [(time.monotonic(), self._press_global)]
             self.mode = "held"
+            self._fetch = None             # 잡으면 창 찾기는 취소 — 놓은 자리에서 가라앉지 않게
             self.setCursor(Qt.CursorShape.ClosedHandCursor)   # 쥔 손: 집고 있는 동안
             self._held_chain = []
             self._held_chain_prev = []
@@ -4586,12 +4635,14 @@ class Pet(QWidget):
         return QIcon(pm)
 
     # ---------- KWin scripting helper (KDE Wayland) ----------
-    def _run_kwin_script(self, js):
+    def _run_kwin_script(self, js, kind="act"):
         """Load and run a one-shot KWin script under a STABLE plugin name, so the
         next call (and _cleanup) unloads the previous one instead of leaving a
         stopped-but-registered script behind on every click-to-focus. Best-effort;
         never raises."""
-        plugin = "claudlet_act_" + re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
+        # `kind` gives a script that must outlive the next click-to-focus (the
+        # fetch's pull animation runs its own timer in KWin) its own name
+        plugin = "claudlet_%s_" % kind + re.sub(r"[^A-Za-z0-9_]", "_", str(self.session_id))
         qdbus = qdbus_bin()
         path = None
         try:
@@ -4607,7 +4658,10 @@ class Pet(QWidget):
                 text=True, timeout=3)
             subprocess.run([qdbus, "org.kde.KWin", "/Scripting",
                             "org.kde.kwin.Scripting.start"], timeout=3)
-            self._activate_plugin = plugin
+            if kind == "act":
+                self._activate_plugin = plugin
+            else:
+                self._pull_plugin = plugin
         except Exception:
             pass
         finally:
@@ -4960,25 +5014,116 @@ class Pet(QWidget):
         except Exception:
             pass
 
-    # 창 찾아오기: 펫이 바닥으로 떨어져(out) 바닥선 아래로 잠겨 사라졌다가
-    # (sink → gone) — 최소화된 창이 사는 작업표시줄 쪽이다 — 그 사이 창을
-    # 올리고, 창 윗변에 탄 채로 다시 나타난다(ride). 창이 혼자 먼저 뜨면
+    # 창 찾아오기: 펫이 한 번 폴짝 뛰고 그대로 떨어져(out) 바닥을 파고들어
+    # 사라졌다가(sink) — 최소화된 창이 사는 작업표시줄 쪽이다 — 창을 붙잡고
+    # 끌어올리며(KDE: pull) / 창이 뜨길 기다렸다가(gone) 윗변에 올라탄다(ride). 창이 혼자 먼저 뜨면
     # 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
-    FETCH_SINK = 3.0       # px/tick easing below the floor (~1.5s for the body)
+    FETCH_HOP = 0.35       # hop height before the dive, in body heights
+    FETCH_GRAVITY = 2.0    # x normal gravity: a snappy hop, a quick plunge
     FETCH_GONE_SECS = 3.0  # give up waiting for the window to show after this
     FETCH_RIDE_SECS = 4.0  # stay on the fetched window before carrying on
     FETCH_CHEER_SECS = 2.5
+    FETCH_PULL_MS = 1000   # KDE: the window is hauled up from below the screen this long
+    FETCH_GRIP_TICKS = 6   # an on-screen window: brace on its edge this long before dragging
 
     def _raise_window(self, wid):
         """Start fetching `wid`: dash off-screen first; the raise happens once
         the pet is out of sight. Ignores ids the finder doesn't list."""
-        if not any(str(w.wid) == wid for w in self._finder_windows()):
+        win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
+        if win is None:
             return
-        bottom = self._screen_bottom_at(self.x + self.w / 2.0)
-        line = follow_nav.floor_feet(bottom, self._nav_box())   # floor feet y
+        if self.mode == "thrown":
+            self.mode = "roam"                 # the fetch owns motion now (physics would run first)
+        if self._can_drag(win):
+            # already on screen: go over, grab the edge that leads toward
+            # here, and drag it back
+            fx, fy = self.x, self.y
+            origin = (fx + self.w / 2.0, fy + self.foot_y)
+            home = self._haul_target(origin[0], origin[1], (win.w, win.h))
+            edge = follow_nav.pick_edge((win.x, win.y), home)
+            off = follow_nav.grab_off((win.x, win.y, win.w, win.h), self.w, self.h, edge, fx, fy)
+            self._contain = None
+            self.vx = self.vy = 0.0
+            self._fetch = {"wid": wid, "phase": "run", "until": None, "t0": None,
+                           "icon": self._app_sprite(win.title), "size": (win.w, win.h),
+                           "edge": edge, "hold": off, "home": home,
+                           "origin": origin,
+                           "line": 10 ** 9}           # nothing to sink through: never masked
+            return
+        # it dives through whatever it stands on — a window top, a window's
+        # floor, the desktop floor — right here, not after a trip to the floor
+        line = self.y + self.foot_y
         self._contain = None
-        self.vx = self.vy = 0.0
-        self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None}
+        self.vx = 0.0
+        self.vy = -math.sqrt(2 * physics.GRAVITY * self.FETCH_GRAVITY
+                             * max(20.0, self.FETCH_HOP * self.h))   # 폴짝
+        self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None,
+                       "icon": self._app_sprite(win.title),   # 물고 갈 앱 아이콘, 없으면 None
+                       "size": (win.w, win.h)}                # 끌어올릴 창 크기
+
+    def _can_drag(self, win):
+        """A window already on screen is fetched by walking over and dragging
+        it back — when we can move windows at all, and it isn't maximized
+        (dragging one would un-maximize it; those still come up the floor)."""
+        if not self._can_pull or win.hidden or win.w <= 0:
+            return False
+        cx = win.x + win.w / 2.0
+        area = next((g for g in self._screens if g.left() <= cx <= g.right()),
+                    self.screen_rect)
+        return not (win.w >= area.width() - 2 and win.h >= area.height() - 2)
+
+    FETCH_RUN_SPEED = 22.0   # px/tick dashing toward a window to fetch
+    FETCH_RUN_SECS = 1.2     # longest dash; a farther window is leapt the rest
+    FETCH_LEAP_RANGE = 320.0  # sideways gap it takes in one jump
+
+    def _run_step(self, f, win, now):
+        """Dash along whatever it stands on toward the window (falling off a
+        ledge on the way, like a walk would), then jump the last stretch."""
+        if f["t0"] is None:
+            f["t0"] = now
+        land = self._hold({"edge": f["edge"], "off": f["hold"]}, win)
+        dx = land[0] - self.x
+        if abs(dx) <= self.FETCH_LEAP_RANGE or now - f["t0"] >= self.FETCH_RUN_SECS:
+            dist = math.hypot(dx, land[1] - self.y)
+            f.update(phase="leap", t0=None, **{"from": (self.x, self.y)},
+                     secs=min(1.0, max(0.55, 0.45 + dist / 1800.0)),
+                     arc=60.0 + 0.2 * dist)
+            self._leap_step(f, win, now)
+            return
+        self.facing = 1 if dx > 0 else -1
+        self.x += self.facing * min(self.FETCH_RUN_SPEED, abs(dx) - self.FETCH_LEAP_RANGE)
+        _l, _r, _t, floor = self._bounds()
+        if self.y < floor - 2:                # ran off a ledge: fall while running
+            self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
+            self.y = min(self.y + self.vy, floor)
+        else:
+            self.vy, self.y = 0.0, float(floor)
+        self._render_state = "walk"
+
+    def _leap_step(self, f, win, now):
+        land = self._hold({"edge": f["edge"], "off": f["hold"]}, win)
+        if f["t0"] is None:
+            f["t0"] = now
+        t = (now - f["t0"]) / f["secs"]
+        self.x, self.y = follow_nav.leap_at(f["from"], land, t, f["arc"])
+        self._render_state = "leap"
+        if t >= 1.0:
+            f["phase"], f["ticks"] = "grip", 0
+            f["off"] = f["hold"]
+
+    def _hold(self, f, win):
+        """Box top-left while holding f["edge"] of `win` at f["off"]. A pet on
+        the top of a window near the top of the screen stays on the screen.
+        Facing: toward where a side is being pulled."""
+        x, y = follow_nav.hold_pos((win.x, win.y, win.w, win.h), self.w, self.h,
+                                   self.foot_y, f.get("edge", "top"), f["off"])
+        if f.get("edge", "top") == "top":
+            y = max(y, float(self.screen_rect.top()))
+        if f.get("edge") == "left":
+            self.facing = -1
+        elif f.get("edge") == "right":
+            self.facing = 1
+        return float(x), float(y)
 
     def _finder_windows(self):
         """Every window the finder may pull out, minimized ones included.
@@ -4994,10 +5139,18 @@ class Pet(QWidget):
                 return []
         return geom.parse_dump(getattr(self, "_last_dump", None) or "", hidden=True)
 
-    def _raise_now(self, wid):
+    def _raise_now(self, wid, pull_from=None):
         """Pull window `wid` to the front: restore it, and on KDE bring it over
         from another desktop. Only an id the finder itself lists is accepted —
-        the id is spliced into a KWin script. Returns whether it was sent."""
+        the id is spliced into a KWin script. Returns whether it was sent.
+
+        `pull_from`: a _pull_plan — park the window's top-left at "start",
+        then haul it through "points", each leg eased over "tug" seconds with
+        "pause" between (KDE: a timer inside KWin runs it, so it is smooth
+        whatever our tick rate; Windows: the pet runs the same plan). A
+        maximized window is re-maximized at the end, on the monitor it now
+        sits on (KWin lets a script move it, but a later plain geometry set
+        on it is ignored)."""
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
             return False
@@ -5012,23 +5165,57 @@ class Pet(QWidget):
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif os.name == "nt":
                 from claudlet.platform.geom import win32
+                if pull_from is not None:
+                    return win32.pull_begin(int(wid), *pull_from["start"])
                 win32.activate_hwnd(int(wid))
             elif sys.platform.startswith("linux"):
                 self._run_kwin_script(
                     'var ID = ' + json.dumps(wid) + ';'
+                    'var PULL = ' + json.dumps(pull_from) + ';'
                     'var cs = (typeof workspace.windowList === "function") '
                     '? workspace.windowList() : workspace.clientList();'
                     'for (var i = 0; i < cs.length; i++) {'
                     '  var t = cs[i];'
                     '  if (("" + t.internalId) !== ID) continue;'
+                    '  var g = t.frameGeometry, X = g.x, Y = g.y, W = g.width, H = g.height;'
+                    '  var M = t.maximizeMode, P = PULL !== null && t.moveable && !t.fullScreen;'
+                    '  if (P) { var X0 = PULL.start[0], Y0 = PULL.start[1];'
+                    '           var PTS = PULL.points; X = PTS[PTS.length - 1][0]; Y = PTS[PTS.length - 1][1];'
+                    '           t.frameGeometry = {x: X0, y: Y0, width: W, height: H}; }'
                     '  t.minimized = false;'
                     '  if (!t.onAllDesktops) {'
                     '    try { if (t.desktops !== undefined) t.desktops = [workspace.currentDesktop];'
                     '          else t.desktop = workspace.currentDesktop; } catch (e) {}'
                     '  }'
                     '  try { workspace.activeWindow = t; } catch (e) { workspace.activeClient = t; }'
+                    '  if (P) {'
+                    # leg by leg: ease out to the next point, rest, next (follow_nav.tug_at)
+                    '    var NT = Math.max(1, Math.round(PULL.tug * 1000 / 16)),'
+                    '        NP = Math.round(PULL.pause * 1000 / 16);'
+                    '    var seg = 0, n = 0, px = X0, py = Y0, tm = new QTimer();'
+                    '    tm.interval = 16;'
+                    '    tm.timeout.connect(function () {'
+                    '      n++;'
+                    '      if (n <= NT) {'
+                    '        var e = 1 - Math.pow(1 - n / NT, 3);'   # ease-out: heave, then settle
+                    '        t.frameGeometry = {x: px + (PTS[seg][0] - px) * e,'
+                    '                           y: py + (PTS[seg][1] - py) * e, width: W, height: H};'
+                    '        return;'
+                    '      }'
+                    '      if (seg < PTS.length - 1) {'
+                    '        if (n < NT + NP) return;'                # catching its breath
+                    '        px = PTS[seg][0]; py = PTS[seg][1]; seg++; n = 0;'
+                    '        return;'
+                    '      }'
+                    '      tm.stop();'
+                    '      if (M) { t.setMaximize(false, false); t.setMaximize((M & 1) != 0, (M & 2) != 0); }'
+                    '      else t.frameGeometry = {x: X, y: Y, width: W, height: H};'
+                    '    });'
+                    '    tm.start();'
+                    '  }'
                     '  break;'
-                    '}'
+                    '}',
+                    kind="act" if pull_from is None else "pull",
                 )
         except Exception:
             return False
@@ -5038,26 +5225,78 @@ class Pet(QWidget):
         """One tick of the fetch. Owns position and render while it runs."""
         f = self._fetch
         if f["phase"] == "out":
-            # down to the floor the way a pet leaves a window: climbdown pose,
-            # gravity from rest (starts gentle, no sudden plunge)
-            floor_y = f["line"] - self.foot_y
-            self._render_state = "climbdown"
-            if self.y < floor_y:
-                self.vy = min(self.vy + physics.GRAVITY, physics.V_MAX)
-                self.y = min(self.y + self.vy, floor_y)
-                return
-            self.vy = 0.0
-            f["phase"] = "sink"
+            # one hop, then straight back down through the spot it jumped
+            # from: below that line it is masked away (sink), so it drops
+            # through the surface it stood on and is gone.
+            self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
+            self.y += self.vy
+            self._render_state = "jump" if self.vy < 0 else "falling"
+            if self.y + self.foot_y >= f["line"]:
+                f["phase"] = "sink"           # feet through the floor
             return
         if f["phase"] == "sink":
-            self.y += self.FETCH_SINK
-            self._render_state = "climbdown"
+            self.vy = min(self.vy + physics.GRAVITY * self.FETCH_GRAVITY, physics.V_MAX)
+            self.y += self.vy
+            self._render_state = "falling"
             if self.y < f["line"]:
                 return                        # head still above the floor
-            if not self._raise_now(f["wid"]):
+            size = self._pull_size(f) if self._can_pull else None
+            pull = size is not None
+            if pull:
+                # the window comes up where the pet went down: its bottom on
+                # that line, centred on the pet, inside the pet's monitor. It
+                # starts parked under that monitor's edge and is hauled up;
+                # the pet reappears through the same line, riding its top.
+                cx = self.x + self.w / 2.0
+                f["size"] = size
+                f["home"] = self._haul_target(cx, f["line"], size)
+                pull_from = self._pull_plan((f["home"][0], self._screen_bottom_at(cx) + 1),
+                                            f["home"], tugs=False)
+            if not self._raise_now(f["wid"], pull_from if pull else None):
                 self._fetch = None
                 return
-            f["phase"], f["until"] = "gone", now + self.FETCH_GONE_SECS
+            f["phase"] = "pull" if pull else "gone"
+            if pull and self._pull_by_pet:
+                f["by_pet"] = True
+                self._start_pull_anim(f["wid"], pull_from, now)
+            f["until"] = now + self.FETCH_GONE_SECS + (self._plan_secs(pull_from) if pull else 0)
+            return
+        if f["phase"] == "pull":
+            self._pull_step(f, now)
+            return
+        if f["phase"] in ("run", "leap", "grip"):
+            win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
+            if win is None:
+                self._fetch = None            # it went away under us
+                return
+            if f["phase"] == "run":
+                self._run_step(f, win, now)
+                return
+            if f["phase"] == "leap":
+                self._leap_step(f, win, now)
+                return
+            # grip: dig in on the edge for a beat, then haul it home
+            self.x, self.y = self._hold(f, win)
+            self._render_state = "strain"
+            f["ticks"] += 1
+            if f["ticks"] < self.FETCH_GRIP_TICKS:
+                return
+            size = self._pull_size(f)
+            if size is None:
+                self._fetch = None
+                return
+            if size != f["size"]:             # Windows measures it afresh
+                f["size"] = size
+                f["home"] = self._haul_target(f["origin"][0], f["origin"][1], size)
+            pull_from = self._pull_plan((win.x, win.y), f["home"], tugs=True)
+            if not self._raise_now(f["wid"], pull_from):
+                self._fetch = None
+                return
+            f["phase"] = "pull"
+            f["until"] = now + self.FETCH_GONE_SECS + self._plan_secs(pull_from)
+            if self._pull_by_pet:
+                f["by_pet"] = True
+                self._start_pull_anim(f["wid"], pull_from, now)
             return
         if f["phase"] == "gone":
             win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
@@ -5065,16 +5304,144 @@ class Pet(QWidget):
                 if now > f["until"]:
                     self._fetch = None        # never showed: just come back
                 return
-            self._ride(win)
-            f["phase"], f["until"] = "ride", now + self.FETCH_RIDE_SECS
-            f["cheer"] = now + self.FETCH_CHEER_SECS
-            self._render_state = "celebrate"
+            self._arrive(f, win, now)
             return
         # ride: stand where _ride put us and cheer, then carry on as usual
         self._render_state = ("celebrate" if now < f["cheer"]
                               else self.claude_state)
         if now > f["until"]:
             self._fetch = None
+
+    def _sunk_dy(self):
+        """How far the pet is below where its window can go. The WM keeps a
+        window on screen (KWin clamps its bottom to the monitor edge), so while
+        the pet sinks through the floor — or rises back out of it — the window
+        stays at the edge and the art is drawn this much lower inside it."""
+        f = self._fetch
+        if f is None or f["phase"] not in ("sink", "gone", "pull"):
+            return 0
+        lowest = self._screen_bottom_at(self.x + self.w / 2.0) + 1 - self.h
+        return max(0, int(self.y - lowest))
+
+    def _haul_target(self, cx, line, size):
+        """Top-left a fetched window ends at: its bottom on `line`, centred on
+        column cx, inside that column's monitor (see follow_nav.fetch_spot)."""
+        area = next((g for g in self._screens if g.left() <= cx <= g.right()),
+                    self.screen_rect)
+        tx, ty = follow_nav.fetch_spot(cx, line, size[0], size[1],
+                                       (area.x(), area.y(), area.width(), area.height()))
+        return (int(tx), int(ty))
+
+    def _pull_size(self, f):
+        """(w, h) of the window to haul, or None when it can't be (Windows:
+        it is/will restore maximized). KDE's feed already has it."""
+        if self._pull_by_pet:
+            try:
+                from claudlet.platform.geom import win32
+                return win32.pull_size(f["wid"])
+            except Exception:
+                return None
+        return f["size"]
+
+    FETCH_TUG_SECS = 0.32   # one heave of a dragged window...
+    FETCH_TUG_REST = 0.2    # ...then a breath before the next
+
+    def _pull_plan(self, start, target, tugs):
+        """How a window travels: from `start` to `target` in one smooth haul,
+        or (`tugs`) heave-ho steps no longer than the pet can manage at once —
+        about two of its own widths."""
+        if not tugs:
+            return {"start": start, "points": [target],
+                    "tug": self.FETCH_PULL_MS / 1000.0, "pause": 0.0}
+        return {"start": start,
+                "points": follow_nav.tug_points(start, target, max(120.0, 2.0 * self.w)),
+                "tug": self.FETCH_TUG_SECS, "pause": self.FETCH_TUG_REST}
+
+    @staticmethod
+    def _plan_secs(plan):
+        return follow_nav.tug_secs(len(plan["points"]), plan["tug"], plan["pause"])
+
+    def _start_pull_anim(self, wid, plan, now):
+        self._pull_anim = (wid, plan, now)
+        if self._pull_timer is None:
+            self._pull_timer = QTimer(self)
+            self._pull_timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._pull_timer.timeout.connect(self._pull_frame)
+        self._pull_timer.start(16)
+
+    def _pull_pos(self, now):
+        """(pos, moving, done) of the window we are hauling ourselves."""
+        _wid, plan, t0 = self._pull_anim
+        return follow_nav.tug_at(plan["start"], plan["points"], now - t0,
+                                 plan["tug"], plan["pause"])
+
+    def _pull_frame(self):
+        """One frame of hauling the window (Windows). Runs to the end even if
+        the fetch was called off — a window left halfway is worse."""
+        if self._pull_anim is None:
+            self._pull_timer.stop()
+            return
+        (x, y), _moving, done = self._pull_pos(time.monotonic())
+        move = self._move_window
+        if move is None:
+            from claudlet.platform.geom import win32
+            move = win32.move_visible
+        move(self._pull_anim[0], x, y)
+        if done:
+            self._pull_timer.stop()
+
+    def _pull_step(self, f, now):
+        """KDE: the window is being hauled up out of the floor. Hang on to its
+        top edge (straining) and come up with it; only what is above the floor
+        line shows, the way the pet sank. Once it is home: stand on it, or —
+        a maximized window's top is off the screen — drop into it."""
+        if f.get("by_pet"):
+            # we are moving it ourselves: it is exactly where the curve says
+            (x, y), moving, _done = self._pull_pos(now)
+            f["moving"] = moving
+            win = geom.Win(f["wid"], int(round(x)), int(round(y)),
+                           int(f["size"][0]), int(f["size"][1]), "")
+        else:
+            win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
+        if win is None:
+            if now > f["until"]:
+                self._fetch = None            # never showed: just come back
+            return
+        if "off" not in f:                    # up out of the floor: grab the top, mid-way
+            f["edge"] = "top"
+            f["off"] = follow_nav.grab_off((win.x, win.y, win.w, win.h), self.w, self.h,
+                                           "top", win.x + (win.w - self.w) / 2.0, 0)
+        self.x, self.y = self._hold(f, win)   # hang on where we grabbed it
+        if not f.get("by_pet"):
+            last = f.get("last")
+            f["moving"] = last is None or last != (win.x, win.y)
+            f["last"] = (win.x, win.y)
+        # heave while it moves, catch a breath between tugs
+        self._render_state = "strain" if f.get("moving", True) else "settle"
+        if (abs(win.x - f["home"][0]) > 1 or abs(win.y - f["home"][1]) > 1) \
+                and now <= f["until"]:
+            return
+        self._arrive(f, win, now)
+
+    def _arrive(self, f, win, now):
+        """The fetched window is up: celebrate on it for a while."""
+        top = f.get("edge", "top") == "top"
+        if top and win.y - self.foot_y < self.screen_rect.top():
+            # maximized: its top edge is off the screen — fall in and land
+            self._contain = win
+            self.vx = self.vy = 0.0
+            self.mode = "thrown"
+        elif "off" in f:
+            # it brought the window in: stay where it has been holding on
+            # (hanging off a side or the bottom, it lets go and drops after)
+            self.x, self.y = self._hold(f, win)
+            self.vx = self.vy = 0.0
+        else:
+            self._ride(win)
+        f["phase"], f["until"] = "ride", now + self.FETCH_RIDE_SECS
+        f["cheer"] = now + self.FETCH_CHEER_SECS
+        f["rode_at"] = now
+        self._render_state = "celebrate"
 
     def _ride(self, win):
         """Put the pet on `win`'s top edge; inside it when that edge is off
@@ -5161,7 +5528,8 @@ class Pet(QWidget):
         dockslot.release(getattr(self, "_dock_fd", None))
         self._dock_fd = None
         self._stop_cursor_feed()
-        for plugin in (getattr(self, "_activate_plugin", None),):
+        for plugin in (getattr(self, "_activate_plugin", None),
+                       getattr(self, "_pull_plugin", None)):
             if plugin:
                 try:
                     subprocess.run([qdbus_bin(), "org.kde.KWin", "/Scripting",

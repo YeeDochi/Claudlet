@@ -275,3 +275,60 @@ def test_midflight_enter_triggers_inside_target_body():
     # feet outside the window body -> not yet
     y = (SB - 500) - BOX.foot_y                            # feet above the top
     assert N.midflight_enter(340, y, BOX, [w1], 450, SB - 200) is None
+
+
+def test_fetch_spot_centres_on_the_pet_with_its_bottom_on_the_line():
+    from claudlet.core.follow_nav import fetch_spot
+    area = (0, 24, 1920, 1056)
+    assert fetch_spot(900, 860, 1000, 600, area) == (400, 260)
+    assert fetch_spot(50, 860, 1000, 600, area) == (0, 260)          # kept on the monitor
+    assert fetch_spot(1900, 860, 1000, 600, area) == (920, 260)
+    assert fetch_spot(900, 300, 1000, 600, area) == (400, 24)        # too high: pinned to the top
+    assert fetch_spot(900, 860, 1920, 1176, area) == (0, 24)         # too big: top-left
+
+
+def test_leap_at_arcs_between_start_and_end():
+    from claudlet.core.follow_nav import leap_at
+    assert leap_at((0, 500), (400, 300), 0, 100) == (0, 500)
+    assert leap_at((0, 500), (400, 300), 1, 100) == (400, 300)
+    assert leap_at((0, 500), (400, 300), 0.5, 100) == (200, 300)    # 400 midway, lifted 100
+
+
+def test_pick_edge_is_the_leading_edge():
+    from claudlet.core.follow_nav import pick_edge
+    assert pick_edge((500, 300), (100, 350)) == "left"
+    assert pick_edge((100, 300), (500, 250)) == "right"
+    assert pick_edge((100, 800), (120, 200)) == "top"
+    assert pick_edge((100, 100), (120, 700)) == "bottom"
+    assert pick_edge((100, 100), (100, 100)) == "top"
+
+
+def test_grab_and_hold_on_each_edge():
+    from claudlet.core.follow_nav import grab_off, hold_pos
+    win, bw, bh, fy = (1000, 200, 600, 400), 100, 80, 70
+    # beside the left side, at the pet's own height, clamped onto the side
+    off = grab_off(win, bw, bh, "left", 300, 900)
+    assert off == 400 - 80
+    x, y = hold_pos(win, bw, bh, fy, "left", off)
+    assert x + bw > 1000 > x and y == 200 + off                    # hands on the edge
+    x, y = hold_pos(win, bw, bh, fy, "right", 0)
+    assert x < 1600 < x + bw
+    x, y = hold_pos(win, bw, bh, fy, "top", grab_off(win, bw, bh, "top", 1200, 0))
+    assert (x, y + fy) == (1200, 200)                               # feet on the top edge
+    x, y = hold_pos(win, bw, bh, fy, "bottom", 0)
+    assert y < 600 < y + bh
+
+
+def test_tugs_split_the_drag_and_rest_between():
+    from claudlet.core.follow_nav import tug_points, tug_at, tug_secs
+    pts = tug_points((0, 0), (1000, 0), 300)
+    assert len(pts) == 4 and pts[-1] == (1000, 0)            # ceil(1000/300) heaves
+    assert all(abs(b[0] - a[0]) <= 300 for a, b in zip([(0, 0)] + pts, pts))
+    tug, rest = 0.3, 0.2
+    pos, moving, done = tug_at((0, 0), pts, 0.15, tug, rest)
+    assert moving and 0 < pos[0] < pts[0][0]                  # mid-heave
+    pos, moving, done = tug_at((0, 0), pts, 0.4, tug, rest)
+    assert (pos, moving, done) == (pts[0], False, False)      # catching its breath
+    pos, moving, done = tug_at((0, 0), pts, tug_secs(4, tug, rest), tug, rest)
+    assert pos == (1000, 0) and done
+    assert tug_points((5, 5), (5, 5), 300) == [(5, 5)]        # nowhere to go: one no-op
