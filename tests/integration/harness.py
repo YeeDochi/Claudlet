@@ -50,7 +50,14 @@ def _deliver(pet, payload, want_reply=False):
         c.sendall(payload)
         c.shutdown(socket.SHUT_WR)
         pet._on_conn()          # simulate the QSocketNotifier firing
-        return c.recv(256).decode() if want_reply else None
+        if not want_reply:
+            return None
+        buf = b""
+        while True:             # the pet closes after answering -> read to EOF
+            chunk = c.recv(65536)
+            if not chunk:
+                return buf.decode()
+            buf += chunk
     finally:
         c.close()
 
@@ -79,6 +86,12 @@ def send_hook(pet, event=None, **payload):
 def ping(pet):
     """Send a liveness ping and return the pet's reply string (its banner)."""
     return _deliver(pet, hostinfo.PING, want_reply=True)
+
+
+def window_list(pet):
+    """Ask the pet for its window-finder list, as `claudlet-window list` does."""
+    reply = _deliver(pet, b'{"cmd": "windows"}\n', want_reply=True)
+    return json.loads(reply.splitlines()[0])["windows"]
 
 
 def undock(p):

@@ -149,11 +149,15 @@ def _start_geom_script(dbus_name, safe):
         '      ?workspace.windowList():workspace.clientList());'
         '  var ent=[];'
         '  for(var i=0;i<ws.length;i++){var c=ws[i];var g=c.frameGeometry;'
-        '    if(g&&!c.minimized&&!c.hidden&&_onDesk(c)&&_isTopLevel(c))'
+        # minimized / other-desktop windows ride along FLAGGED: parse_dump
+        # drops them for perching, the window finder keeps them (they are
+        # exactly the ones someone asks to have pulled back out).
+        '    if(g&&!c.hidden&&_isTopLevel(c))'
         '      ent.push({id:(""+c.internalId),'
         '        s:c.internalId+";"+(c.resourceClass||"")+";"'
         '        +g.x+","+g.y+","+g.width+","+g.height+";"+(c.pid||0)'
-        '        +";"+encodeURIComponent(c.caption||"")});}'
+        '        +";"+encodeURIComponent(c.caption||"")'
+        '        +";"+(c.minimized?"min":(_onDesk(c)?"":"desk"))});}'
         # workspace.stackingOrder lags a raise in this KWin (it settles AFTER
         # windowActivated fires), so a just-activated window would still look
         # buried for one click. We KNOW it is now topmost -> force it last.

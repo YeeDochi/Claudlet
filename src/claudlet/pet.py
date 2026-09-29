@@ -1615,6 +1615,7 @@ class Pet(QWidget):
         self._idle_behavior = idle_engine.WALK
         self._behavior_timer = 0             # ticks left before choosing a new behavior
         self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
+        self._fetch = None                   # 창 찾아오기 진행 상태 (_raise_window), 없으면 None
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -1802,6 +1803,7 @@ class Pet(QWidget):
             return
         events = []
         ping = False
+        want_windows = False
         with conn:
             conn.settimeout(0.2)
             buf = b""
@@ -1823,6 +1825,8 @@ class Pet(QWidget):
                     continue
                 if ev.get("cmd") == "ping":
                     ping = True            # liveness probe, not a Claude event
+                elif ev.get("cmd") == "windows":
+                    want_windows = True    # window finder: answered below
                 else:
                     events.append(ev)
             if ping:
@@ -1838,6 +1842,13 @@ class Pet(QWidget):
                         {"pet": hostinfo.BANNER_MARK, "session": self.session_id,
                          "state": self.claude_state, "tab": self._tab_title}
                     ) + "\n").encode())
+                except OSError:
+                    pass
+            if want_windows:
+                try:
+                    conn.sendall((json.dumps(
+                        {"windows": geom.finder_rows(self._finder_windows())},
+                        ensure_ascii=False) + "\n").encode("utf-8"))
                 except OSError:
                     pass
         for ev in events:
@@ -1902,6 +1913,12 @@ class Pet(QWidget):
                     return
                 if self._docked and self.mode != "held":
                     self._dock_snap()
+            return
+        if ev.get("cmd") == "chat":
+            self.show_history()          # 펫 자신의 대화창: 창 목록엔 없다(claudlet 클래스)
+            return
+        if ev.get("cmd") == "raise":
+            self._raise_window(str(ev.get("id") or ""))
             return
         # A motion command is a user override, NOT a Claude event: it must not
         # touch the engine or the SessionEnd quit timer.
@@ -2083,6 +2100,9 @@ class Pet(QWidget):
             "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
+            "chat_open": self._chat_open(),      # 대화창이 떠 있다
+            "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
+            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | gone | ride
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -2158,6 +2178,8 @@ class Pet(QWidget):
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()
+        elif self._fetch is not None:
+            self._fetch_step(now)           # 창 찾아오기 — 도크 중이어도 나선다
         elif docked:
             # 자리에 붙어 서기: 배회·중력·창 걸터앉기를 모두 건너뛰고 슬롯 위치를
             # 매 틱 다시 계산한다(모니터 해상도나 작업표시줄이 바뀌어도 따라온다).
@@ -3216,6 +3238,14 @@ class Pet(QWidget):
         wandering the wallpaper). No-op without an active geometry feed."""
         # 도크 중엔 창을 타고 있지 않다(고정 좌표에 떠 있다) -> 가릴 근거가 없다.
         # 마스킹을 그대로 두면 코너에 겹친 최대화 창이 펫을 통째로 지워버린다.
+        if self._fetch is not None and self._fetch["phase"] in ("sink", "gone"):
+            # sinking: only what's still above the floor line shows
+            above = int(self._fetch["line"] - self.y)
+            if self._fetch["phase"] == "gone" or above <= 0:
+                self._hide_fully()
+            else:
+                self._apply_mask(QRegion(QRect(0, 0, self.w, above)))
+            return
         if (not getattr(self, "_geom_active", False)
                 or self.mode == "held" or self._floating or self._docked):
             self._show_full()
@@ -3869,6 +3899,13 @@ class Pet(QWidget):
             self._clear_zones()
         elif chosen == a_quit:
             self._quit()
+
+    def _chat_open(self):
+        win = getattr(self, "_history_win", None)
+        try:
+            return bool(win is not None and win.isVisible() and not win.isMinimized())
+        except RuntimeError:
+            return False              # closed and destroyed
 
     # ---------- ask: question about a window, answer in a bubble ----------
     def show_history(self):
@@ -4922,6 +4959,134 @@ class Pet(QWidget):
             winterm.focus(self._tab_title, run)
         except Exception:
             pass
+
+    # 창 찾아오기: 펫이 바닥으로 떨어져(out) 바닥선 아래로 잠겨 사라졌다가
+    # (sink → gone) — 최소화된 창이 사는 작업표시줄 쪽이다 — 그 사이 창을
+    # 올리고, 창 윗변에 탄 채로 다시 나타난다(ride). 창이 혼자 먼저 뜨면
+    # 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
+    FETCH_SINK = 3.0       # px/tick easing below the floor (~1.5s for the body)
+    FETCH_GONE_SECS = 3.0  # give up waiting for the window to show after this
+    FETCH_RIDE_SECS = 4.0  # stay on the fetched window before carrying on
+    FETCH_CHEER_SECS = 2.5
+
+    def _raise_window(self, wid):
+        """Start fetching `wid`: dash off-screen first; the raise happens once
+        the pet is out of sight. Ignores ids the finder doesn't list."""
+        if not any(str(w.wid) == wid for w in self._finder_windows()):
+            return
+        bottom = self._screen_bottom_at(self.x + self.w / 2.0)
+        line = follow_nav.floor_feet(bottom, self._nav_box())   # floor feet y
+        self._contain = None
+        self.vx = self.vy = 0.0
+        self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None}
+
+    def _finder_windows(self):
+        """Every window the finder may pull out, minimized ones included.
+        Linux/macOS reuse the feed the pet already holds (KDE flags its hidden
+        rows; macOS can't see minimized windows at all). Win32's perch poll
+        skips minimized windows and titles, so it enumerates afresh."""
+        if os.name == "nt":
+            try:
+                from claudlet.platform.geom import win32
+                return geom.parse_dump(
+                    win32.finder_dump(exclude_hwnd=int(self.winId())), hidden=True)
+            except Exception:
+                return []
+        return geom.parse_dump(getattr(self, "_last_dump", None) or "", hidden=True)
+
+    def _raise_now(self, wid):
+        """Pull window `wid` to the front: restore it, and on KDE bring it over
+        from another desktop. Only an id the finder itself lists is accepted —
+        the id is spliced into a KWin script. Returns whether it was sent."""
+        win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
+        if win is None:
+            return False
+        try:
+            if sys.platform == "darwin":
+                # no per-window raise without Accessibility: front the owning app
+                if win.pid and shutil.which("osascript"):
+                    subprocess.Popen(
+                        ["osascript", "-e",
+                         'tell application "System Events" to set frontmost of '
+                         '(first process whose unix id is %d) to true' % int(win.pid)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif os.name == "nt":
+                from claudlet.platform.geom import win32
+                win32.activate_hwnd(int(wid))
+            elif sys.platform.startswith("linux"):
+                self._run_kwin_script(
+                    'var ID = ' + json.dumps(wid) + ';'
+                    'var cs = (typeof workspace.windowList === "function") '
+                    '? workspace.windowList() : workspace.clientList();'
+                    'for (var i = 0; i < cs.length; i++) {'
+                    '  var t = cs[i];'
+                    '  if (("" + t.internalId) !== ID) continue;'
+                    '  t.minimized = false;'
+                    '  if (!t.onAllDesktops) {'
+                    '    try { if (t.desktops !== undefined) t.desktops = [workspace.currentDesktop];'
+                    '          else t.desktop = workspace.currentDesktop; } catch (e) {}'
+                    '  }'
+                    '  try { workspace.activeWindow = t; } catch (e) { workspace.activeClient = t; }'
+                    '  break;'
+                    '}'
+                )
+        except Exception:
+            return False
+        return True
+
+    def _fetch_step(self, now):
+        """One tick of the fetch. Owns position and render while it runs."""
+        f = self._fetch
+        if f["phase"] == "out":
+            # down to the floor the way a pet leaves a window: climbdown pose,
+            # gravity from rest (starts gentle, no sudden plunge)
+            floor_y = f["line"] - self.foot_y
+            self._render_state = "climbdown"
+            if self.y < floor_y:
+                self.vy = min(self.vy + physics.GRAVITY, physics.V_MAX)
+                self.y = min(self.y + self.vy, floor_y)
+                return
+            self.vy = 0.0
+            f["phase"] = "sink"
+            return
+        if f["phase"] == "sink":
+            self.y += self.FETCH_SINK
+            self._render_state = "climbdown"
+            if self.y < f["line"]:
+                return                        # head still above the floor
+            if not self._raise_now(f["wid"]):
+                self._fetch = None
+                return
+            f["phase"], f["until"] = "gone", now + self.FETCH_GONE_SECS
+            return
+        if f["phase"] == "gone":
+            win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
+            if win is None:
+                if now > f["until"]:
+                    self._fetch = None        # never showed: just come back
+                return
+            self._ride(win)
+            f["phase"], f["until"] = "ride", now + self.FETCH_RIDE_SECS
+            f["cheer"] = now + self.FETCH_CHEER_SECS
+            self._render_state = "celebrate"
+            return
+        # ride: stand where _ride put us and cheer, then carry on as usual
+        self._render_state = ("celebrate" if now < f["cheer"]
+                              else self.claude_state)
+        if now > f["until"]:
+            self._fetch = None
+
+    def _ride(self, win):
+        """Put the pet on `win`'s top edge; inside it when that edge is off
+        the top of the screen (a maximized window)."""
+        box = self._nav_box()
+        self.x = min(max(win.x + win.w / 2.0 - self.w / 2.0, float(win.x)),
+                     float(win.x + win.w - self.w))
+        self.y = float(win.y - self.foot_y)
+        if self.y < self.screen_rect.top():
+            self._contain = win
+            self.y = follow_nav.inside_feet(win, box) - self.foot_y
+        self.vx = self.vy = 0.0
 
     def _activate_claude_macos(self):
         """Bring the host terminal/IDE app to the front via AppleScript.

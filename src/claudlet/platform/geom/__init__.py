@@ -13,8 +13,11 @@ from urllib.parse import unquote
 # `title` actually holds the resourceClass; `pid` is the owning process id (or
 # None when the feed predates pid reporting); `caption` is the window's visible
 # title, the only thing that tells two windows of ONE process apart (see
-# find_host). Defaults keep old 6-arg callers OK.
-Win = namedtuple("Win", "wid x y w h title pid caption", defaults=(None, ""))
+# find_host). `hidden` is "" for a window on screen, "min" when minimized and
+# "desk" when it lives on another virtual desktop — only the window finder
+# (parse_dump(hidden=True)) ever sees those. Defaults keep old 6-arg callers OK.
+Win = namedtuple("Win", "wid x y w h title pid caption hidden",
+                 defaults=(None, "", ""))
 
 # Shell chrome / helper window classes, never perch targets. Covers both the
 # KDE feed (plasmashell, xwaylandvideobridge) and the Win32 feed: "progman" and
@@ -26,13 +29,17 @@ EXCLUDE_CLASSES = {"plasmashell", "xwaylandvideobridge", "claudlet", "",
                    "progman", "workerw"}
 
 
-def parse_dump(text, min_size=40):
+def parse_dump(text, min_size=40, hidden=False):
     """Parse a pipe-delimited window geometry feed (shared wire format used by
     the KWin script and other backends).
 
-    Format: `id;class;x,y,w,h;pid;caption|...`  (coords may be floats; pid and
-    caption optional). The caption is percent-encoded by the sender because
-    real window titles contain both of our delimiters ("Teams - 채팅 | ...").
+    Format: `id;class;x,y,w,h;pid;caption;hidden|...`  (coords may be floats;
+    pid, caption and hidden optional). The caption is percent-encoded by the
+    sender because real window titles contain both of our delimiters
+    ("Teams - 채팅 | ..."). A row with a `hidden` flag (minimized / other
+    desktop) is not on screen, so it is dropped unless `hidden=True` — nothing
+    may perch on or hide behind it; only the window finder wants it, and its
+    geometry is meaningless (Win32 sends 0,0,0,0), so no size filter applies.
     Filters shell chrome and sub-min_size junk. Pure."""
     wins = []
     for tok in text.split("|"):
@@ -53,14 +60,25 @@ def parse_dump(text, min_size=40):
             x, y, w, h = (int(float(n)) for n in nums)
         except ValueError:
             continue
-        if w < min_size or h < min_size:
+        flag = parts[5].strip() if len(parts) >= 6 else ""
+        if flag and not hidden:
+            continue
+        if not flag and (w < min_size or h < min_size):
             continue
         pid = None
         if len(parts) >= 4 and parts[3].strip().isdigit():
             pid = int(parts[3])
         caption = unquote(parts[4]) if len(parts) >= 5 else ""
-        wins.append(Win(wid, x, y, w, h, cls, pid, caption))
+        wins.append(Win(wid, x, y, w, h, cls, pid, caption, flag))
     return wins
+
+
+def finder_rows(wins):
+    """What the window finder shows an agent: topmost first, one dict per
+    window with only what it needs to pick one by name. Pure."""
+    return [{"id": str(w.wid), "app": w.title, "title": w.caption,
+             "state": w.hidden or "shown"}
+            for w in reversed(wins)]
 
 
 # Window classes that share a pid with a legit ancestor yet are never the host.
