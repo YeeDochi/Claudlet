@@ -315,3 +315,13 @@ def fetch_spot(cx, line, w, h, area):
     x = min(max(cx - w / 2.0, ax), ax + aw - w)
     y = min(max(line - h, ay), ay + ah - h)
     return max(x, ax), max(y, ay)
+
+
+def pull_at(start, target, t):
+    """Where a hauled window's top-left is at progress t (0..1): ease-out
+    cubic from `start` to `target` — yanked, then settles. The same curve the
+    KWin script runs, so both backends look alike. Pure."""
+    t = min(max(t, 0.0), 1.0)
+    e = 1 - (1 - t) ** 3
+    return (start[0] + (target[0] - start[0]) * e,
+            start[1] + (target[1] - start[1]) * e)

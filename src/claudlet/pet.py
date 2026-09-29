@@ -1620,7 +1620,14 @@ class Pet(QWidget):
         self._fetch = None                   # 창 찾아오기 진행 상태 (_raise_window), 없으면 None
         # KDE 는 창을 바닥 밑에서 끌어올린다(KWin 스크립트 안 타이머). 다른 OS 는
         # 창이 스스로 뜨길 기다렸다가 올라탄다(gone)
-        self._can_pull = sys.platform.startswith("linux")
+        self._can_pull = sys.platform.startswith("linux") or os.name == "nt"
+        # Windows has no script inside the WM: the pet moves the window itself,
+        # every frame, and knows where it is from the same curve (the 220ms
+        # window poll would lag the ride). KWin eases the window on its own.
+        self._pull_by_pet = os.name == "nt"
+        self._pull_anim = None               # (wid, start, target, t0, secs) while hauling
+        self._pull_timer = None
+        self._move_window = None             # (wid, x, y) -> None; Win32 by default
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -5071,6 +5078,8 @@ class Pet(QWidget):
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif os.name == "nt":
                 from claudlet.platform.geom import win32
+                if pull_from is not None:
+                    return win32.pull_begin(int(wid), *pull_from[0])
                 win32.activate_hwnd(int(wid))
             elif sys.platform.startswith("linux"):
                 self._run_kwin_script(
@@ -5132,7 +5141,8 @@ class Pet(QWidget):
             self._render_state = "falling"
             if self.y < f["line"]:
                 return                        # head still above the floor
-            pull = self._can_pull
+            size = self._pull_size(f) if self._can_pull else None
+            pull = size is not None
             if pull:
                 # the window comes up where the pet went down: its bottom on
                 # that line, centred on the pet, inside the pet's monitor. It
@@ -5141,7 +5151,7 @@ class Pet(QWidget):
                 cx = self.x + self.w / 2.0
                 area = next((g for g in self._screens if g.left() <= cx <= g.right()),
                             self.screen_rect)
-                ww, wh = f["size"]
+                ww, wh = f["size"] = size
                 tx, ty = follow_nav.fetch_spot(
                     cx, f["line"], ww, wh,
                     (area.x(), area.y(), area.width(), area.height()))
@@ -5151,6 +5161,9 @@ class Pet(QWidget):
                 self._fetch = None
                 return
             f["phase"] = "pull" if pull else "gone"
+            if pull and self._pull_by_pet:
+                f["by_pet"] = True
+                self._start_pull_anim(f["wid"], pull_from[0], pull_from[1], now)
             f["until"] = now + self.FETCH_GONE_SECS + (self.FETCH_PULL_MS / 1000.0 if pull else 0)
             return
         if f["phase"] == "pull":
@@ -5181,12 +5194,56 @@ class Pet(QWidget):
         lowest = self._screen_bottom_at(self.x + self.w / 2.0) + 1 - self.h
         return max(0, int(self.y - lowest))
 
+    def _pull_size(self, f):
+        """(w, h) of the window to haul, or None when it can't be (Windows:
+        it is/will restore maximized). KDE's feed already has it."""
+        if self._pull_by_pet:
+            try:
+                from claudlet.platform.geom import win32
+                return win32.pull_size(f["wid"])
+            except Exception:
+                return None
+        return f["size"]
+
+    def _start_pull_anim(self, wid, start, target, now):
+        self._pull_anim = (wid, start, target, now, self.FETCH_PULL_MS / 1000.0)
+        if self._pull_timer is None:
+            self._pull_timer = QTimer(self)
+            self._pull_timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._pull_timer.timeout.connect(self._pull_frame)
+        self._pull_timer.start(16)
+
+    def _pull_pos(self, now):
+        _wid, start, target, t0, secs = self._pull_anim
+        return follow_nav.pull_at(start, target, (now - t0) / secs), (now - t0) >= secs
+
+    def _pull_frame(self):
+        """One frame of hauling the window (Windows). Runs to the end even if
+        the fetch was called off — a window left halfway is worse."""
+        if self._pull_anim is None:
+            self._pull_timer.stop()
+            return
+        (x, y), done = self._pull_pos(time.monotonic())
+        move = self._move_window
+        if move is None:
+            from claudlet.platform.geom import win32
+            move = win32.move_visible
+        move(self._pull_anim[0], x, y)
+        if done:
+            self._pull_timer.stop()
+
     def _pull_step(self, f, now):
         """KDE: the window is being hauled up out of the floor. Hang on to its
         top edge (straining) and come up with it; only what is above the floor
         line shows, the way the pet sank. Once it is home: stand on it, or —
         a maximized window's top is off the screen — drop into it."""
-        win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
+        if f.get("by_pet"):
+            # we are moving it ourselves: it is exactly where the curve says
+            (x, y), _done = self._pull_pos(now)
+            win = geom.Win(f["wid"], int(round(x)), int(round(y)),
+                           int(f["size"][0]), int(f["size"][1]), "")
+        else:
+            win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
         if win is None:
             if now > f["until"]:
                 self._fetch = None            # never showed: just come back

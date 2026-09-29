@@ -205,3 +205,25 @@ def test_a_perched_pet_dives_through_the_window_it_stands_on(pet):
     send_hook(pet, cmd="raise", id="w9")
     assert _tick_until(pet, lambda s: s["hidden"], n=60)
     assert pet.y + pet.foot_y < 200 + pet.h + 60          # gone right there, not at the floor
+
+
+def test_windows_style_the_pet_hauls_the_window_itself(pet):
+    # no script inside the WM: the pet moves the window every frame and rides
+    # the curve it drives, not the (slow) window poll
+    pet._can_pull, pet._pull_by_pet = True, True
+    moves = []
+    pet._move_window = lambda wid, x, y: moves.append((wid, x, y))
+    pet._raise_now = lambda wid, pull_from=None: True
+    pet._pull_size = lambda f: (500, 250)
+    pet._on_geom(_row("w9", "slack", 1200, 100, 500, 250, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
+    hx, hy = _home(pet)
+    pet._pull_frame()
+    assert moves and moves[-1][0] == "w9" and moves[-1][2] > hy   # still below, coming up
+    pet._pull_anim = pet._pull_anim[:3] + (pet._pull_anim[3] - 5.0, pet._pull_anim[4])
+    pet._pull_frame()
+    assert moves[-1][1:] == (hx, hy)                          # landed where it should
+    pet._tick()
+    snap = pet.snapshot()
+    assert snap["fetch_phase"] == "ride" and abs(pet.y + pet.foot_y - hy) < 1

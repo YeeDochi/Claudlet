@@ -31,9 +31,26 @@ WS_EX_TOOLWINDOW = 0x00000080
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
 SW_RESTORE = 9
+SW_SHOWNORMAL = 1
+SW_SHOWMINIMIZED = 2
+WPF_RESTORETOMAXIMIZED = 0x0002
+SWP_NOSIZE = 0x0001
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
 TH32CS_SNAPPROCESS = 0x00000002
 _WNDENUMPROC = (ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
                 if _HAS_WINDLL else None)   # WINFUNCTYPE is Windows-only
+
+
+class _WINDOWPLACEMENT(ctypes.Structure):
+    _fields_ = [
+        ("length", wintypes.UINT),
+        ("flags", wintypes.UINT),
+        ("showCmd", wintypes.UINT),
+        ("ptMinPosition", wintypes.POINT),
+        ("ptMaxPosition", wintypes.POINT),
+        ("rcNormalPosition", wintypes.RECT),
+    ]
 
 
 class _PROCESSENTRY32(ctypes.Structure):
@@ -86,6 +103,15 @@ if user32 is not None:
     user32.BringWindowToTop.restype = wintypes.BOOL
     user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
     user32.AttachThreadInput.restype = wintypes.BOOL
+    user32.IsZoomed.argtypes = [wintypes.HWND]
+    user32.IsZoomed.restype = wintypes.BOOL
+    user32.GetWindowPlacement.argtypes = [wintypes.HWND, ctypes.POINTER(_WINDOWPLACEMENT)]
+    user32.GetWindowPlacement.restype = wintypes.BOOL
+    user32.SetWindowPlacement.argtypes = [wintypes.HWND, ctypes.POINTER(_WINDOWPLACEMENT)]
+    user32.SetWindowPlacement.restype = wintypes.BOOL
+    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                    ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    user32.SetWindowPos.restype = wintypes.BOOL
 
 # GetDpiForWindow is Win10 1607+; older Windows won't have the symbol. Probe it
 # once so _dpi_scale can degrade to 1.0 (== today's physical-pixel behaviour)
@@ -416,5 +442,95 @@ def activate_hwnd(hwnd):
                 user32.AttachThreadInput(cur_thread, fg_thread, False)
             if attached_target:
                 user32.AttachThreadInput(cur_thread, target_thread, False)
+    except Exception:
+        pass
+
+
+# -- window finder: haul a window across the screen ---------------------------
+# The pet drives the animation itself (a Qt timer calling move_visible every
+# frame); these only translate between the pet's logical, visible-rect world
+# and Win32's physical outer rects. Not runnable off Windows: verify on
+# hardware.
+
+def _placement(hwnd):
+    p = _WINDOWPLACEMENT()
+    p.length = ctypes.sizeof(_WINDOWPLACEMENT)
+    return p if user32.GetWindowPlacement(hwnd, ctypes.byref(p)) else None
+
+
+def pull_size(hwnd):
+    """Logical (w, h) the window will have once shown normally, or None when
+    it can't be hauled: it is (or will restore) maximized, which a move would
+    undo. A minimized window's live rect is meaningless — its restored size is
+    rcNormalPosition."""
+    if user32 is None:
+        return None
+    try:
+        hwnd = int(hwnd)
+        p = _placement(hwnd)
+        if p is None or user32.IsZoomed(hwnd):
+            return None
+        if user32.IsIconic(hwnd):
+            if p.flags & WPF_RESTORETOMAXIMIZED:
+                return None
+            r = p.rcNormalPosition
+        else:
+            r = _visible_rect(hwnd)
+            if r is None:
+                return None
+        s = _dpi_scale(hwnd)
+        return ((r.right - r.left) / s, (r.bottom - r.top) / s)
+    except Exception:
+        return None
+
+
+def pull_begin(hwnd, x, y):
+    """Show `hwnd` normally with its top-left at logical (x, y) and bring it
+    to the front. A minimized window is restored straight there (its normal
+    position is rewritten first), so it never flashes up in its old spot."""
+    if user32 is None:
+        return False
+    try:
+        hwnd = int(hwnd)
+        if user32.IsIconic(hwnd):
+            p = _placement(hwnd)
+            if p is None:
+                return False
+            s = _dpi_scale(hwnd)
+            r = p.rcNormalPosition
+            w, h = r.right - r.left, r.bottom - r.top
+            # ponytail: rcNormalPosition is in workspace coords — off by the
+            # taskbar's size when it sits on the top/left; the first
+            # move_visible corrects it one frame later
+            r.left, r.top = int(round(x * s)), int(round(y * s))
+            r.right, r.bottom = r.left + w, r.top + h
+            p.rcNormalPosition = r
+            p.showCmd = SW_SHOWNORMAL
+            if not user32.SetWindowPlacement(hwnd, ctypes.byref(p)):
+                return False
+        else:
+            move_visible(hwnd, x, y)
+        activate_hwnd(hwnd)
+        return True
+    except Exception:
+        return False
+
+
+def move_visible(hwnd, x, y):
+    """Put the VISIBLE top-left of `hwnd` (what the feed reports) at logical
+    (x, y). SetWindowPos places the outer rect, which on Win10/11 carries an
+    invisible resize border, so that margin is added back."""
+    if user32 is None:
+        return
+    try:
+        hwnd = int(hwnd)
+        s = _dpi_scale(hwnd)
+        outer = wintypes.RECT()
+        vis = _visible_rect(hwnd)
+        if not user32.GetWindowRect(hwnd, ctypes.byref(outer)) or vis is None:
+            return
+        dx, dy = vis.left - outer.left, vis.top - outer.top
+        user32.SetWindowPos(hwnd, None, int(round(x * s)) - dx, int(round(y * s)) - dy,
+                            0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
     except Exception:
         pass

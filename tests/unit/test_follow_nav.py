@@ -285,3 +285,12 @@ def test_fetch_spot_centres_on_the_pet_with_its_bottom_on_the_line():
     assert fetch_spot(1900, 860, 1000, 600, area) == (920, 260)
     assert fetch_spot(900, 300, 1000, 600, area) == (400, 24)        # too high: pinned to the top
     assert fetch_spot(900, 860, 1920, 1176, area) == (0, 24)         # too big: top-left
+
+
+def test_pull_at_eases_out_from_start_to_target():
+    from claudlet.core.follow_nav import pull_at
+    assert pull_at((0, 1000), (100, 200), 0) == (0, 1000)
+    assert pull_at((0, 1000), (100, 200), 1) == (100, 200)
+    assert pull_at((0, 1000), (100, 200), 5) == (100, 200)          # clamped
+    x, y = pull_at((0, 1000), (0, 200), 0.5)
+    assert 200 < y < 600                                              # past halfway: ease-out
