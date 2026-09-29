@@ -3621,8 +3621,8 @@ class Pet(QWidget):
     FETCH_TOSS_SECS = 0.45     # 올라탄 순간 입에서 머리 위로 던져 올리는 시간
 
     def _draw_fetch_icon(self, p, icon, now):
-        """창 찾기 동안 그 앱의 아이콘을 물고 간다. 창 위에 올라타면 머리 위로
-        던져 올려(찾아왔다!) 환호가 끝날 때까지 들고 있다. 쪽지와 같은 자리."""
+        """창 찾기 동안 그 앱의 아이콘을 물고 간다. 창 위에 올라타면 톡 들어
+        올려(찾아왔다!) 환호가 끝날 때까지 들고 있다. 쪽지와 같은 자리."""
         f = self._fetch
         if f["phase"] == "ride" and now >= f["cheer"]:
             return                            # 다 보여줬다 — 평소 모습으로
@@ -3633,12 +3633,11 @@ class Pet(QWidget):
         x0 = round(self.w / 2 + side * u * self.facing - n * cell / 2)
         y0 = (PAD_Y + high) * u - n * cell / 2
         if f["phase"] == "ride":
+            # 입에서 곧장 위로 톡 — 옆으로는 옮기지 않는다: 몸 폭은 크리처마다
+            # 달라서(박스보다 훨씬 좁은 것도 있다) 옆으로 가면 몸에서 떨어져 보인다
             t = min(1.0, (now - f["rode_at"]) / self.FETCH_TOSS_SECS)
             t = 1 - (1 - t) ** 3              # ease-out: 빨리 솟았다가 살며시 멈춘다
-            # 치켜든 팔 위로 — 가운데는 환호 말풍선 자리라 비켜 준다
-            top_x = (self.w - n * cell) if self.facing > 0 else 0
-            x0 = round(x0 + (top_x - x0) * t)
-            y0 = y0 + (0 - y0) * t
+            y0 -= high * u * 0.5 * t
         y0 = round(y0)
         p.setPen(Qt.PenStyle.NoPen)
         for j, row in enumerate(icon):
