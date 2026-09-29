@@ -62,7 +62,7 @@ def _talk(line, want_reply, timeout=1.0):
     return None
 
 
-WAIT_SECS = 12.0    # the pet sinks out of sight first (~2-4s), then raises
+WAIT_SECS = 20.0    # the pet dashes over and tugs it back — a long drag takes ~10s
 POLL_SECS = 0.4
 
 
@@ -71,25 +71,38 @@ def raised(rows, wid):
     return bool(rows) and rows[0].get("id") == wid and rows[0].get("state") == "shown"
 
 
+def delivered(reply, wid):
+    """Is `wid` up front AND done being brought over? An open window is up
+    front the moment the pet starts dragging it, so the pet's own fetch has
+    to have reached its window (ride) or ended too. A pet too old to say
+    counts as done. Pure."""
+    if not reply or not raised(reply.get("windows"), wid):
+        return False
+    return reply.get("fetching") != wid or reply.get("fetch_phase") == "ride"
+
+
 def _windows():
+    """The pet's whole `windows` reply (rows + what it is fetching), or None."""
     reply = _talk(json.dumps({"cmd": "windows"}) + "\n", True)
     if reply is None:
         return None
     try:
-        return json.loads(reply.splitlines()[0])["windows"]
-    except (ValueError, KeyError, IndexError):
+        return json.loads(reply.splitlines()[0])
+    except (ValueError, IndexError):
         return None
 
 
 def _wait_raised(wid, clock=time.monotonic, sleep=time.sleep):
-    """0 once `wid` is up front, 3 when WAIT_SECS pass without it."""
+    """0 once `wid` is up front and the pet has finished bringing it, 3 when
+    WAIT_SECS pass without it."""
     end = clock() + WAIT_SECS
-    rows = None
+    reply = None
     while clock() < end:
-        rows = _windows() or rows
-        if raised(rows, wid):
+        sleep(POLL_SECS)                  # first: let the pet take the raise in
+        reply = _windows() or reply
+        if delivered(reply, wid):
             return 0
-        sleep(POLL_SECS)
+    rows = (reply or {}).get("windows")
     row = next((r for r in rows or [] if r.get("id") == wid), None)
     where = "gone" if row is None else row.get("state")
     if row is not None and where == "shown":
@@ -106,7 +119,7 @@ def main(argv):
             return 1
         try:
             wins = json.loads(reply.splitlines()[0])["windows"]
-        except (ValueError, KeyError, IndexError):
+        except (ValueError, KeyError, IndexError, TypeError):
             print("the pet gave no window list (older version?)", file=sys.stderr)
             return 1
         print(json.dumps(wins, ensure_ascii=False, indent=1))

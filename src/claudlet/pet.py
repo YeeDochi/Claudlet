@@ -1859,7 +1859,10 @@ class Pet(QWidget):
             if want_windows:
                 try:
                     conn.sendall((json.dumps(
-                        {"windows": geom.finder_rows(self._finder_windows())},
+                        {"windows": geom.finder_rows(self._finder_windows()),
+                         # so `raise --wait` can wait out the show, not just the WM
+                         "fetching": self._fetch["wid"] if self._fetch else None,
+                         "fetch_phase": self._fetch["phase"] if self._fetch else None},
                         ensure_ascii=False) + "\n").encode("utf-8"))
                 except OSError:
                     pass
