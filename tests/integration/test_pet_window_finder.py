@@ -236,6 +236,8 @@ def test_an_open_window_is_fetched_by_going_over_and_dragging_it_back(pet):
     cx, line = pet.x + pet.w / 2.0, pet.y + pet.foot_y
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetch_phase"] == "leap"
+    pet._tick()
+    assert pet.snapshot()["render"] == "leap"                 # off it goes
     pet._fetch["t0"] -= 5.0                                   # the leap has played out
     pet._tick()
     assert pet.snapshot()["fetch_phase"] == "grip"
@@ -262,3 +264,12 @@ def test_a_maximized_open_window_still_comes_up_the_floor(pet):
     pet._on_geom(_row("w9", "code", r.x(), r.y(), r.width(), r.height(), "code"))
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetch_phase"] == "out"
+
+
+def test_a_pet_still_falling_leaps_instead_of_dropping_first(pet):
+    pet._can_pull, pet._pull_by_pet = True, False
+    pet._on_geom(_row("w9", "slack", 900, 300, 500, 250, "Slack"))
+    pet.mode, pet.vy = "thrown", 5.0                          # mid-fall from the last one
+    send_hook(pet, cmd="raise", id="w9")
+    pet._tick()
+    assert pet.snapshot()["mode"] == "roam" and pet.snapshot()["render"] == "leap"

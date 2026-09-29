@@ -5029,6 +5029,8 @@ class Pet(QWidget):
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
             return
+        if self.mode == "thrown":
+            self.mode = "roam"                 # the fetch owns motion now (physics would run first)
         if self._can_drag(win):
             # already on screen: go over, grab it, and drag it back here
             fx, fy = self.x, self.y
@@ -5039,7 +5041,7 @@ class Pet(QWidget):
             self._fetch = {"wid": wid, "phase": "leap", "until": None,
                            "icon": self._app_sprite(win.title), "size": (win.w, win.h),
                            "origin": (fx + self.w / 2.0, fy + self.foot_y),
-                           "from": (fx, fy), "t0": time.monotonic(),
+                           "from": (fx, fy), "t0": None,      # clock starts on the first frame
                            "secs": min(0.9, max(0.4, 0.3 + dist / 2500.0)),
                            "arc": 60.0 + 0.25 * dist,
                            "line": 10 ** 9}           # nothing to sink through: never masked
@@ -5204,6 +5206,8 @@ class Pet(QWidget):
                 return
             if f["phase"] == "leap":
                 land = self._grab_spot(win, f["from"][0])
+                if f["t0"] is None:
+                    f["t0"] = now
                 t = (now - f["t0"]) / f["secs"]
                 self.x, self.y = follow_nav.leap_at(f["from"], land, t, f["arc"])
                 self._render_state = "leap"
