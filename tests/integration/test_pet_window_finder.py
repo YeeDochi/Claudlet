@@ -29,12 +29,18 @@ def _tick_until(pet, cond, n=600):
 
 
 def test_fetch_sinks_into_the_floor_then_comes_back_riding_the_window(pet):
+    # the plain path (Windows/macOS): the window shows itself, the pet hops on
+    pet._can_pull = False
     # docked by default: fetching must still leave the slot
     pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
     pet.y = 100.0                                      # up high: drops first
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetch_phase"] == "out"
+    y0 = pet.y
+    pet._tick()
+    assert pet.y < y0 and pet.snapshot()["render"] == "jump"   # hops first
     assert _tick_until(pet, lambda s: s["fetch_phase"] == "sink", n=60)
+    assert pet.snapshot()["render"] == "falling"       # dives into the floor
     pet._tick()
     assert pet.snapshot()["masked"] and not pet.snapshot()["hidden"]  # half sunk
     # the window must NOT come up before the pet is out of sight
@@ -52,12 +58,51 @@ def test_fetch_sinks_into_the_floor_then_comes_back_riding_the_window(pet):
 
 
 def test_fetch_rides_inside_a_maximized_window(pet):
+    pet._can_pull = False
     pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code", "min"))
     send_hook(pet, cmd="raise", id="w9")
     assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone")
     pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code"))
     pet._tick()
     assert pet.snapshot()["contained"] == "w9"          # top edge is off-screen
+
+
+def _bottom(pet):
+    return pet.screen_rect.bottom()
+
+
+def test_kde_hauls_the_window_up_out_of_the_floor_with_the_pet_on_it(pet):
+    pet._can_pull = True
+    pet._on_geom(_row("w9", "slack", 200, 300, 500, 250, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
+    pet._tick()
+    assert pet.snapshot()["hidden"]                     # parked below: nothing yet
+    # KWin moves it up frame by frame; the pet hangs on to its top edge
+    for y in (_bottom(pet) - 40, _bottom(pet) - 150):
+        pet._on_geom(_row("w9", "slack", 200, y, 500, 250, "Slack"))
+        pet._tick()
+        snap = pet.snapshot()
+        assert snap["fetch_phase"] == "pull" and snap["render"] == "strain"
+        assert abs(pet.y + pet.foot_y - y) < 1 and 200 <= pet.x + pet.w / 2.0 <= 700
+    assert not pet.snapshot()["hidden"]                 # coming up out of the floor
+    pet._on_geom(_row("w9", "slack", 200, 300, 500, 250, "Slack"))   # home
+    pet._tick()
+    snap = pet.snapshot()
+    assert snap["fetch_phase"] == "ride" and snap["render"] == "celebrate"
+    assert abs(pet.y + pet.foot_y - 300) < 1 and not snap["masked"]
+
+
+def test_kde_drops_into_a_maximized_window_once_it_is_up(pet):
+    pet._can_pull = True
+    pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
+    pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code"))
+    pet._tick()
+    snap = pet.snapshot()
+    assert snap["fetch_phase"] == "ride" and snap["contained"] == "w9"
+    assert snap["mode"] == "thrown"                     # falling in to land
 
 
 def test_raise_ignores_ids_the_finder_does_not_list(pet):
@@ -98,6 +143,7 @@ def _paints(pet, rgb):
 
 
 def test_fetch_carries_the_apps_icon_and_tosses_it_on_arrival(pet):
+    pet._can_pull = False
     asked = []
     pet._app_sprite = lambda app: asked.append(app) or [[MAGENTA] * 8 for _ in range(8)]
     pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
