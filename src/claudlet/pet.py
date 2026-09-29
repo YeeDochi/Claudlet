@@ -1914,6 +1914,9 @@ class Pet(QWidget):
                 if self._docked and self.mode != "held":
                     self._dock_snap()
             return
+        if ev.get("cmd") == "chat":
+            self.show_history()          # 펫 자신의 대화창: 창 목록엔 없다(claudlet 클래스)
+            return
         if ev.get("cmd") == "raise":
             self._raise_window(str(ev.get("id") or ""))
             return
@@ -2097,6 +2100,7 @@ class Pet(QWidget):
             "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
+            "chat_open": self._chat_open(),      # 대화창이 떠 있다
             "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
             "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | gone | ride
             "tab_title": self._tab_title,        # terminal tab we click-focus
@@ -3895,6 +3899,13 @@ class Pet(QWidget):
             self._clear_zones()
         elif chosen == a_quit:
             self._quit()
+
+    def _chat_open(self):
+        win = getattr(self, "_history_win", None)
+        try:
+            return bool(win is not None and win.isVisible() and not win.isMinimized())
+        except RuntimeError:
+            return False              # closed and destroyed
 
     # ---------- ask: question about a window, answer in a bubble ----------
     def show_history(self):

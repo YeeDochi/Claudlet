@@ -212,6 +212,11 @@ cpet window raise <id>    # state: shown | min (minimized) | desk (other desktop
 3. Say in one line which window you brought up. Several plausible matches →
    raise none and ask which, listing their titles. Nothing matches → say so.
 
+The pet's OWN chat window (the messenger window the user talks to the pet
+in — "대화창", "너랑 대화하는 창", "펫이랑 얘기하는 창") is never in the list;
+`cpet window chat` opens or brings it back. When the request came from the
+pet (a `[claudlet` note) and says "대화창", it means this one.
+
 `no running claudlet pet` → none is running; offer `/claudlet`. On macOS
 minimized windows aren't listed and `raise` fronts the whole app, not one
 window.

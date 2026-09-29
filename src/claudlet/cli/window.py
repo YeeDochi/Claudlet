@@ -6,7 +6,9 @@ Usage:
                                 ({"id", "app", "title", "state": shown|min|desk})
   claudlet-window raise <id>    bring that window to the front (restoring it,
                                 and on KDE fetching it from another desktop);
-                                the pet then heads into it
+                                the pet then brings it back
+  claudlet-window chat          open (or bring back) the pet's own chat window,
+                                which `list` never shows
 
 The pet does the work — it already holds the window feed and owns the
 platform raise — so this only talks to it: this session's pet
@@ -70,6 +72,11 @@ def main(argv):
         return 0
     if argv[:1] == ["raise"] and len(argv) == 2:
         if _talk(json.dumps({"cmd": "raise", "id": argv[1]}) + "\n", False) is None:
+            print("no running claudlet pet", file=sys.stderr)
+            return 1
+        return 0
+    if argv == ["chat"]:
+        if _talk(json.dumps({"cmd": "chat"}) + "\n", False) is None:
             print("no running claudlet pet", file=sys.stderr)
             return 1
         return 0

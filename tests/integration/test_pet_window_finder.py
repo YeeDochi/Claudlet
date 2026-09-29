@@ -64,3 +64,8 @@ def test_raise_ignores_ids_the_finder_does_not_list(pet):
     pet._on_geom(_row("w1", "konsole", 0, 0, 600, 400, "claude"))
     send_hook(pet, cmd="raise", id='x"; evil(); "')
     assert pet.snapshot()["fetching"] is None
+
+
+def test_chat_opens_the_pets_own_chat_window(pet):
+    send_hook(pet, cmd="chat")
+    assert pet.snapshot()["chat_open"]
