@@ -4964,8 +4964,7 @@ class Pet(QWidget):
     # (sink → gone) — 최소화된 창이 사는 작업표시줄 쪽이다 — 그 사이 창을
     # 올리고, 창 윗변에 탄 채로 다시 나타난다(ride). 창이 혼자 먼저 뜨면
     # 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
-    FETCH_DROP = 30.0      # px/tick falling to the floor
-    FETCH_SINK = 9.0       # px/tick sinking below it (~0.5s for the body)
+    FETCH_SINK = 3.0       # px/tick easing below the floor (~1.5s for the body)
     FETCH_GONE_SECS = 3.0  # give up waiting for the window to show after this
     FETCH_RIDE_SECS = 4.0  # stay on the fetched window before carrying on
     FETCH_CHEER_SECS = 2.5
@@ -4978,6 +4977,7 @@ class Pet(QWidget):
         bottom = self._screen_bottom_at(self.x + self.w / 2.0)
         line = follow_nav.floor_feet(bottom, self._nav_box())   # floor feet y
         self._contain = None
+        self.vx = self.vy = 0.0
         self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None}
 
     def _finder_windows(self):
@@ -5038,12 +5038,15 @@ class Pet(QWidget):
         """One tick of the fetch. Owns position and render while it runs."""
         f = self._fetch
         if f["phase"] == "out":
+            # down to the floor the way a pet leaves a window: climbdown pose,
+            # gravity from rest (starts gentle, no sudden plunge)
             floor_y = f["line"] - self.foot_y
-            if self.y < floor_y - self.FETCH_DROP:
-                self.y += self.FETCH_DROP
-                self._render_state = "jump"
+            self._render_state = "climbdown"
+            if self.y < floor_y:
+                self.vy = min(self.vy + physics.GRAVITY, physics.V_MAX)
+                self.y = min(self.y + self.vy, floor_y)
                 return
-            self.y = floor_y
+            self.vy = 0.0
             f["phase"] = "sink"
             return
         if f["phase"] == "sink":

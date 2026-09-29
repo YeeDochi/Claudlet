@@ -34,11 +34,11 @@ def test_fetch_sinks_into_the_floor_then_comes_back_riding_the_window(pet):
     pet.y = 100.0                                      # up high: drops first
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetch_phase"] == "out"
-    assert _tick_until(pet, lambda s: s["fetch_phase"] == "sink", n=40)
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "sink", n=60)
     pet._tick()
     assert pet.snapshot()["masked"] and not pet.snapshot()["hidden"]  # half sunk
     # the window must NOT come up before the pet is out of sight
-    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone", n=30)  # ~1.5s
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone", n=50)  # ~1.5s at 20fps
     assert pet.snapshot()["hidden"]
     pet._tick()
     assert pet.snapshot()["fetch_phase"] == "gone"     # still waiting on the WM
