@@ -86,3 +86,35 @@ def test_grabbing_the_pet_mid_fetch_calls_the_fetch_off(pet):
     pet._tick()
     snap = pet.snapshot()
     assert snap["fetching"] is None and not snap["masked"]   # whole pet in hand
+
+
+MAGENTA = (255, 0, 255)
+
+
+def _paints(pet, rgb):
+    img = pet.grab().toImage()
+    return any(img.pixelColor(x, y).getRgb()[:3] == rgb
+               for y in range(img.height()) for x in range(img.width()))
+
+
+def test_fetch_carries_the_apps_icon_and_tosses_it_on_arrival(pet):
+    asked = []
+    pet._app_sprite = lambda app: asked.append(app) or [[MAGENTA] * 8 for _ in range(8)]
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert asked == ["slack"] and pet.snapshot()["fetch_icon"]
+    assert _paints(pet, MAGENTA)                       # in its mouth on the way out
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone")
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack"))
+    for _ in range(12):                                # toss done (~0.6s)
+        pet._tick()
+    assert pet.snapshot()["fetch_phase"] == "ride" and _paints(pet, MAGENTA)
+    pet._fetch["cheer"] = 0                            # cheering over
+    assert not _paints(pet, MAGENTA)
+
+
+def test_fetch_without_an_icon_is_the_plain_fetch(pet):
+    pet._app_sprite = lambda app: None
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert pet.snapshot()["fetching"] == "w9" and not pet.snapshot()["fetch_icon"]

@@ -104,6 +104,7 @@ from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
 
 from claudlet import roambounds
 from claudlet.core import agents
+from claudlet.core import appicon
 from claudlet.core import ask as askbox
 from claudlet.core import avatars
 from claudlet.core import bubble as bubblegeom
@@ -1581,6 +1582,7 @@ class Pet(QWidget):
         # 포인터로 고른 순간 찍은 PNG(메모리). 질문에 실리거나 버려진다.
         self._ask_shot = None
         self._capture = screenshot.capture   # 테스트는 가짜 PNG 를 주는 것으로 바꾼다
+        self._app_sprite = appicon.sprite_for   # 앱 아이콘 스프라이트 — 테스트는 가짜로 바꾼다
         shotmod.clear(self.session_id)       # 지난번에 죽으며 남긴 캡처
         self._ask_waiting = False            # holding `thinking` for an answer
         self._ask_waiting_since = 0.0        # when that hold started
@@ -2103,6 +2105,7 @@ class Pet(QWidget):
             "chat_open": self._chat_open(),      # 대화창이 떠 있다
             "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
             "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | gone | ride
+            "fetch_icon": bool(self._fetch and self._fetch.get("icon")),  # carrying the app's icon
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -3449,7 +3452,10 @@ class Pet(QWidget):
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
-        if self._notes:
+        icon = self._fetch.get("icon") if self._fetch else None
+        if icon:
+            self._draw_fetch_icon(p, icon, now)   # 입이 차 있으니 쪽지 대신
+        elif self._notes:
             self._draw_note(p)
         p.end()
 
@@ -3611,6 +3617,34 @@ class Pet(QWidget):
         for i in (1, 2):                   # 글씨 두 줄 — 내용은 읽히지 않아도 된다
             ly = y + h * (0.3 + 0.25 * i)
             p.fillRect(QRectF(x + w * 0.18, ly, w * 0.64, max(1.0, h * 0.1)), line)
+
+    FETCH_TOSS_SECS = 0.45     # 올라탄 순간 입에서 머리 위로 던져 올리는 시간
+
+    def _draw_fetch_icon(self, p, icon, now):
+        """창 찾기 동안 그 앱의 아이콘을 물고 간다. 창 위에 올라타면 머리 위로
+        던져 올려(찾아왔다!) 환호가 끝날 때까지 들고 있다. 쪽지와 같은 자리."""
+        f = self._fetch
+        if f["phase"] == "ride" and now >= f["cheer"]:
+            return                            # 다 보여줬다 — 평소 모습으로
+        side, high, size = self._note_anchor()
+        u = self.u
+        n = len(icon)
+        cell = max(1, round(size * u * 1.4 / n))
+        x0 = round(self.w / 2 + side * u * self.facing - n * cell / 2)
+        y0 = (PAD_Y + high) * u - n * cell / 2
+        if f["phase"] == "ride":
+            t = min(1.0, (now - f["rode_at"]) / self.FETCH_TOSS_SECS)
+            t = 1 - (1 - t) ** 3              # ease-out: 빨리 솟았다가 살며시 멈춘다
+            # 치켜든 팔 위로 — 가운데는 환호 말풍선 자리라 비켜 준다
+            top_x = (self.w - n * cell) if self.facing > 0 else 0
+            x0 = round(x0 + (top_x - x0) * t)
+            y0 = y0 + (0 - y0) * t
+        y0 = round(y0)
+        p.setPen(Qt.PenStyle.NoPen)
+        for j, row in enumerate(icon):
+            for i, c in enumerate(row):
+                if c is not None:
+                    p.fillRect(x0 + i * cell, y0 + j * cell, cell, cell, QColor(*c))
 
     def _draw_hearts(self, p, age):
         # 쓰다듬기 반응 하트. 창이 캐릭터에 꽉 차서 위 여백이 거의 없으므로 머리 양옆
@@ -4973,13 +5007,15 @@ class Pet(QWidget):
     def _raise_window(self, wid):
         """Start fetching `wid`: dash off-screen first; the raise happens once
         the pet is out of sight. Ignores ids the finder doesn't list."""
-        if not any(str(w.wid) == wid for w in self._finder_windows()):
+        win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
+        if win is None:
             return
         bottom = self._screen_bottom_at(self.x + self.w / 2.0)
         line = follow_nav.floor_feet(bottom, self._nav_box())   # floor feet y
         self._contain = None
         self.vx = self.vy = 0.0
-        self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None}
+        self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None,
+                       "icon": self._app_sprite(win.title)}   # 물고 갈 앱 아이콘, 없으면 None
 
     def _finder_windows(self):
         """Every window the finder may pull out, minimized ones included.
@@ -5069,6 +5105,7 @@ class Pet(QWidget):
             self._ride(win)
             f["phase"], f["until"] = "ride", now + self.FETCH_RIDE_SECS
             f["cheer"] = now + self.FETCH_CHEER_SECS
+            f["rode_at"] = now
             self._render_state = "celebrate"
             return
         # ride: stand where _ride put us and cheer, then carry on as usual
