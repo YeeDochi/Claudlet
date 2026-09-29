@@ -160,3 +160,12 @@ def test_window_under_feet_picks_highest_top():
     hi = geom.Win("hi", 0, 250, 800, 300, "b", 2)
     # both span cx; feet at 250 -> the higher top (250) is the perch
     assert geom.window_under_feet(100, 250, [lo, hi]).wid == "hi"
+
+
+def test_parse_dump_hidden_rows_only_for_the_finder():
+    from claudlet.platform import geom as G
+    text = "a;konsole;0,0,500,500;1;t|b;slack;0,0,0,0;2;s;min|c;code;0,0,500,500;3;x;desk"
+    assert [w.wid for w in G.parse_dump(text)] == ["a"]
+    wins = G.parse_dump(text, hidden=True)
+    assert [(w.wid, w.hidden) for w in wins] == [("a", ""), ("b", "min"), ("c", "desk")]
+    assert G.finder_rows(wins)[0] == {"id": "c", "app": "code", "title": "x", "state": "desk"}

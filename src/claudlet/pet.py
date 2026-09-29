@@ -1615,6 +1615,7 @@ class Pet(QWidget):
         self._idle_behavior = idle_engine.WALK
         self._behavior_timer = 0             # ticks left before choosing a new behavior
         self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
+        self._fetch = None                   # (wid, deadline): window we just pulled out, jumping into it
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -1802,6 +1803,7 @@ class Pet(QWidget):
             return
         events = []
         ping = False
+        want_windows = False
         with conn:
             conn.settimeout(0.2)
             buf = b""
@@ -1823,6 +1825,8 @@ class Pet(QWidget):
                     continue
                 if ev.get("cmd") == "ping":
                     ping = True            # liveness probe, not a Claude event
+                elif ev.get("cmd") == "windows":
+                    want_windows = True    # window finder: answered below
                 else:
                     events.append(ev)
             if ping:
@@ -1838,6 +1842,13 @@ class Pet(QWidget):
                         {"pet": hostinfo.BANNER_MARK, "session": self.session_id,
                          "state": self.claude_state, "tab": self._tab_title}
                     ) + "\n").encode())
+                except OSError:
+                    pass
+            if want_windows:
+                try:
+                    conn.sendall((json.dumps(
+                        {"windows": geom.finder_rows(self._finder_windows())},
+                        ensure_ascii=False) + "\n").encode("utf-8"))
                 except OSError:
                     pass
         for ev in events:
@@ -1902,6 +1913,9 @@ class Pet(QWidget):
                     return
                 if self._docked and self.mode != "held":
                     self._dock_snap()
+            return
+        if ev.get("cmd") == "raise":
+            self._raise_window(str(ev.get("id") or ""))
             return
         # A motion command is a user override, NOT a Claude event: it must not
         # touch the engine or the SessionEnd quit timer.
@@ -2083,6 +2097,7 @@ class Pet(QWidget):
             "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
+            "fetching": self._fetch[0] if self._fetch else None,  # window it's heading into
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -2173,6 +2188,8 @@ class Pet(QWidget):
             # 커서도 따라가지 않는다(follow보다 우선). 표정은 라이브 상태 그대로
             # 두고, paintEvent가 pocket=True로 립/손을 덧그린다.
             self._render_state = eff
+        elif self._fetch is not None and self._fetch_step(now):
+            pass                            # heading into the window we pulled out
         elif following:
             # grounded follow: plan ONE move toward the cursor's place each
             # tick -- walk the current surface, launch an aimed ballistic jump
@@ -2860,6 +2877,10 @@ class Pet(QWidget):
         _physics to decide mid-flight/landing window entry for BOTH."""
         if self._follow:
             return self._cursor_pos()
+        if self._fetch is not None:
+            aim = self._fetch_aim()
+            if aim is not None:
+                return aim
         if self._explore_target is not None:
             return self._explore_target
         return self._cursor_pos()
@@ -4922,6 +4943,97 @@ class Pet(QWidget):
             winterm.focus(self._tab_title, run)
         except Exception:
             pass
+
+    FETCH_SECS = 10.0      # give up jumping onto a pulled-out window after this
+
+    def _finder_windows(self):
+        """Every window the finder may pull out, minimized ones included.
+        Linux/macOS reuse the feed the pet already holds (KDE flags its hidden
+        rows; macOS can't see minimized windows at all). Win32's perch poll
+        skips minimized windows and titles, so it enumerates afresh."""
+        if os.name == "nt":
+            try:
+                from claudlet.platform.geom import win32
+                return geom.parse_dump(
+                    win32.finder_dump(exclude_hwnd=int(self.winId())), hidden=True)
+            except Exception:
+                return []
+        return geom.parse_dump(getattr(self, "_last_dump", None) or "", hidden=True)
+
+    def _raise_window(self, wid):
+        """Pull window `wid` to the front (restoring it, and on KDE bringing it
+        over from another desktop), then jump into it. Only an id the finder
+        itself lists is accepted — the id is spliced into a KWin script."""
+        win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
+        if win is None:
+            return
+        try:
+            if sys.platform == "darwin":
+                # no per-window raise without Accessibility: front the owning app
+                if win.pid and shutil.which("osascript"):
+                    subprocess.Popen(
+                        ["osascript", "-e",
+                         'tell application "System Events" to set frontmost of '
+                         '(first process whose unix id is %d) to true' % int(win.pid)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif os.name == "nt":
+                from claudlet.platform.geom import win32
+                win32.activate_hwnd(int(wid))
+            elif sys.platform.startswith("linux"):
+                self._run_kwin_script(
+                    'var ID = ' + json.dumps(wid) + ';'
+                    'var cs = (typeof workspace.windowList === "function") '
+                    '? workspace.windowList() : workspace.clientList();'
+                    'for (var i = 0; i < cs.length; i++) {'
+                    '  var t = cs[i];'
+                    '  if (("" + t.internalId) !== ID) continue;'
+                    '  t.minimized = false;'
+                    '  if (!t.onAllDesktops) {'
+                    '    try { if (t.desktops !== undefined) t.desktops = [workspace.currentDesktop];'
+                    '          else t.desktop = workspace.currentDesktop; } catch (e) {}'
+                    '  }'
+                    '  try { workspace.activeWindow = t; } catch (e) { workspace.activeClient = t; }'
+                    '  break;'
+                    '}'
+                )
+        except Exception:
+            return
+        self._fetch = (wid, time.monotonic() + self.FETCH_SECS)
+
+    def _fetch_aim(self):
+        """The pulled-out window's top-centre — the same point idle explore aims
+        at, which the planner reads as "go into this window" (a top edge above
+        jump reach would only strain) — or None while the feed doesn't show it
+        on screen yet."""
+        wid = self._fetch[0]
+        w = next((w for w in self._wins if str(w.wid) == wid), None)
+        return None if w is None else (w.x + w.w / 2.0, float(w.y))
+
+    def _fetch_step(self, now):
+        """One tick of heading into the pulled-out window, through the same
+        follow_nav planner follow/explore use. False = not handled this tick
+        (timed out, or the window hasn't reappeared yet) so the normal branch
+        runs instead."""
+        if now > self._fetch[1]:
+            self._fetch = None
+            return False
+        aim = self._fetch_aim()
+        if aim is None:
+            return False
+        left, right, _t, floor = self._bounds()
+        if self.y < floor - 2:
+            self.vx = self.vy = 0.0
+            self.mode = "thrown"
+            self._follow_jump = True
+            return True
+        scr = self.screen_rect
+        intent = follow_nav.plan_move(
+            self.x, self.y, self._nav_box(), self._contain,
+            self._wins, scr.left(), scr.right(),
+            self._screen_bottom_at(self.x + self.w / 2.0), *aim)
+        if self._apply_follow_intent(intent, left, right, floor):
+            self._fetch = None
+        return True
 
     def _activate_claude_macos(self):
         """Bring the host terminal/IDE app to the front via AppleScript.

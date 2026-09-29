@@ -1,6 +1,6 @@
 ---
 name: claudlet
-description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, switch or share its creature, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet setting" opens the appearance page (which creature, and its colour/size/special mode); "/claudlet wear <creature> [for <agent>]" switches which creature a pet wears from the command line; "/claudlet export <creature>" / "/claudlet import <path or url>" share a creature as a zip; "/claudlet make <설명>" writes a NEW creature package for the pet to wear; "/claudlet update" pulls the latest version and reinstalls. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "크리처 설정", "make a new creature", "코덱스 펫은 슬라임으로", "change the codex pet to the slime", "크리처 내보내기", "크리처 가져오기", "export this creature", "import this creature", "share my creature".
+description: Launch/attach the claudlet desktop buddy, trigger a motion, configure it, switch or share its creature, or update it. "/claudlet" attaches a pet to the CURRENT session; "/claudlet standalone" launches an unattached roaming pet; "/claudlet <motion>" plays a motion (jump/wave/sing/juggle/float/celebrate/thinking/sleeping/error/attention); "/claudlet list" lists motions; "/claudlet stop" clears a held motion; "/claudlet config" shows/edits the user config (which motion shows for which activity, language); "/claudlet setting" opens the appearance page (which creature, and its colour/size/special mode); "/claudlet wear <creature> [for <agent>]" switches which creature a pet wears from the command line; "/claudlet export <creature>" / "/claudlet import <path or url>" share a creature as a zip; "/claudlet make <설명>" writes a NEW creature package for the pet to wear; "/claudlet update" pulls the latest version and reinstalls; "/claudlet window <what>" finds a window buried behind others or minimized and pulls it to the front. Use when the user types "/claudlet", "펫 띄워", "펫 붙여", "펫 점프", "펫 설정", "펫 커스터마이즈", "펫 업데이트", "update the pet", "start the pet", "configure the pet", "펫 색 바꿔", "펫 크기", "새 크리처 만들어", "크리처 바꿔", "크리처 설정", "make a new creature", "코덱스 펫은 슬라임으로", "change the codex pet to the slime", "크리처 내보내기", "크리처 가져오기", "export this creature", "import this creature", "share my creature", "창 찾아줘", "창 꺼내줘", "슬랙 창 띄워줘", "그 창 어디 갔어", "find that window", "bring up the window".
 ---
 
 # claudlet — launch the desktop buddy
@@ -76,6 +76,9 @@ Look at the argument the user passed after `/claudlet`:
   **Export a creature**; do NOT launch a pet.
 - `import <path or url>` or "이 크리처 가져와" / "import this creature" →
   **Import a creature**; do NOT launch a pet.
+- `window` / `창` (usually with what to find), or natural language asking to
+  find / pull out / bring up a window — "슬랙 창 꺼내줘", "아까 보던 PR 창
+  찾아줘", "bring up my browser" → **Find a window**; do NOT launch a pet.
 - `standalone` → **Standalone**.
 - nothing → **Attach** (default).
 
@@ -191,6 +194,27 @@ e.g. `cpet motion jump`, `cpet motion float` (holds until `cpet motion stop`),
 `cpet motion list`. It broadcasts to every running pet and prints how many
 reacted; if it says `-> 0 pet(s)`, none is running — offer to attach one with
 `/claudlet`.
+
+## Find a window
+
+The user wants a window that is buried behind others, minimized, or (KDE) on
+another virtual desktop brought to the front. You pick the window; the pet
+raises it and then walks/jumps into it.
+```bash
+cpet window list          # JSON, topmost first: [{"id","app","title","state"}]
+cpet window raise <id>    # state: shown | min (minimized) | desk (other desktop)
+```
+1. `cpet window list`, then choose the ONE entry that matches what the user
+   described — read `title` (the window's caption: page/file/chat name) and
+   `app` (its class: `firefox`, `slack`, `code`, ...). A fuzzy description
+   ("아까 보던 PR") means reading the titles, not string-matching the words.
+2. `cpet window raise <id>` with that entry's `id`, verbatim.
+3. Say in one line which window you brought up. Several plausible matches →
+   raise none and ask which, listing their titles. Nothing matches → say so.
+
+`no running claudlet pet` → none is running; offer `/claudlet`. On macOS
+minimized windows aren't listed and `raise` fronts the whole app, not one
+window.
 
 ## Settings
 

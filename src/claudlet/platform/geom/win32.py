@@ -66,6 +66,8 @@ if user32 is not None:
     user32.IsIconic.restype = wintypes.BOOL
     user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
     user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
     user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
     user32.GetWindowLongW.restype = wintypes.LONG
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
@@ -275,6 +277,30 @@ def dump(exclude_hwnd=None):
     rows.reverse()   # EnumWindows is topmost-first; the feed format wants bottom->top
     return "|".join(
         "{};{};{},{},{},{};{}".format(hwnd, cls, x, y, w, h, pid)
+        for hwnd, cls, x, y, w, h, pid in rows
+    )
+
+
+def _caption(hwnd):
+    n = user32.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(n + 1)
+    user32.GetWindowTextW(hwnd, buf, n + 1)
+    return buf.value
+
+
+def finder_dump(exclude_hwnd=None):
+    """Like dump(), but for the window finder: minimized windows ride along
+    flagged "min", and every row carries its title (the perch feed never needs
+    one, so it doesn't pay for it every poll)."""
+    if user32 is None:
+        return ""
+    from urllib.parse import quote
+    rows = _enum_windows(exclude_hwnd, include_iconic=True)
+    rows.reverse()
+    return "|".join(
+        "{};{};{},{},{},{};{};{};{}".format(
+            hwnd, cls, x, y, w, h, pid, quote(_caption(hwnd), safe=""),
+            "min" if user32.IsIconic(hwnd) else "")
         for hwnd, cls, x, y, w, h, pid in rows
     )
 
