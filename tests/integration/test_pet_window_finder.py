@@ -164,3 +164,23 @@ def test_fetch_without_an_icon_is_the_plain_fetch(pet):
     pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
     send_hook(pet, cmd="raise", id="w9")
     assert pet.snapshot()["fetching"] == "w9" and not pet.snapshot()["fetch_icon"]
+
+
+def test_sinking_slides_the_art_down_not_the_window_off_screen(pet):
+    # the WM won't let a window leave the screen, so a pet that moved its
+    # window down would just be erased in place: the art has to drop instead
+    pet._can_pull = False
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "sink", n=60)
+    bottom = pet.screen_rect.bottom()
+    seen = []
+    while pet.snapshot()["fetch_phase"] == "sink":
+        pet._tick()
+        assert pet.pos().y() + pet.h - 1 <= bottom           # window stays on screen
+        img = pet.grab().toImage()
+        rows = [y for y in range(img.height())
+                if any(img.pixelColor(x, y).alpha() for x in range(img.width()))]
+        if rows:
+            seen.append(rows[0])
+    assert len(seen) >= 2 and seen[-1] > seen[0]              # the art moved down

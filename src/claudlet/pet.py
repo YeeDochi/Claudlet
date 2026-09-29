@@ -2295,7 +2295,7 @@ class Pet(QWidget):
         elif self._social_act is None:
             self._social_start(now)
 
-        self.move(int(self.x), int(self.y))
+        self.move(int(self.x), int(self.y - self._sunk_dy()))
         # Keep the bubble beside the creature. Must come AFTER the move above:
         # placing it first leaves it a tick behind, which is visible as the
         # bubble lagging the pet while it roams. moveEvent covers dragging, but
@@ -3245,12 +3245,13 @@ class Pet(QWidget):
         # 도크 중엔 창을 타고 있지 않다(고정 좌표에 떠 있다) -> 가릴 근거가 없다.
         # 마스킹을 그대로 두면 코너에 겹친 최대화 창이 펫을 통째로 지워버린다.
         if self._fetch is not None and self._fetch["phase"] in ("sink", "gone", "pull"):
-            # sinking: only what's still above the floor line shows
+            # sinking: only what's still above the floor line shows (in window
+            # coords — the window itself is held at the screen edge, see _sunk_dy)
             above = int(self._fetch["line"] - self.y)
             if self._fetch["phase"] == "gone" or above <= 0:
                 self._hide_fully()
             else:
-                self._apply_mask(QRegion(QRect(0, 0, self.w, above)))
+                self._apply_mask(QRegion(QRect(0, 0, self.w, above + self._sunk_dy())))
             return
         if (not getattr(self, "_geom_active", False)
                 or self.mode == "held" or self._floating or self._docked):
@@ -3437,6 +3438,7 @@ class Pet(QWidget):
             (self.w / 2, self.h / 2),
         ) if pocket or self._follow else (0.0, 0.0)
         # facing handled inside draw_creature (body mirrors, text upright)
+        p.translate(0, self._sunk_dy())    # below the floor: art slides down inside the window
         if getattr(self, "_in_notch", False):
             u = _companion_scale(self.u, self.avatar)   # 노치에서는 축소해 그린다
             # centring lands on a half pixel when window and art box differ by
@@ -5155,6 +5157,17 @@ class Pet(QWidget):
                               else self.claude_state)
         if now > f["until"]:
             self._fetch = None
+
+    def _sunk_dy(self):
+        """How far the pet is below where its window can go. The WM keeps a
+        window on screen (KWin clamps its bottom to the monitor edge), so while
+        the pet sinks through the floor — or rises back out of it — the window
+        stays at the edge and the art is drawn this much lower inside it."""
+        f = self._fetch
+        if f is None or f["phase"] not in ("sink", "gone", "pull"):
+            return 0
+        lowest = self._screen_bottom_at(self.x + self.w / 2.0) + 1 - self.h
+        return max(0, int(self.y - lowest))
 
     def _pull_step(self, f, now):
         """KDE: the window is being hauled up out of the floor. Hang on to its
