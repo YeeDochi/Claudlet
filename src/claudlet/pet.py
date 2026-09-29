@@ -1615,7 +1615,7 @@ class Pet(QWidget):
         self._idle_behavior = idle_engine.WALK
         self._behavior_timer = 0             # ticks left before choosing a new behavior
         self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
-        self._fetch = None                   # (wid, deadline): window we just pulled out, jumping into it
+        self._fetch = None                   # 창 찾아오기 진행 상태 (_raise_window), 없으면 None
 
         # transient motion override (jump/wave/... — timed; overrides the render)
         self._motion = None
@@ -2097,7 +2097,8 @@ class Pet(QWidget):
             "saying": self._say if time.monotonic() < self._say_until else "",
 
             "following": self._follow,
-            "fetching": self._fetch[0] if self._fetch else None,  # window it's heading into
+            "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
+            "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | gone | ride
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -2173,6 +2174,8 @@ class Pet(QWidget):
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()
+        elif self._fetch is not None:
+            self._fetch_step(now)           # 창 찾아오기 — 도크 중이어도 나선다
         elif docked:
             # 자리에 붙어 서기: 배회·중력·창 걸터앉기를 모두 건너뛰고 슬롯 위치를
             # 매 틱 다시 계산한다(모니터 해상도나 작업표시줄이 바뀌어도 따라온다).
@@ -2188,8 +2191,6 @@ class Pet(QWidget):
             # 커서도 따라가지 않는다(follow보다 우선). 표정은 라이브 상태 그대로
             # 두고, paintEvent가 pocket=True로 립/손을 덧그린다.
             self._render_state = eff
-        elif self._fetch is not None and self._fetch_step(now):
-            pass                            # heading into the window we pulled out
         elif following:
             # grounded follow: plan ONE move toward the cursor's place each
             # tick -- walk the current surface, launch an aimed ballistic jump
@@ -2877,10 +2878,6 @@ class Pet(QWidget):
         _physics to decide mid-flight/landing window entry for BOTH."""
         if self._follow:
             return self._cursor_pos()
-        if self._fetch is not None:
-            aim = self._fetch_aim()
-            if aim is not None:
-                return aim
         if self._explore_target is not None:
             return self._explore_target
         return self._cursor_pos()
@@ -3237,6 +3234,9 @@ class Pet(QWidget):
         wandering the wallpaper). No-op without an active geometry feed."""
         # 도크 중엔 창을 타고 있지 않다(고정 좌표에 떠 있다) -> 가릴 근거가 없다.
         # 마스킹을 그대로 두면 코너에 겹친 최대화 창이 펫을 통째로 지워버린다.
+        if self._fetch is not None and self._fetch["phase"] == "gone":
+            self._hide_fully()           # off fetching the window: out of sight
+            return
         if (not getattr(self, "_geom_active", False)
                 or self.mode == "held" or self._floating or self._docked):
             self._show_full()
@@ -4944,7 +4944,26 @@ class Pet(QWidget):
         except Exception:
             pass
 
-    FETCH_SECS = 10.0      # give up jumping onto a pulled-out window after this
+    # 창 찾아오기: 펫이 화면 가장자리로 달려나가 사라졌다가(out → gone),
+    # 그 사이 창을 올리고, 창 윗변에 탄 채로 다시 나타난다(ride). 창이 혼자
+    # 먼저 뜨면 펫은 뒤따라간 것처럼 보여 "찾아왔다"가 안 된다.
+    FETCH_RUN = 14.0       # px/tick dash toward the screen edge
+    FETCH_GONE_SECS = 3.0  # give up waiting for the window to show after this
+    FETCH_RIDE_SECS = 4.0  # stay on the fetched window before carrying on
+    FETCH_CHEER_SECS = 2.5
+
+    def _raise_window(self, wid):
+        """Start fetching `wid`: dash off-screen first; the raise happens once
+        the pet is out of sight. Ignores ids the finder doesn't list."""
+        if not any(str(w.wid) == wid for w in self._finder_windows()):
+            return
+        scr = self.screen_rect
+        cx = self.x + self.w / 2.0
+        left_edge = cx - scr.left() < scr.right() - cx
+        edge = (scr.left() - self.w * 0.5 if left_edge
+                else scr.right() - self.w * 0.5)
+        self._contain = None
+        self._fetch = {"wid": wid, "phase": "out", "edge": edge, "until": None}
 
     def _finder_windows(self):
         """Every window the finder may pull out, minimized ones included.
@@ -4960,13 +4979,13 @@ class Pet(QWidget):
                 return []
         return geom.parse_dump(getattr(self, "_last_dump", None) or "", hidden=True)
 
-    def _raise_window(self, wid):
-        """Pull window `wid` to the front (restoring it, and on KDE bringing it
-        over from another desktop), then jump into it. Only an id the finder
-        itself lists is accepted — the id is spliced into a KWin script."""
+    def _raise_now(self, wid):
+        """Pull window `wid` to the front: restore it, and on KDE bring it over
+        from another desktop. Only an id the finder itself lists is accepted —
+        the id is spliced into a KWin script. Returns whether it was sent."""
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
-            return
+            return False
         try:
             if sys.platform == "darwin":
                 # no per-window raise without Accessibility: front the owning app
@@ -4997,43 +5016,53 @@ class Pet(QWidget):
                     '}'
                 )
         except Exception:
-            return
-        self._fetch = (wid, time.monotonic() + self.FETCH_SECS)
-
-    def _fetch_aim(self):
-        """The pulled-out window's top-centre — the same point idle explore aims
-        at, which the planner reads as "go into this window" (a top edge above
-        jump reach would only strain) — or None while the feed doesn't show it
-        on screen yet."""
-        wid = self._fetch[0]
-        w = next((w for w in self._wins if str(w.wid) == wid), None)
-        return None if w is None else (w.x + w.w / 2.0, float(w.y))
+            return False
+        return True
 
     def _fetch_step(self, now):
-        """One tick of heading into the pulled-out window, through the same
-        follow_nav planner follow/explore use. False = not handled this tick
-        (timed out, or the window hasn't reappeared yet) so the normal branch
-        runs instead."""
-        if now > self._fetch[1]:
+        """One tick of the fetch. Owns position and render while it runs."""
+        f = self._fetch
+        if f["phase"] == "out":
+            dx = f["edge"] - self.x
+            if abs(dx) > self.FETCH_RUN:
+                self.facing = 1 if dx > 0 else -1
+                self.x += self.FETCH_RUN * self.facing
+                self._render_state = "walk"
+                return
+            self.x = f["edge"]
+            if not self._raise_now(f["wid"]):
+                self._fetch = None
+                return
+            f["phase"], f["until"] = "gone", now + self.FETCH_GONE_SECS
+            return
+        if f["phase"] == "gone":
+            win = next((w for w in self._wins if str(w.wid) == f["wid"]), None)
+            if win is None:
+                if now > f["until"]:
+                    self._fetch = None        # never showed: just come back
+                return
+            self._ride(win)
+            f["phase"], f["until"] = "ride", now + self.FETCH_RIDE_SECS
+            f["cheer"] = now + self.FETCH_CHEER_SECS
+            self._render_state = "celebrate"
+            return
+        # ride: stand where _ride put us and cheer, then carry on as usual
+        self._render_state = ("celebrate" if now < f["cheer"]
+                              else self.claude_state)
+        if now > f["until"]:
             self._fetch = None
-            return False
-        aim = self._fetch_aim()
-        if aim is None:
-            return False
-        left, right, _t, floor = self._bounds()
-        if self.y < floor - 2:
-            self.vx = self.vy = 0.0
-            self.mode = "thrown"
-            self._follow_jump = True
-            return True
-        scr = self.screen_rect
-        intent = follow_nav.plan_move(
-            self.x, self.y, self._nav_box(), self._contain,
-            self._wins, scr.left(), scr.right(),
-            self._screen_bottom_at(self.x + self.w / 2.0), *aim)
-        if self._apply_follow_intent(intent, left, right, floor):
-            self._fetch = None
-        return True
+
+    def _ride(self, win):
+        """Put the pet on `win`'s top edge; inside it when that edge is off
+        the top of the screen (a maximized window)."""
+        box = self._nav_box()
+        self.x = min(max(win.x + win.w / 2.0 - self.w / 2.0, float(win.x)),
+                     float(win.x + win.w - self.w))
+        self.y = float(win.y - self.foot_y)
+        if self.y < self.screen_rect.top():
+            self._contain = win
+            self.y = follow_nav.inside_feet(win, box) - self.foot_y
+        self.vx = self.vy = 0.0
 
     def _activate_claude_macos(self):
         """Bring the host terminal/IDE app to the front via AppleScript.

@@ -199,7 +199,7 @@ reacted; if it says `-> 0 pet(s)`, none is running — offer to attach one with
 
 The user wants a window that is buried behind others, minimized, or (KDE) on
 another virtual desktop brought to the front. You pick the window; the pet
-raises it and then walks/jumps into it.
+dashes off-screen, and comes back riding it as it pops up.
 ```bash
 cpet window list          # JSON, topmost first: [{"id","app","title","state"}]
 cpet window raise <id>    # state: shown | min (minimized) | desk (other desktop)

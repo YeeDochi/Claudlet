@@ -1,8 +1,8 @@
 """Window finder: list windows (minimized too) and pull one out — the pet
-then heads into it. Driven through the socket; world set via the geom feed."""
+then brings it back. Driven through the socket; world set via the geom feed."""
 from urllib.parse import quote
 
-from harness import pet, send_hook, window_list, undock  # noqa: F401
+from harness import pet, send_hook, window_list  # noqa: F401
 
 
 def _row(wid, cls, x, y, w, h, caption, flag=""):
@@ -20,19 +20,40 @@ def test_lists_minimized_windows_but_does_not_perch_on_them(pet):
     assert [w.wid for w in pet._wins] == ["w1"]      # hidden row never perched on
 
 
-def test_raise_sends_the_pet_into_the_pulled_out_window(pet):
-    undock(pet)
-    pet._on_geom(_row("w9", "slack", 200, 500, 600, 300, "Slack", "min"))
-    pet.x, pet.y = 100.0, float(pet.floor_y)
-    send_hook(pet, cmd="raise", id="w9")
-    assert pet.snapshot()["fetching"] == "w9"
-    pet._on_geom(_row("w9", "slack", 200, 500, 600, 300, "Slack"))   # WM restored it
-    for _ in range(600):
+def _tick_until(pet, cond, n=600):
+    for _ in range(n):
         pet._tick()
-        if pet.snapshot()["fetching"] is None:
-            break
-    assert pet.snapshot()["fetching"] is None
-    assert pet.snapshot()["contained"] == "w9"           # it went in
+        if cond(pet.snapshot()):
+            return True
+    return False
+
+
+def test_fetch_dashes_off_then_comes_back_riding_the_window(pet):
+    # docked by default: fetching must still leave the slot
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert pet.snapshot()["fetch_phase"] == "out"
+    # the window must NOT come up before the pet is out of sight
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone")
+    assert pet.snapshot()["hidden"]
+    pet._tick()
+    assert pet.snapshot()["fetch_phase"] == "gone"     # still waiting on the WM
+    pet._on_geom(_row("w9", "slack", 200, 400, 500, 300, "Slack"))   # restored
+    pet._tick()
+    snap = pet.snapshot()
+    assert snap["fetch_phase"] == "ride" and not snap["hidden"]
+    assert snap["render"] == "celebrate"
+    assert abs(pet.y + pet.foot_y - 400) < 1            # standing on its top edge
+    assert 200 <= pet.x + pet.w / 2.0 <= 700
+
+
+def test_fetch_rides_inside_a_maximized_window(pet):
+    pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code", "min"))
+    send_hook(pet, cmd="raise", id="w9")
+    assert _tick_until(pet, lambda s: s["fetch_phase"] == "gone")
+    pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code"))
+    pet._tick()
+    assert pet.snapshot()["contained"] == "w9"          # top edge is off-screen
 
 
 def test_raise_ignores_ids_the_finder_does_not_list(pet):
