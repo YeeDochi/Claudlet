@@ -169,3 +169,11 @@ def test_parse_dump_hidden_rows_only_for_the_finder():
     wins = G.parse_dump(text, hidden=True)
     assert [(w.wid, w.hidden) for w in wins] == [("a", ""), ("b", "min"), ("c", "desk")]
     assert G.finder_rows(wins)[0] == {"id": "c", "app": "code", "title": "x", "state": "desk"}
+
+
+def test_finder_rows_carry_the_owner_only_when_there_is_one():
+    from claudlet.platform import geom as G
+    text = "a;qt;0,0,500,500;1;main;;|ui;qt;0,0,500,500;1;UI;;a"
+    rows = G.finder_rows(G.parse_dump(text, hidden=True))
+    assert rows[0] == {"id": "ui", "app": "qt", "title": "UI", "state": "shown", "owner": "a"}
+    assert "owner" not in rows[1]

@@ -112,6 +112,8 @@ if user32 is not None:
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
                                     ctypes.c_int, ctypes.c_int, wintypes.UINT]
     user32.SetWindowPos.restype = wintypes.BOOL
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
 
 # GetDpiForWindow is Win10 1607+; older Windows won't have the symbol. Probe it
 # once so _dpi_scale can degrade to 1.0 (== today's physical-pixel behaviour)
@@ -314,6 +316,17 @@ def _caption(hwnd):
     return buf.value
 
 
+GA_ROOTOWNER = 3
+
+
+def _root_owner(hwnd):
+    """The window at the top of `hwnd`'s owner chain, or "" when it owns
+    itself. KakaoTalk restores to an owned "KakaoTalkUI" window that stacks
+    above the one the finder raised."""
+    root = user32.GetAncestor(hwnd, GA_ROOTOWNER)
+    return root if root and root != hwnd else ""
+
+
 def finder_dump(exclude_hwnd=None):
     """Like dump(), but for the window finder: minimized windows ride along
     flagged "min", and every row carries its title (the perch feed never needs
@@ -324,9 +337,9 @@ def finder_dump(exclude_hwnd=None):
     rows = _enum_windows(exclude_hwnd, include_iconic=True)
     rows.reverse()
     return "|".join(
-        "{};{};{},{},{},{};{};{};{}".format(
+        "{};{};{},{},{},{};{};{};{};{}".format(
             hwnd, cls, x, y, w, h, pid, quote(_caption(hwnd), safe=""),
-            "min" if user32.IsIconic(hwnd) else "")
+            "min" if user32.IsIconic(hwnd) else "", _root_owner(hwnd))
         for hwnd, cls, x, y, w, h, pid in rows
     )
 

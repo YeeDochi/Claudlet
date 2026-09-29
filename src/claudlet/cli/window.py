@@ -68,8 +68,18 @@ POLL_SECS = 0.4
 
 
 def raised(rows, wid):
-    """Is `wid` shown and topmost in a `windows` reply? Pure."""
-    return bool(rows) and rows[0].get("id") == wid and rows[0].get("state") == "shown"
+    """Is `wid` shown and topmost in a `windows` reply? A window it owns on top
+    counts: an owned window always stacks above its owner, so the app is up
+    front (KakaoTalk restores to exactly that). Pure."""
+    if not rows:
+        return False
+    top = rows[0]
+    if top.get("id") == wid:
+        return top.get("state") == "shown"
+    if top.get("owner") != wid:
+        return False
+    row = next((r for r in rows if r.get("id") == wid), None)
+    return row is not None and row.get("state") == "shown"
 
 
 def delivered(reply, wid):

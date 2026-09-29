@@ -17,6 +17,17 @@ def test_raised_means_shown_and_topmost():
     assert not window.raised(None, "a")
 
 
+def test_raised_counts_a_window_it_owns_on_top():
+    # KakaoTalk: raising "카카오톡" brings up its owned "KakaoTalkUI" above it
+    assert window.raised([{"id": "ui", "state": "shown", "owner": "a"},
+                          {"id": "a", "state": "shown"}], "a")
+    assert not window.raised([{"id": "ui", "state": "shown", "owner": "a"},
+                              {"id": "a", "state": "min"}], "a")
+    # same app, not owned by it (two Chrome windows): still not in front
+    assert not window.raised([{"id": "b", "state": "shown"},
+                              {"id": "a", "state": "shown"}], "a")
+
+
 class _Clock:
     def __init__(self):
         self.t = 0.0

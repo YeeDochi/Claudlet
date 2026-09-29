@@ -15,9 +15,12 @@ from urllib.parse import unquote
 # title, the only thing that tells two windows of ONE process apart (see
 # find_host). `hidden` is "" for a window on screen, "min" when minimized and
 # "desk" when it lives on another virtual desktop — only the window finder
-# (parse_dump(hidden=True)) ever sees those. Defaults keep old 6-arg callers OK.
-Win = namedtuple("Win", "wid x y w h title pid caption hidden",
-                 defaults=(None, "", ""))
+# (parse_dump(hidden=True)) ever sees those. `owner` is the id of the window
+# that owns this one (Win32 only, "" otherwise): an owned window always stacks
+# above its owner, so it is how the finder knows a window is up front even when
+# its own popup sits on top of it. Defaults keep old 6-arg callers OK.
+Win = namedtuple("Win", "wid x y w h title pid caption hidden owner",
+                 defaults=(None, "", "", ""))
 
 # Shell chrome / helper window classes, never perch targets. Covers both the
 # KDE feed (plasmashell, xwaylandvideobridge) and the Win32 feed: "progman" and
@@ -33,8 +36,8 @@ def parse_dump(text, min_size=40, hidden=False):
     """Parse a pipe-delimited window geometry feed (shared wire format used by
     the KWin script and other backends).
 
-    Format: `id;class;x,y,w,h;pid;caption;hidden|...`  (coords may be floats;
-    pid, caption and hidden optional). The caption is percent-encoded by the
+    Format: `id;class;x,y,w,h;pid;caption;hidden;owner|...`  (coords may be
+    floats; pid, caption, hidden and owner optional). The caption is percent-encoded by the
     sender because real window titles contain both of our delimiters
     ("Teams - 채팅 | ..."). A row with a `hidden` flag (minimized / other
     desktop) is not on screen, so it is dropped unless `hidden=True` — nothing
@@ -69,16 +72,23 @@ def parse_dump(text, min_size=40, hidden=False):
         if len(parts) >= 4 and parts[3].strip().isdigit():
             pid = int(parts[3])
         caption = unquote(parts[4]) if len(parts) >= 5 else ""
-        wins.append(Win(wid, x, y, w, h, cls, pid, caption, flag))
+        owner = parts[6].strip() if len(parts) >= 7 else ""
+        wins.append(Win(wid, x, y, w, h, cls, pid, caption, flag, owner))
     return wins
 
 
 def finder_rows(wins):
     """What the window finder shows an agent: topmost first, one dict per
-    window with only what it needs to pick one by name. Pure."""
-    return [{"id": str(w.wid), "app": w.title, "title": w.caption,
-             "state": w.hidden or "shown"}
-            for w in reversed(wins)]
+    window with only what it needs to pick one by name, plus `owner` on a
+    window another one owns (so `raise --wait` can tell it is up front). Pure."""
+    rows = []
+    for w in reversed(wins):
+        row = {"id": str(w.wid), "app": w.title, "title": w.caption,
+               "state": w.hidden or "shown"}
+        if w.owner:
+            row["owner"] = str(w.owner)
+        rows.append(row)
+    return rows
 
 
 # Window classes that share a pid with a legit ancestor yet are never the host.
