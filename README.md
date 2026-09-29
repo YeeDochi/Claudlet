@@ -226,8 +226,8 @@ and it knows you mean it; the voice decides how it answers. Creatures ship with
 defaults — the slime drawls, the astronaut sounds like radio comms — and anything
 you write wins.
 
-Works with both Claude Code and Codex, but only while they run **in a terminal** —
-sending straight away types into a real prompt. On KDE that needs Konsole's
+Works with both Claude Code and Codex.
+On KDE that needs Konsole's
 *Enable the security sensitive parts of the DBus API*; elsewhere Enter leaves a
 note instead (the input says so).
 
@@ -236,8 +236,6 @@ note instead (the input says so).
 > (`sudo apt install python3-pyqt6`) the pet relaunches itself on that Qt and it
 > works.
 
-> **Not in the desktop apps.** The Claude desktop app and the Codex app have no
-> prompt to type into — this feature assumes the CLI running in a terminal.
 > On macOS, even in a terminal, sending straight away isn't there yet: notes only.
 
 ## Fetching a window
