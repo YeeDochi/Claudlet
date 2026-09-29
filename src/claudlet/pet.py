@@ -5030,7 +5030,7 @@ class Pet(QWidget):
                              * max(20.0, self.FETCH_HOP * self.h))   # 폴짝
         self._fetch = {"wid": wid, "phase": "out", "line": line, "until": None,
                        "icon": self._app_sprite(win.title),   # 물고 갈 앱 아이콘, 없으면 None
-                       "home": (win.x, win.y, win.w)}         # 끌어올린 창이 멈출 자리
+                       "size": (win.w, win.h)}                # 끌어올릴 창 크기
 
     def _finder_windows(self):
         """Every window the finder may pull out, minimized ones included.
@@ -5051,11 +5051,12 @@ class Pet(QWidget):
         from another desktop. Only an id the finder itself lists is accepted —
         the id is spliced into a KWin script. Returns whether it was sent.
 
-        `pull_from` (KDE): first park the window with its top edge at that y
-        (below the screen), then haul it back up to where it was — a timer
+        `pull_from` (KDE): ((x0, y0), (x, y)) — park the window's top-left at
+        the first (below the screen), then haul it to the second — a timer
         inside KWin eases it, so it is smooth whatever our tick rate. A
-        maximized window is re-maximized at the end (KWin lets a script move
-        it, but a later plain geometry set on it is ignored)."""
+        maximized window is re-maximized at the end, on the monitor it now
+        sits on (KWin lets a script move it, but a later plain geometry set
+        on it is ignored)."""
         win = next((w for w in self._finder_windows() if str(w.wid) == wid), None)
         if win is None:
             return False
@@ -5074,7 +5075,7 @@ class Pet(QWidget):
             elif sys.platform.startswith("linux"):
                 self._run_kwin_script(
                     'var ID = ' + json.dumps(wid) + ';'
-                    'var Y0 = ' + json.dumps(None if pull_from is None else int(pull_from)) + ';'
+                    'var PULL = ' + json.dumps(pull_from) + ';'
                     'var MS = ' + str(int(self.FETCH_PULL_MS)) + ';'
                     'var cs = (typeof workspace.windowList === "function") '
                     '? workspace.windowList() : workspace.clientList();'
@@ -5082,8 +5083,9 @@ class Pet(QWidget):
                     '  var t = cs[i];'
                     '  if (("" + t.internalId) !== ID) continue;'
                     '  var g = t.frameGeometry, X = g.x, Y = g.y, W = g.width, H = g.height;'
-                    '  var M = t.maximizeMode, P = Y0 !== null && t.moveable && !t.fullScreen && Y0 > Y;'
-                    '  if (P) t.frameGeometry = {x: X, y: Y0, width: W, height: H};'
+                    '  var M = t.maximizeMode, P = PULL !== null && t.moveable && !t.fullScreen;'
+                    '  if (P) { var X0 = PULL[0][0], Y0 = PULL[0][1]; X = PULL[1][0]; Y = PULL[1][1];'
+                    '           t.frameGeometry = {x: X0, y: Y0, width: W, height: H}; }'
                     '  t.minimized = false;'
                     '  if (!t.onAllDesktops) {'
                     '    try { if (t.desktops !== undefined) t.desktops = [workspace.currentDesktop];'
@@ -5095,7 +5097,7 @@ class Pet(QWidget):
                     '    tm.interval = 16;'
                     '    tm.timeout.connect(function () {'
                     '      n++; var e = 1 - Math.pow(1 - n / N, 3);'   # ease-out: yanked, then settles
-                    '      t.frameGeometry = {x: X, y: Y0 + (Y - Y0) * e, width: W, height: H};'
+                    '      t.frameGeometry = {x: X0 + (X - X0) * e, y: Y0 + (Y - Y0) * e, width: W, height: H};'
                     '      if (n < N) return;'
                     '      tm.stop();'
                     '      if (M) { t.setMaximize(false, false); t.setMaximize((M & 1) != 0, (M & 2) != 0); }'
@@ -5132,10 +5134,19 @@ class Pet(QWidget):
                 return                        # head still above the floor
             pull = self._can_pull
             if pull:
-                hx, _hy, hw = f["home"]
-                bottom = self._screen_bottom_at(hx + hw / 2.0)
-                f["line"] = follow_nav.floor_feet(bottom, self._nav_box())
-                pull_from = bottom + 1        # parked just under that monitor's edge
+                # the window comes up where the pet went down: its bottom on
+                # that line, centred on the pet, inside the pet's monitor. It
+                # starts parked under that monitor's edge and is hauled up;
+                # the pet reappears through the same line, riding its top.
+                cx = self.x + self.w / 2.0
+                area = next((g for g in self._screens if g.left() <= cx <= g.right()),
+                            self.screen_rect)
+                ww, wh = f["size"]
+                tx, ty = follow_nav.fetch_spot(
+                    cx, f["line"], ww, wh,
+                    (area.x(), area.y(), area.width(), area.height()))
+                f["home"] = (int(tx), int(ty))
+                pull_from = ((int(tx), self._screen_bottom_at(cx) + 1), f["home"])
             if not self._raise_now(f["wid"], pull_from if pull else None):
                 self._fetch = None
                 return
@@ -5186,7 +5197,8 @@ class Pet(QWidget):
         self.x = f["px"]
         self.y = max(float(win.y - self.foot_y), float(self.screen_rect.top()))
         self._render_state = "strain"
-        if abs(win.y - f["home"][1]) > 1 and now <= f["until"]:
+        if (abs(win.x - f["home"][0]) > 1 or abs(win.y - f["home"][1]) > 1) \
+                and now <= f["until"]:
             return
         self._arrive(f, win, now)
 

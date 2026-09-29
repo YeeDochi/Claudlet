@@ -71,34 +71,45 @@ def _bottom(pet):
     return pet.screen_rect.bottom()
 
 
-def test_kde_hauls_the_window_up_out_of_the_floor_with_the_pet_on_it(pet):
+def _home(pet):
+    return pet._fetch["home"]
+
+
+def test_kde_brings_the_window_up_where_the_pet_went_down(pet):
     pet._can_pull = True
-    pet._on_geom(_row("w9", "slack", 200, 300, 500, 250, "Slack", "min"))
+    pet._on_geom(_row("w9", "slack", 1200, 100, 500, 250, "Slack", "min"))
+    pet.x = 300.0
+    cx, line = pet.x + pet.w / 2.0, pet.y + pet.foot_y
     send_hook(pet, cmd="raise", id="w9")
     assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
     pet._tick()
     assert pet.snapshot()["hidden"]                     # parked below: nothing yet
-    # KWin moves it up frame by frame; the pet hangs on to its top edge
-    for y in (_bottom(pet) - 40, _bottom(pet) - 150):
-        pet._on_geom(_row("w9", "slack", 200, y, 500, 250, "Slack"))
+    hx, hy = _home(pet)
+    assert abs(hx + 250 - cx) < 1 or hx == 0            # centred on the pet...
+    assert abs(hy + 250 - line) < 1                     # ...its bottom on the dive line
+    # KWin hauls it up frame by frame; the pet hangs on to its top edge
+    for y in (hy + 400, hy + 150):
+        pet._on_geom(_row("w9", "slack", hx, y, 500, 250, "Slack"))
         pet._tick()
         snap = pet.snapshot()
         assert snap["fetch_phase"] == "pull" and snap["render"] == "strain"
-        assert abs(pet.y + pet.foot_y - y) < 1 and 200 <= pet.x + pet.w / 2.0 <= 700
-    assert not pet.snapshot()["hidden"]                 # coming up out of the floor
-    pet._on_geom(_row("w9", "slack", 200, 300, 500, 250, "Slack"))   # home
+        assert abs(pet.y + pet.foot_y - y) < 1 and hx <= pet.x + pet.w / 2.0 <= hx + 500
+    pet._on_geom(_row("w9", "slack", hx, hy, 500, 250, "Slack"))   # arrived
     pet._tick()
     snap = pet.snapshot()
     assert snap["fetch_phase"] == "ride" and snap["render"] == "celebrate"
-    assert abs(pet.y + pet.foot_y - 300) < 1 and not snap["masked"]
+    assert abs(pet.y + pet.foot_y - hy) < 1 and not snap["masked"]
 
 
 def test_kde_drops_into_a_maximized_window_once_it_is_up(pet):
     pet._can_pull = True
-    pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code", "min"))
+    r = pet.screen_rect
+    pet._on_geom(_row("w9", "code", r.x(), r.y(), r.width(), r.height(), "code", "min"))
     send_hook(pet, cmd="raise", id="w9")
     assert _tick_until(pet, lambda s: s["fetch_phase"] == "pull", n=120)
-    pet._on_geom(_row("w9", "code", 0, 0, 800, 800, "code"))
+    hx, hy = _home(pet)
+    assert (hx, hy) == (r.x(), r.y())                   # too big to move: fills the monitor
+    pet._on_geom(_row("w9", "code", hx, hy, r.width(), r.height(), "code"))
     pet._tick()
     snap = pet.snapshot()
     assert snap["fetch_phase"] == "ride" and snap["contained"] == "w9"

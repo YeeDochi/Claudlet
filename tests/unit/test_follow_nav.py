@@ -275,3 +275,13 @@ def test_midflight_enter_triggers_inside_target_body():
     # feet outside the window body -> not yet
     y = (SB - 500) - BOX.foot_y                            # feet above the top
     assert N.midflight_enter(340, y, BOX, [w1], 450, SB - 200) is None
+
+
+def test_fetch_spot_centres_on_the_pet_with_its_bottom_on_the_line():
+    from claudlet.core.follow_nav import fetch_spot
+    area = (0, 24, 1920, 1056)
+    assert fetch_spot(900, 860, 1000, 600, area) == (400, 260)
+    assert fetch_spot(50, 860, 1000, 600, area) == (0, 260)          # kept on the monitor
+    assert fetch_spot(1900, 860, 1000, 600, area) == (920, 260)
+    assert fetch_spot(900, 300, 1000, 600, area) == (400, 24)        # too high: pinned to the top
+    assert fetch_spot(900, 860, 1920, 1176, area) == (0, 24)         # too big: top-left

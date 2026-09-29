@@ -304,3 +304,14 @@ def resolve_landing(x, y, box, wins, screen_bottom, screen_left, screen_right,
                 hit = w
         return ("perch", hit)
     return ("floor",)
+
+
+def fetch_spot(cx, line, w, h, area):
+    """Top-left for a fetched w x h window coming up where the pet went down:
+    centred on column cx with its bottom edge on `line`, kept inside `area`
+    (x, y, w, h — the monitor's work area; a window too big for it pins to
+    the area's top-left). Pure."""
+    ax, ay, aw, ah = area
+    x = min(max(cx - w / 2.0, ax), ax + aw - w)
+    y = min(max(line - h, ay), ay + ah - h)
+    return max(x, ax), max(y, ay)
