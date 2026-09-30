@@ -2947,8 +2947,10 @@ class Pet(QWidget):
             tx = min(max(intent[1] - self.w / 2.0, left), right)
             self.target_x = tx
             dx = tx - self.x
-            # constant pace (no far speed-up), in the creature's own strides
-            speed = 10.0 * pace_scale(self.u, self.avatar)
+            # constant pace (no far speed-up). Grows with the body, but only by
+            # its square root: 10 px a tick is already a run, and scaled in full
+            # a big creature dashed across the screen in a second or two
+            speed = 10.0 * pace_scale(self.u, self.avatar) ** 0.5
             if abs(dx) <= speed:
                 self.x = tx
                 self._render_state = self.claude_state  # arrived: normal animation
