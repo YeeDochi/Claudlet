@@ -171,19 +171,17 @@ def _companion_scale(u, avatar=None):
     return max(petconfig.MIN_SCALE, round(raw))
 
 
-def companion_name(avatar, index, known):
-    """Which creature the index-th sidekick wears, or None for "a small copy
-    of the pet".
+def companion_class(avatar, index):
+    """What the index-th sidekick is, or None for "a small copy of the pet".
 
-    A creature may name its own sidekicks — `companion = "cub"`, or several
-    (`("cub", "snowflake")`) to take turns as agents start. A name that is
-    not installed is skipped, so a creature shared without its companion
-    still gets the small-copy fallback rather than the built-in."""
-    names = getattr(avatar, "companion", None) or ()
-    if isinstance(names, str):
-        names = (names,)
-    names = [n for n in names if n in known]
-    return names[index % len(names)] if names else None
+    A creature may bring its own sidekicks, as part of ITSELF: `companions =
+    (Cub, Flake)`, classes from its own package, taking turns as agents start.
+    They are the creature's, not creatures of their own -- not offered in the
+    settings, exported with it, gone with it."""
+    kinds = getattr(avatar, "companions", None) or ()
+    if not isinstance(kinds, (tuple, list)):
+        kinds = (kinds,)
+    return kinds[index % len(kinds)] if kinds else None
 
 
 def companion_unit(pet_avatar, u, comp_avatar):
@@ -2120,6 +2118,8 @@ class Pet(QWidget):
         # changed: a colour-only change left the sidekicks in the old colour.
         for i, c in enumerate(self._companions + self._departing):
             av, cu, c.palette = self._companion_dress(i)
+            if type(av) is type(c.avatar) and av is not self.avatar:
+                av = c.avatar              # same sidekick: keep its state
             if av is not c.avatar:         # changed creature: its own hats
                 c.avatar = av
                 c.hat = random.choice(av.hats) if av.hats else None
@@ -2678,10 +2678,15 @@ class Pet(QWidget):
     def _companion_dress(self, index):
         """(creature, scale, palette) for the index-th sidekick: the pet's own
         creature made small, unless the creature names its own companions."""
-        name = companion_name(self.avatar, index, set(avatars.available()))
-        if name is None:
+        kind = companion_class(self.avatar, index)
+        comp = None
+        if kind is not None:
+            try:
+                comp = kind() if isinstance(kind, type) else kind
+            except Exception:
+                comp = None             # a broken sidekick must not take the pet down
+        if comp is None:
             return self.avatar, _companion_scale(self.u, self.avatar), self._palette
-        comp = avatars.get(name)
         return comp, companion_unit(self.avatar, self.u, comp), getattr(comp, "palette", None)
 
     def _companion_rows(self):

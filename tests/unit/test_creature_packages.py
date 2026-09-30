@@ -121,28 +121,31 @@ def test_bundled_creatures_draw_every_state_they_claim(tmp_path, monkeypatch):
                 name, state)
 
 
-def _companion_creature(name, scale=2, extra=""):
-    return textwrap.dedent('''
-        class Cub:
-            name = "%s"
-            grid = (8, 8)
-            states = ("idle", "walk")
-            hats = ()
-            scale = %s
-            %s
-            def draw(self, p, ox, oy, u, state, frame, **kw):
-                pass
-            def set_lang(self, lang):
-                pass
-        AVATAR = Cub
-    ''' % (name, scale, extra))
+
+CUB = textwrap.dedent('''
+    class Cub:
+        name = "cub"
+        grid = (8, 8)
+        states = ("idle", "walk")
+        hats = ()
+        scale = 2
+        def draw(self, p, ox, oy, u, state, frame, **kw):
+            pass
+        def set_lang(self, lang):
+            pass
+
+    class Flake(Cub):
+        name = "flake"
+''')
 
 
 def test_a_creature_brings_its_own_sidekicks_taking_turns(tmp_path, monkeypatch):
-    _install(tmp_path, monkeypatch, "blob",
-             CREATURE.replace('hats = ()', 'hats = ()\n    companion = ("cub", "flake")'))
-    _install(tmp_path, monkeypatch, "cub", _companion_creature("cub"))
-    _install(tmp_path, monkeypatch, "flake", _companion_creature("flake"))
+    # the sidekicks live INSIDE the creature's package, imported relatively
+    d = _install(tmp_path, monkeypatch, "blob",
+                 "from .sidekicks import Cub, Flake\n"
+                 + CREATURE.replace('hats = ()', 'hats = ()\n    companions = (Cub, Flake)'))
+    (d / "sidekicks.py").write_text(CUB, encoding="utf-8")
+    assert "cub" not in avatars.available()          # not a creature of its own
     from claudlet import pet as P
     monkeypatch.setenv("CLAUDLET_AVATAR", "blob")
     p = P.Pet(session_id="blobcomp")
@@ -152,15 +155,13 @@ def test_a_creature_brings_its_own_sidekicks_taking_turns(tmp_path, monkeypatch)
             p._spawn_test_companion(+1)
         assert p.snapshot()["companion_creatures"] == ["cub", "flake", "cub"]
         # drawn at the sidekick's own life size, not shrunk again
-        assert p._companion.u == P.companion_unit(p.avatar, p.u, avatars.get("cub"))
+        assert p._companion.u == P.companion_unit(p.avatar, p.u, p._companion.avatar)
     finally:
         p._cleanup()
 
 
 def test_no_sidekick_of_its_own_means_a_small_copy(tmp_path, monkeypatch):
-    # named but not installed -> the fallback, not the built-in
-    _install(tmp_path, monkeypatch, "blob",
-             CREATURE.replace('hats = ()', 'hats = ()\n    companion = "missing"'))
+    _install(tmp_path, monkeypatch, "blob", CREATURE)
     from claudlet import pet as P
     monkeypatch.setenv("CLAUDLET_AVATAR", "blob")
     p = P.Pet(session_id="blobcopy")

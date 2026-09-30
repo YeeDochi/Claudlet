@@ -83,10 +83,19 @@ def _load_dir(path):
         if not os.path.isfile(f):
             continue
         try:
+            import sys
             name = "claudlet_creature_" + os.path.basename(path)
-            spec = importlib.util.spec_from_file_location(name, f)
+            # loaded as a PACKAGE, so a creature can keep parts of itself in
+            # sibling modules (`from .cub import Cub` -- its companions)
+            spec = importlib.util.spec_from_file_location(
+                name, f, submodule_search_locations=[path])
             mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+            sys.modules[name] = mod          # relative imports resolve through it
+            try:
+                spec.loader.exec_module(mod)
+            except Exception:
+                sys.modules.pop(name, None)
+                raise
             return getattr(mod, "AVATAR", None)
         except Exception:
             return None

@@ -1,20 +1,21 @@
-"""companion_name / companion_unit: which creature a sidekick wears, how big."""
+"""companion_class / companion_unit: which creature a sidekick wears, how big."""
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from types import SimpleNamespace as NS
 
-from claudlet.pet import companion_name, companion_unit
+from claudlet.pet import companion_class, companion_unit
 
 
 def test_none_declared_is_small_copy():
-    assert companion_name(NS(), 0, {"a"}) is None
+    assert companion_class(NS(), 0) is None
 
 
-def test_one_name_or_many_in_turn_skipping_missing():
-    assert companion_name(NS(companion="cub"), 3, {"cub"}) == "cub"
-    av = NS(companion=("cub", "gone", "flake"))
-    assert [companion_name(av, i, {"cub", "flake"}) for i in range(3)] == ["cub", "flake", "cub"]
-    assert companion_name(NS(companion=("gone",)), 0, {"cub"}) is None
+def test_one_or_many_in_turn():
+    class Cub: pass
+    class Flake: pass
+    assert companion_class(NS(companions=Cub), 3) is Cub
+    av = NS(companions=(Cub, Flake))
+    assert [companion_class(av, i) for i in range(3)] == [Cub, Flake, Cub]
 
 
 def test_unit_is_its_life_size_resized_with_the_pet():
