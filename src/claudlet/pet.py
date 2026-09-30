@@ -171,6 +171,32 @@ def _companion_scale(u, avatar=None):
     return max(petconfig.MIN_SCALE, round(raw))
 
 
+def companion_name(avatar, index, known):
+    """Which creature the index-th sidekick wears, or None for "a small copy
+    of the pet".
+
+    A creature may name its own sidekicks — `companion = "cub"`, or several
+    (`("cub", "snowflake")`) to take turns as agents start. A name that is
+    not installed is skipped, so a creature shared without its companion
+    still gets the small-copy fallback rather than the built-in."""
+    names = getattr(avatar, "companion", None) or ()
+    if isinstance(names, str):
+        names = (names,)
+    names = [n for n in names if n in known]
+    return names[index % len(names)] if names else None
+
+
+def companion_unit(pet_avatar, u, comp_avatar):
+    """Scale for a sidekick that is its OWN creature: its life size (its
+    `scale`), grown or shrunk by as much as the user resized the pet. It is
+    drawn small already; the small-copy ratio would shrink it twice."""
+    base = getattr(comp_avatar, "scale", petconfig.DEFAULT_SCALE)
+    raw = base * u / float(getattr(pet_avatar, "scale", petconfig.DEFAULT_SCALE))
+    if getattr(comp_avatar, "fractional_scale", False):
+        return max(0.1, round(raw, 1))
+    return max(petconfig.MIN_SCALE, round(raw))
+
+
 PAD_X, PAD_Y = 1, 2                     # padding (art px) around creature for props
 # Agent companion: an INDEPENDENT little creature in its own window that FOLLOWS
 # the pet while a subagent runs — see the Companion class. It only walks toward
@@ -565,6 +591,11 @@ class Companion(QWidget):
         self.w = int((gw + 2 * PAD_X) * self.u)
         self.h = int((gh + 2 * PAD_Y) * self.u)
         self.setFixedSize(self.w, self.h)
+
+    @property
+    def foot_y(self):
+        """Where this sidekick's drawn feet are, from the top of its window."""
+        return (PAD_Y + getattr(self.avatar, "foot_row", FOOT_ROW)) * self.u
 
     def rescale(self, u):
         """The pet's scale changed — follow it, keeping our proportion."""
@@ -2087,10 +2118,13 @@ class Pet(QWidget):
             self._resize_to_avatar()
         # Companions are re-dressed ALWAYS, not only when the size or creature
         # changed: a colour-only change left the sidekicks in the old colour.
-        for c in self._companions + self._departing:
-            c.avatar = self.avatar
-            c.palette = self._palette
-            c.rescale(_companion_scale(self.u, self.avatar))
+        for i, c in enumerate(self._companions + self._departing):
+            av, cu, c.palette = self._companion_dress(i)
+            if av is not c.avatar:         # changed creature: its own hats
+                c.avatar = av
+                c.hat = random.choice(av.hats) if av.hats else None
+            c._resize_to_avatar()          # a new creature can bring a new grid
+            c.rescale(cu)
             c.update()
         self.update()
         self._refresh_chat()           # 대화창 머리의 얼굴·이름도 갈아입는다
@@ -2143,6 +2177,7 @@ class Pet(QWidget):
             "host_wid": self._host_wid,          # window click-to-focus raises
             "contained": self._contain.wid if self._contain else None,
             "companions": len(self._companions),
+            "companion_creatures": [getattr(c.avatar, "name", None) for c in self._companions],
             "social": self._social_act,          # 현재 소셜 act or None
 
             "departing": len(self._departing),
@@ -2362,8 +2397,7 @@ class Pet(QWidget):
         comps = [(c.x, c.y, float(c.w)) for c in self._companions]
         # 탑쌓기: 스텝=컴패니언의 그려지는 몸통 높이(창 높이 아님, 패딩 제외),
         # foot/head=발·머리 오프셋(px)이라 발이 정확히 아래 머리에 닿는다.
-        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u, self.avatar)   # 층 간격
-        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u, self.avatar)  # 컴패니언 발(창-top부터)
+        body_h, foot = self._companion_rows()   # 층 간격, 컴패니언 발(창-top부터)
         head = (PAD_Y + CROWN_ROW) * self.u                  # 펫 머리(창-top부터)
         self._social_targets = social.arrange(
             act, leader, comps, creature_h=body_h, foot=foot, head=head)
@@ -2418,7 +2452,8 @@ class Pet(QWidget):
             self._throw_recording = False
             return
         while len(self._companions) < n:             # a new agent started
-            c = Companion(_companion_scale(self.u, self.avatar), self.avatar, self._palette)
+            av, cu, pal = self._companion_dress(len(self._companions))
+            c = Companion(cu, av, pal)
             prev = self._companions[-1] if self._companions else self
             # spawn just BEHIND the leader (opposite the pet's heading), clear of
             # its body, so it doesn't pop in on top of the pet -- then it eases
@@ -2514,13 +2549,12 @@ class Pet(QWidget):
         # follow_nav.plan_move + physics.advance walk / jump between windows /
         # drop IN to sit with it / climb down / fall. Thrown motion returned
         # above after replaying the main pet's recorded trajectory.
-        ratio = _companion_scale(self.u, self.avatar) / float(self.u)
         scr = self.screen_rect
         leader = self
         for c in self._companions:
             box = self._companion_nav_box(c)
             foot = box.foot_y
-            lead_foot = self.foot_y if leader is self else self.foot_y * ratio
+            lead_foot = self.foot_y if leader is self else leader.foot_y
             lead_x = leader.x + leader.w / 2.0
             lead_feet = leader.y + lead_foot
             lead_contain = self._contain if leader is self else leader._contain
@@ -2622,8 +2656,7 @@ class Pet(QWidget):
         return True
 
     def _drive_pocket_stack(self):
-        body_h = (FOOT_ROW - CROWN_ROW) * _companion_scale(self.u, self.avatar)
-        foot = (PAD_Y + FOOT_ROW) * _companion_scale(self.u, self.avatar)
+        body_h, foot = self._companion_rows()
         head = (PAD_Y + CROWN_ROW) * self.u
         targets = social.arrange_pocket(
             (self.x, self.y, float(self.w)),
@@ -2642,6 +2675,27 @@ class Pet(QWidget):
             self._occlude_companion(c)
             c.update()
 
+    def _companion_dress(self, index):
+        """(creature, scale, palette) for the index-th sidekick: the pet's own
+        creature made small, unless the creature names its own companions."""
+        name = companion_name(self.avatar, index, set(avatars.available()))
+        if name is None:
+            return self.avatar, _companion_scale(self.u, self.avatar), self._palette
+        comp = avatars.get(name)
+        return comp, companion_unit(self.avatar, self.u, comp), getattr(comp, "palette", None)
+
+    def _companion_rows(self):
+        """(body height, foot offset) in px of the first sidekick, for
+        stacking. A small copy keeps the built-in's rows it always used."""
+        c = self._companions[0] if self._companions else None
+        if c is None or c.avatar is self.avatar:
+            cu = _companion_scale(self.u, self.avatar)
+            return (FOOT_ROW - CROWN_ROW) * cu, (PAD_Y + FOOT_ROW) * cu
+        # ponytail: stacks every sidekick by the first one's height; mixed
+        # sizes overlap a little in a tower -- per-level heights if it shows
+        foot = getattr(c.avatar, "foot_row", FOOT_ROW)
+        return (foot - getattr(c.avatar, "crown_row", CROWN_ROW)) * c.u, c.foot_y
+
     def _companion_nav_box(self, c):
         """A follow_nav.Box for the companion whose feet lines (screen floor,
         window perch, window interior) coincide with the PET's, despite its
@@ -2649,7 +2703,7 @@ class Pet(QWidget):
         (self.h - FOOT_Y), while foot_y is the companion's TRUE drawn foot
         (self.foot_y*ratio) so a resolved position lands the DRAWN feet on the
         surface. box.w is the real companion width, for the screen/edge clamps."""
-        foot = self.foot_y * (_companion_scale(self.u, self.avatar) / float(self.u))
+        foot = c.foot_y
         return follow_nav.Box(c.w, (self.h - self.foot_y) + foot, foot)
 
     def _companion_bounds(self, c):

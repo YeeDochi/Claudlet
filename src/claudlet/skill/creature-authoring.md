@@ -21,6 +21,12 @@ class MyCreature:
                             # a body four times the built-in's walks four times
                             # the pixels per tick. Omit and you keep the
                             # built-in's pace — right for anything its size
+    companion = ("cub", "flake")  # the sidekicks that follow you while
+                            # subagents run: creature names, taking turns. Omit
+                            # (or name ones not installed) and a sidekick is a
+                            # small copy of you. Each is drawn at ITS own
+                            # `scale`, so draw it small; share it separately,
+                            # export only packs one creature
     hearts  = (4.5, 3, 1.6) # where the petting hearts go, in art units:
                             # (out to each side, head height, size). Omit and
                             # the built-in's numbers are used — which are cut

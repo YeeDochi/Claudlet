@@ -119,3 +119,55 @@ def test_bundled_creatures_draw_every_state_they_claim(tmp_path, monkeypatch):
             buf = bytes(img.constBits().asarray(img.sizeInBytes()))
             assert any(b > 0 for b in buf[3::4]), "%s drew nothing for %s" % (
                 name, state)
+
+
+def _companion_creature(name, scale=2, extra=""):
+    return textwrap.dedent('''
+        class Cub:
+            name = "%s"
+            grid = (8, 8)
+            states = ("idle", "walk")
+            hats = ()
+            scale = %s
+            %s
+            def draw(self, p, ox, oy, u, state, frame, **kw):
+                pass
+            def set_lang(self, lang):
+                pass
+        AVATAR = Cub
+    ''' % (name, scale, extra))
+
+
+def test_a_creature_brings_its_own_sidekicks_taking_turns(tmp_path, monkeypatch):
+    _install(tmp_path, monkeypatch, "blob",
+             CREATURE.replace('hats = ()', 'hats = ()\n    companion = ("cub", "flake")'))
+    _install(tmp_path, monkeypatch, "cub", _companion_creature("cub"))
+    _install(tmp_path, monkeypatch, "flake", _companion_creature("flake"))
+    from claudlet import pet as P
+    monkeypatch.setenv("CLAUDLET_AVATAR", "blob")
+    p = P.Pet(session_id="blobcomp")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 0)
+        for _ in range(3):
+            p._spawn_test_companion(+1)
+        assert p.snapshot()["companion_creatures"] == ["cub", "flake", "cub"]
+        # drawn at the sidekick's own life size, not shrunk again
+        assert p._companion.u == P.companion_unit(p.avatar, p.u, avatars.get("cub"))
+    finally:
+        p._cleanup()
+
+
+def test_no_sidekick_of_its_own_means_a_small_copy(tmp_path, monkeypatch):
+    # named but not installed -> the fallback, not the built-in
+    _install(tmp_path, monkeypatch, "blob",
+             CREATURE.replace('hats = ()', 'hats = ()\n    companion = "missing"'))
+    from claudlet import pet as P
+    monkeypatch.setenv("CLAUDLET_AVATAR", "blob")
+    p = P.Pet(session_id="blobcopy")
+    try:
+        monkeypatch.setattr(p.engine, "agents_active", lambda: 0)
+        p._spawn_test_companion(+1)
+        assert p.snapshot()["companion_creatures"] == ["blob"]
+        assert p._companion.u == P._companion_scale(p.u, p.avatar)
+    finally:
+        p._cleanup()
