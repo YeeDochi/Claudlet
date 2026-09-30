@@ -99,6 +99,17 @@ Switch to it from **Settings** above (`/claudlet setting`), which renders every
 creature in the list, or `CLAUDLET_AVATAR=<name> claudlet` to try it once
 without changing the config.
 
+**Companions.** Once the creature itself is done, ask whether it should bring
+its own sidekicks — the little ones that follow it while subagents run. Without
+any, a sidekick is a small copy of the creature, which is a fine answer. If the
+user wants some (a cub, a snowflake, a puff of fluff), write each as a class in
+the SAME package (`<name>/companions.py`, same contract as the creature, drawn
+small with its own `scale`) and list them on the creature:
+`companions = (Cub, Flake)`. They take turns as agents start. They belong to
+the creature — never write them as creatures of their own. A sidekick needs few
+states: `idle`, `walk`, `leap`, `celebrate` cover nearly all it does. Render
+them on the sheet too.
+
 ## Wear a creature
 
 Switch which creature a pet wears from the command line, no browser needed —
