@@ -1,4 +1,6 @@
 """pace_scale: walking pace follows the creature's on-screen body height."""
+import os
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")   # before claudlet.pet forces xcb
 from types import SimpleNamespace as NS
 
 from claudlet.pet import pace_scale
