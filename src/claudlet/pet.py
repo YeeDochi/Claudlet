@@ -333,6 +333,25 @@ FOOT_Y = 89
 # crown top ~row 3, feet ~row 15.8. used to stack companions body-on-head.
 CROWN_ROW, FOOT_ROW = 3.0, 15.8
 
+
+def pace_scale(u, avatar=None):
+    """How many times the built-in's size this pet is ON SCREEN, for pacing.
+
+    Walk speeds are screen pixels per tick, tuned for the built-in's body
+    (crown to feet, 64 px at the default scale). A creature drawn four times
+    that tall covering the same pixels per tick is walking in slow motion, and
+    no leg cycle fixes it: slow legs look slow, fast legs skate. So the pace
+    grows with the body.
+
+    Only a creature that says where its crown is (`crown_row`, next to
+    `foot_row`) is scaled; one that does not keeps today's pace, and so does
+    the built-in at every size the user picks."""
+    crown = getattr(avatar, "crown_row", None)
+    if crown is None:
+        return 1.0
+    body = (getattr(avatar, "foot_row", FOOT_ROW) - crown) * u
+    return max(0.5, min(6.0, body / ((FOOT_ROW - CROWN_ROW) * petconfig.DEFAULT_SCALE)))
+
 PET_REACT_SEC = 1.5                     # 쓰다듬기 하트 반응 지속(초)
 ANGER_CLICKS = 4                        # 이 횟수만큼 빠르게 누르면 화냄
 ANGER_CLICK_WINDOW = 1.2                # 연속 클릭 판정 시간(초)
@@ -2854,7 +2873,7 @@ class Pet(QWidget):
             direction = 1 if random.random() < 0.5 else -1
             self.target_x = min(max(self.x + direction * reach, left), right)
             self._walk_speed = random.uniform(1.8, 2.8)
-        speed = self._walk_speed
+        speed = self._walk_speed * pace_scale(self.u, self.avatar)
         dx = self.target_x - self.x
         if abs(dx) <= speed:
             self.x = self.target_x
@@ -2928,7 +2947,8 @@ class Pet(QWidget):
             tx = min(max(intent[1] - self.w / 2.0, left), right)
             self.target_x = tx
             dx = tx - self.x
-            speed = 10.0            # constant pace (no far speed-up)
+            # constant pace (no far speed-up), in the creature's own strides
+            speed = 10.0 * pace_scale(self.u, self.avatar)
             if abs(dx) <= speed:
                 self.x = tx
                 self._render_state = self.claude_state  # arrived: normal animation

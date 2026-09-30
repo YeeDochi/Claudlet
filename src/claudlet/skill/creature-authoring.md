@@ -16,6 +16,11 @@ class MyCreature:
     palette  = "#33CC66"    # YOUR default colour, until the user picks one
     foot_row = 15.8         # where your feet are, in art rows — the pet stands
                             # you on windows by this line (omit to use 15.8)
+    crown_row = 3.0         # top of your head, in art rows. With foot_row it
+                            # is your height, and the pet paces your walk by it:
+                            # a body four times the built-in's walks four times
+                            # the pixels per tick. Omit and you keep the
+                            # built-in's pace — right for anything its size
     hearts  = (4.5, 3, 1.6) # where the petting hearts go, in art units:
                             # (out to each side, head height, size). Omit and
                             # the built-in's numbers are used — which are cut
