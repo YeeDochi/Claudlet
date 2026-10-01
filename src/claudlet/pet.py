@@ -982,6 +982,13 @@ class HistoryWindow(QDialog):
         self._live = QTimer(self)
         self._live.setInterval(2000)
         self._live.timeout.connect(self._poll_session)
+        # 크리처 머리가 생각하는 동안 펫 쪽에 "•••" 이 깜빡인다 — 답이 오기 전까지
+        # 대화창에 아무것도 없어 듣고 있는지 알 수 없었다(실사용).
+        self._dots = None
+        self._dots_n = 0
+        self._dots_timer = QTimer(self)
+        self._dots_timer.setInterval(400)
+        self._dots_timer.timeout.connect(self._tick_dots)
         self._stack = QStackedWidget(self)
         self._stack.addWidget(self._scroll)
         self._stack.addWidget(self._view)
@@ -1244,7 +1251,9 @@ class HistoryWindow(QDialog):
             elif item.widget() is not None:
                 item.widget().deleteLater()
         self._bubbles = []
+        self._dots = None
         en = self._lang == "en"
+        typing = self._pet is not None and self._pet._brain_typing()
         if not recs:
             self._add(self._label("No conversations recorded yet" if en
                                   else "아직 기록된 대화가 없어요", "empty"), False)
@@ -1273,12 +1282,34 @@ class HistoryWindow(QDialog):
                 self._add(self._label(rec["answer"], "pet"), False)
                 if rec.get("more") and self._pet is not None:
                     self._add(self._full_link(), False)
+            elif rec.get("brain") and typing and self._dots is None:
+                self._add_dots()           # 크리처가 생각 중 — 본 세션을 기다리는 게 아니다
             else:
                 self._add(self._label("waiting for an answer…" if en
                                       else "답을 기다리는 중…", "wait"), False)
+        if typing and self._dots is None:
+            self._add_dots()               # 이어서 할 말이 남았다 / 먼저 말 거는 중
+        if self._dots is not None:
+            self._dots_timer.start()
+        else:
+            self._dots_timer.stop()
         self._rows.addStretch(1)
         self._stick.on = True              # 새 말이 왔다 — 그것을 보여준다
         self._fit_bubbles()
+
+    _DOTS = ("•  ", "•• ", "•••")
+
+    def _add_dots(self):
+        self._dots_n = len(self._DOTS) - 1
+        self._dots = self._label(self._DOTS[-1], "pet")   # 가장 넓은 것으로 폭을 잰다
+        self._add(self._dots, False)
+
+    def _tick_dots(self):
+        if self._dots is None:
+            self._dots_timer.stop()
+            return
+        self._dots_n = (self._dots_n + 1) % len(self._DOTS)
+        self._dots.setText(self._DOTS[self._dots_n])
 
     def _fit_bubbles(self):
         # 줄바꿈하는 QLabel 은 폭 상한이 없으면 한 줄로 늘어나 창 끝까지 간다.
@@ -4958,6 +4989,13 @@ class Pet(QWidget):
         link = getattr(self, "_brain", None)
         return bool(link and link.busy())
 
+    def _brain_typing(self):
+        """대화창에 "•••" 을 띄울 때: 사용자의 말에 머리가 생각 중이거나, 이어서 할 말이
+        남았다. 먼저 말 걸기는 SKIP 이 흔해 띄우지 않는다 — 떴다가 말없이 사라진다."""
+        link = getattr(self, "_brain", None)
+        thinking = bool(link and any(t.get("kind") == "user" for t in link.pending()))
+        return thinking or getattr(self, "_brain_says_left", 0) > 0
+
     def _brain_stop(self):
         """떠 있는 머리를 내린다(펫이 꺼질 때·테스트 정리)."""
         link, self._brain = getattr(self, "_brain", None), None
@@ -5012,6 +5050,7 @@ class Pet(QWidget):
         self._begin_thinking()
         link.ask(token, lambda first: self._brain_compose(first, text, pointed,
                                                           shot=shot))
+        self._refresh_chat()
 
     def _brain_notice(self, ev):
         """세션에서 굵직한 일이 생기면 크리처가 먼저 말을 걸 수 있다(설정, 기본 꺼짐).
@@ -5046,6 +5085,7 @@ class Pet(QWidget):
         if not self._brain_busy():
             self._end_thinking()
         token["fallback"]()
+        self._refresh_chat()                     # "•••" 을 걷는다
 
     def _brain_answered(self, token, reply):
         user = token.get("kind") == "user"
@@ -5054,10 +5094,11 @@ class Pet(QWidget):
                 self._brain_failed(token)        # 할 말도 넘길 일도 없었다
             return
         says = reply["says"]
+        self._brain_says_left = getattr(self, "_brain_says_left", 0) + len(says) - 1
         self._brain_say(says[0], token.get("rec") if user else self.BRAIN_SAID)
         for i, line in enumerate(says[1:], 1):
             QTimer.singleShot(i * self.BRAIN_SAY_GAP_MS,
-                              lambda l=line: self._brain_say(l, self.BRAIN_SAID))
+                              lambda l=line: self._brain_say_next(l))
         if self._brain_busy() and user:
             self._begin_thinking()               # 아직 생각 중인 말이 남았다
         # 세션 없이 뜬 펫은 넘길 곳이 없다 — 쪽지로 물면 영영 안 나간다.
@@ -5084,6 +5125,10 @@ class Pet(QWidget):
         except Exception:
             pass
         self._refresh_notes()
+
+    def _brain_say_next(self, line):
+        self._brain_says_left = max(0, getattr(self, "_brain_says_left", 0) - 1)
+        self._brain_say(line, self.BRAIN_SAID)
 
     def _brain_say(self, text, rec):
         self._answer_rec = rec                   # 이 말이 어느 질문의 답인가

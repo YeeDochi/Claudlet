@@ -48,6 +48,11 @@ class CreatureBrain(QObject):
     def busy(self):
         return bool(self._queue or self._turn is not None)
 
+    def pending(self):
+        """답을 기다리는 token 들 (돌고 있는 것 먼저)."""
+        head = [self._turn] if self._turn is not None else []
+        return head + [t for t, _c in self._queue]
+
     def ask(self, token, compose):
         """말 하나를 넣는다. `compose(first)` 가 보낼 글을 만든다 — 새로 띄운 머리면
         first=True 라 지시와 맥락을 처음부터 실어야 한다."""
