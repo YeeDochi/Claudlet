@@ -97,7 +97,8 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                              QToolTip, QInputDialog, QLineEdit, QFileDialog,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
                              QHBoxLayout, QTabBar, QLabel, QScrollArea,
-                             QStackedWidget, QToolButton, QFrame, QMessageBox)
+                             QStackedWidget, QToolButton, QFrame, QMessageBox,
+                             QSizePolicy)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
                          QRegion, QPainterPath, QFont, QPen)
 from PyQt6.QtCore import (Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF,
@@ -1189,7 +1190,19 @@ class HistoryWindow(QDialog):
         lab.setTextFormat(Qt.TextFormat.PlainText)
         lab.setWordWrap(role not in ("meta", "wait"))
         lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if role in ("meta", "wait"):
+            # 접히지 않는 줄이 내용 폭을 정하면 안 된다 — 경로가 긴 창 이름 하나에
+            # 대화창 내용이 2900px 로 늘어 잘리고 줄일 수도 없었다(실사용)
+            lab.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         return lab
+
+    @staticmethod
+    def _short(name, keep=48):
+        """긴 창 이름은 가운데를 줄인다 — 경로는 끝(파일 이름)이 알맹이다."""
+        if len(name) <= keep:
+            return name
+        tail = keep * 2 // 3
+        return name[:keep - tail - 1] + "…" + name[-tail:]
 
     def _full_link(self):
         """"응답 전문 보기": 에이전트가 쓴 전체 답이 있는 창으로 간다."""
@@ -1243,9 +1256,12 @@ class HistoryWindow(QDialog):
                 # 그리면 안 된다 — 내 말이 존댓말로 바뀌어 다시 들어온 것처럼 보였다.
                 meta += " · " + ("→ handed to the session" if en else "→ 세션에 전함")
             elif rec.get("target"):
-                meta += " · " + rec["target"]
+                meta += " · " + self._short(rec["target"])
             self._rows.addSpacing(8)
-            self._add(self._label(meta, "meta"), True)
+            lab = self._label(meta, "meta")
+            if rec.get("target") and not relay:
+                lab.setToolTip(rec["target"])
+            self._add(lab, True)
             if relay:
                 self._add(self._label(rec.get("question") or "", "seen"), False)
             elif rec.get("question"):
