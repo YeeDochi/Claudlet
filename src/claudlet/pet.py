@@ -5025,9 +5025,23 @@ class Pet(QWidget):
         # 세션 없이 뜬 펫은 넘길 곳이 없다 — 쪽지로 물면 영영 안 나간다.
         # 이벤트에 대한 말은 일을 만들지 않는다.
         if user and reply["relay"] and not self._standalone():
-            # 크리처가 본 세션의 일이라고 판단했다. 본 세션의 🗨 답은 이 질문에 붙는다.
-            self._brain_keep_until = time.monotonic() + 5.0
-            self._send_to_session(True, reply["relay"])
+            self._brain_relay(reply["relay"])
+
+    def _brain_relay(self, request):
+        """크리처가 본 세션의 일이라고 판단했다. 프롬프트에 쳐 넣지 않고 쪽지로 보내고
+        깨운다 — 쳐 넣었더니 사용자의 말이 존댓말로 바뀌어 터미널에 다시 찍혔고(실사용),
+        말투 쪽지가 엉뚱한 프롬프트에 붙었다. 쪽지는 일하는 중이면 다음 툴콜에, 놀고
+        있으면 waiter 가 바로 깨워 닿는다 — 키 입력이 필요 없어 어느 OS 든 같다.
+        본 세션의 🗨 답은 이 질문에 붙는다."""
+        self._brain_keep_until = time.monotonic() + 5.0   # 깨어난 턴이 "전할게" 를 안 지우게
+        outbox.append(self.session_id, request, persona=self._persona,
+                      nickname=self._nickname)
+        outbox.wake(self.session_id)
+        try:
+            askhistory.record_question(self.session_id, request, target="→")
+        except Exception:
+            pass
+        self._refresh_notes()
 
     def _brain_say(self, text, rec):
         self._answer_rec = rec                   # 이 말이 어느 질문의 답인가

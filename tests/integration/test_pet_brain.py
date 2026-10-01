@@ -315,3 +315,17 @@ def test_no_speaking_up_unless_switched_on(pet, world, monkeypatch):  # noqa: F8
     _wait(lambda: False, secs=0.3)
     assert _seen(world) == []
 
+
+
+def test_a_relay_is_never_typed_into_the_prompt(pet, world, monkeypatch):  # noqa: F811
+    # 쳐 넣었더니 사용자 말이 존댓말로 바뀌어 터미널에 다시 찍혔다 — 쪽지로만 간다.
+    monkeypatch.setattr(pet, "session_id", "sess-1")
+    typed = []
+    monkeypatch.setattr(pet, "_konsole_send", lambda t: typed.append(t) or True)
+    _brain_on(world)
+    _fake_claude(world, 'out = "SAY: 전할게\\nRELAY: 빌드 돌려줘"')
+    pet._talk(immediate=True, text="빌드 돌려달라고 해")
+    assert _wait(lambda: pet.snapshot()["saying"] == "전할게")
+    assert typed == []
+    assert outbox.wants_wake(pet.session_id)
+    assert _notes(pet) == ["빌드 돌려줘"]
