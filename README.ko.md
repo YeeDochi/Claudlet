@@ -4,77 +4,33 @@
 
 [![PyPI](https://img.shields.io/pypi/v/claudlet)](https://pypi.org/project/claudlet/)
 
-**Claude Code**의 활동에 실시간으로 반응하는, 데스크톱 위에 사는 작은 픽셀 크리처예요.
-Claude가 작업하면 타이핑하고, 입력이 필요하면 기다리고, 끝나면 신나하고, 코딩하는 동안
-화면을 돌아다녀요. 클릭하면 터미널을 앞으로 가져와요.
+**Claude Code**(와 Codex)의 활동에 실시간으로 반응하는, 데스크톱 위에 사는 작은 픽셀
+크리처예요. 에이전트가 일하면 타이핑하고, 입력이 필요하면 기다리고, 끝나면 신나하고,
+코딩하는 동안 화면을 돌아다녀요. 클릭하면 터미널을 앞으로 가져와요.
 
 아트는 전부 코드로 그려서(이미지 에셋 없음) 자체 완결적이고 오리지널이에요 (아트 CC0).
 
 <p align="center">
-  <img src="docs/creature_sheet.png" width="100%" alt="states">
-</p>
-
-## 실제 사용 모습
-
-실제 데스크톱 화면 녹화 — 펫들이 터미널 타이틀바에 올라타고, 바탕화면을 돌아다니고,
-작업 사이엔 잠들고(💤), 화면에 뭐가 떠 있든 그 위를 타고 다녀요.
-
-<p align="center">
-  <img src="docs/screenshot.png" width="100%" alt="바탕화면 위의 claudlet">
-</p>
-
-<p align="center">
   <img src="docs/demo-3.gif" width="100%" alt="배경 위를 돌아다니는 펫들"><br>
-  <em>실제 데스크톱 캡처 — 화면에 뭐가 떠 있든 그 위를 돌아다녀요.</em>
-</p>
-
-### 에이전트 컴패니언
-
-Claude가 **서브에이전트**를 띄우면, 하나당 모자 쓴 작은 도우미가 펫을 졸졸
-따라다녀요 — 오리 행렬처럼 따라오고, 서브에이전트가 하는 작업을 따라 하고,
-에이전트가 끝나면 "다 됐다!" 인사하고 떠나요.
-
-<p align="center">
-  <img src="docs/companion_demo.gif" width="100%" alt="데스크톱 위 에이전트 컴패니언"><br>
-  <em>실제 데스크톱 캡처 — 서브에이전트 2개, 세션 펫을 따라다니는 모자 쓴 컴패니언 2마리.</em>
-</p>
-
-<p align="center">
-  <img src="docs/companion.gif" width="100%" alt="줄지어 걷는 에이전트 컴패니언">
-</p>
-
-컴패니언마다 랜덤 모자를 써서 구분돼요:
-
-<p align="center">
-  <img src="docs/companion_hats.png" width="100%" alt="컴패니언 모자들">
+  <em>실제 데스크톱 캡처 — 타이틀바에 올라타고, 작업 사이엔 졸고, 화면에 뭐가 떠 있든 그 위를 타고 다녀요.</em>
 </p>
 
 ## 설치
 
-[pipx](https://pipx.pypa.io)로 설치하고(격리 설치 — 의존성 자동 해결, macOS면
-`pyobjc-framework-Quartz`까지, `claudlet*` 명령을 PATH에 올려줌), Claude Code에
-연결:
-
 ```bash
 pipx install claudlet
-claudlet-install      # 감지된 에이전트 전부에 훅 + /claudlet 스킬 등록 (idempotent)
+claudlet-install      # 감지된 에이전트 전부(Claude Code, Codex)에 훅 + /claudlet 스킬 등록
 ```
 
-`claudlet-install` 은 **찾은 에이전트마다** 훅을 걸고 `/claudlet` 스킬을 그 에이전트의
-스킬 폴더(`~/.claude/skills`, `~/.codex/skills`)에 링크해요. 리눅스에서는 설정 앱
-바로가기(`claudlet.desktop`)와 아이콘도 같이 넣어요.
+이후 새 세션은 펫을 알아서 띄워요. 이미 돌아가던 세션은 재시작하세요. **KDE Plasma**에서
+가장 잘 되고, 창 위에 올라타기는 **Windows**·**macOS**에서도 돼요. 그 외 환경에선 그냥
+돌아다녀요. → **[플랫폼 지원](docs/platform.ko.md)**
 
-### 다른 에이전트 (Codex)
+<details><summary>Codex</summary>
 
-claudlet은 Claude Code 전용이 아니에요. `claudlet-install`(과
-`claudlet-install-hooks`)은 **찾은 에이전트 전부**에 훅을 걸어요 — Claude Code는
-`~/.claude/settings.json`, Codex는 `~/.codex/hooks.json`. 하나만 걸고 싶으면:
-
-```bash
-claudlet-install-hooks --agent codex          # Codex만
-claudlet-install-hooks --agent claude,codex   # 둘 다, 명시적으로
-claudlet-install-hooks --remove --agent codex # Codex 훅만 제거
-```
+`claudlet-install` 은 찾은 에이전트 전부에 훅을 걸어요 — Claude Code는
+`~/.claude/settings.json`, Codex는 `~/.codex/hooks.json` — 그리고 자기 항목만
+손대요. 하나만 걸려면 `claudlet-install-hooks --agent codex` (`--remove` 로 제거).
 
 Codex는 `~/.codex/config.toml`에 이게 있어야 훅을 실행해요:
 
@@ -83,241 +39,135 @@ Codex는 `~/.codex/config.toml`에 이게 있어야 훅을 실행해요:
 hooks = true
 ```
 
-그 파일에 들어있는 **다른 앱의 훅은 건드리지 않아요** — claudlet은 자기 것만 손댑니다.
+Codex는 `Notification` 이벤트를 안 보내서, 권한 요청·유휴 알림 상태는 Codex의
+`PermissionRequest`가 대신 맡아요.
+</details>
 
-Codex 세션의 펫은 기본으로 **codex** 크리처를 입어요. 구름 같은 머리에 터미널 화면이
-박혀 있고, 얼굴이 곧 프롬프트예요:
-
-![상태별 codex 크리처](docs/codex-creature.png)
-
-에이전트가 둘 이상 감지되면 설정 페이지(`claudlet-config`)에 에이전트 줄이 생겨서,
-Claude Code와 Codex에 **서로 다른 크리처**를 입힐 수 있어요.
-
-알아둘 차이 하나: Codex는 `Notification` 이벤트를 안 보내요. 그래서 Claude Code가
-그걸로 띄우던 상태(권한 요청·유휴 알림)는 Codex에선 안 떠요 — 대신 Codex의
-`PermissionRequest`가 권한 쪽을 맡습니다.
-
-버전 확인은 `claudlet-version` (설치본 vs 최신 릴리즈). **릴리즈** 최신으로는
-`pipx upgrade claudlet && claudlet-install`, **develop**(엣지) 최신으로는
-`pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install`.
-어느 쪽이든 끝나면 Claude Code 세션을 다시 시작해야(`claude --continue`) 새 훅+펫
-코드가 로드돼요. 아니면 Claude Code 안에서 `/claudlet update`(릴리즈) /
-`/claudlet update latest`(master) 하고 안내 따라가면 됩니다.
-
-제거는 **순서가 중요해요 — 훅부터 떼고, 그다음 패키지 삭제.**
-`claudlet-uninstall`이 `~/.claude/settings.json`에서 훅을 떼는 *유일한* 단계라,
-패키지를 먼저 지우면 훅이 남아서 Claude Code가 없어진 `claudlet-hook`을 계속
-실행하려 해요.
+<details><summary>업데이트</summary>
 
 ```bash
-claudlet-uninstall        # 펫 종료 + 훅 · /claudlet 스킬 해제
-                          #   (--purge면 설정까지 삭제)
+claudlet-version                                                                           # 설치본 vs 최신
+pipx upgrade claudlet && claudlet-install                                                  # 최신 릴리즈
+pipx install --force "git+https://github.com/YeeDochi/Claudlet@develop" && claudlet-install # develop 최신
+```
+
+끝나면 세션을 다시 시작해야(`claude --continue`) 새 훅이 로드돼요. 아니면
+`/claudlet update`(develop은 `update latest`) 하고 안내 따라가면 돼요.
+</details>
+
+<details><summary>제거</summary>
+
+**훅부터 떼고, 그다음 패키지 삭제** — `claudlet-uninstall`이 `~/.claude/settings.json`에서
+훅을 떼는 유일한 단계라, 패키지를 먼저 지우면 Claude Code가 없어진 `claudlet-hook`을
+계속 부르려 해요.
+
+```bash
+claudlet-uninstall        # 펫 종료 + 훅·스킬 해제 (--purge: 설정까지)
 pipx uninstall claudlet   # 위 줄이 성공한 뒤에만
 ```
 
-<details><summary><code>claudlet-uninstall</code>이 안 잡히거나, 소스로 설치한 경우</summary>
-
-**명령어를 못 찾음 (Windows에서 흔함).** `claudlet*` 명령은 pipx의 bin 디렉터리에
-있는데, 그게 PATH에 없으면 셸이 못 찾아요. 해결:
-```
-pipx ensurepath        # pipx bin 디렉터리를 PATH에 추가
-```
-그다음 **터미널을 재시작**하고 `claudlet-uninstall`을 다시 실행하세요. (전체 경로로
-직접 실행하려면 `pipx list`가 설치 위치를 알려줘요.)
-
-**소스 설치** (`install.py` 한 줄 설치는 `~/claudlet`로 클론 — 지울 pip 패키지가
-없어요). 체크아웃의 스크립트를 직접 실행한 뒤 폴더를 지우세요:
-```bash
-python ~/claudlet/bin/claudlet-uninstall
-rm -rf ~/claudlet                                   # Windows: rmdir /s "%USERPROFILE%\claudlet"
-```
-
-**훅을 안 떼고 패키지부터 지워버렸다면?** 훅 항목이 아직 `~/.claude/settings.json`에
-남아 있어요. 잠깐 재설치해서 깔끔하게 떼면 됩니다:
-```
-pipx install claudlet && claudlet-uninstall && pipx uninstall claudlet
-```
-아니면 `~/.claude/settings.json`을 열어 `claudlet-hook` 항목을 직접 지우세요.
+- **명령어를 못 찾음** (Windows에서 흔함): `pipx ensurepath` 후 터미널 재시작, 다시 실행.
+- **소스 설치**: `python ~/claudlet/bin/claudlet-uninstall` 후 `~/claudlet` 삭제.
+- **패키지를 먼저 지워버렸다면?** `pipx install claudlet && claudlet-uninstall && pipx uninstall claudlet`,
+  아니면 `~/.claude/settings.json`에서 `claudlet-hook` 항목을 직접 지우세요.
 </details>
 
 <details><summary>pipx 없이 — 소스 한 줄 설치</summary>
 
 `~/claudlet`로 클론(또는 업데이트)·의존성·훅+스킬 등록:
 ```bash
-# Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python3 -
+curl -fsSL https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python3 -   # Linux / macOS
 ```
 ```powershell
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python -
+irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | python -           # Windows
 ```
 
-pipx와 달리 이 방식은 `claudlet*` 명령을 PATH에 **안 올려요** — `~/claudlet/bin`에
-있어요. 훅은 Claude Code가 전체 경로로 불러서 그대로 동작하지만, `claudlet`·
-`claudlet-config`·`/claudlet update` 같은 걸 직접 실행하려면 그 디렉터리를 PATH에
-추가하세요:
-```bash
-# Linux / macOS — ~/.bashrc 또는 ~/.zshrc에 추가 후 셸 재시작
-export PATH="$HOME/claudlet/bin:$PATH"
-```
-```powershell
-# Windows (PowerShell) — 사용자 PATH에 영구 반영 후 터미널 재시작
-setx PATH "$env:USERPROFILE\claudlet\bin;$env:PATH"
-```
+이 방식은 `claudlet*` 명령이 PATH가 아니라 `~/claudlet/bin`에 있어요. 훅은 그대로
+동작하고, 명령을 직접 치려면 그 디렉터리를 PATH에 추가하세요.
 </details>
-
-이후 새 Claude Code 세션은 펫을 자동으로 띄워요. 이미 돌아가던 세션은 재시작해야 훅을
-인식해요 — 아니면 `claudlet`로 지금 하나 띄워도 돼요.
-
-**KDE Plasma**에서 가장 잘 동작해요. 창 위에 올라타기/타고 다니기는 **Windows**(Win32)와
-**macOS**(`pyobjc-framework-Quartz` 필요, 인스톨러가 자동 설치하고 창 좌표는 런타임에 자동
-보정)에서도 되고 — 셋 다 실기 검증됐어요 — 그 외 환경에선 창 기능만 곱게 꺼지고 펫은 그냥
-돌아다녀요. → **[플랫폼 지원](docs/platform.md)**
 
 ## 뭘 보여주나요
 
-크리처의 포즈가 Claude가 지금 뭘 하는지를 따라가요 — 편집·읽기·MCP 호출·생각·
-입력 대기·완료(위 시트 참고). Claude가 **혼자 알아서 돌아갈 때**(auto/bypass 모드)도
-그걸 보여줘요 — 기본 크리처는 VR 바이저를 눈 위로 내려 써요. 또 **창에 올라타고 함께 다녀요** — 상단을 걷거나 안에서 지내고, 올라탄 창이
-가려지거나 최소화되면 같이 잘리거나 숨어요.
+포즈가 에이전트가 지금 뭘 하는지를 따라가요 — 편집·읽기·MCP 호출·생각·입력 대기·완료·실패.
+혼자 알아서 돌아갈 때(auto/bypass 모드)는 VR 바이저를 눈 위로 내려 써요.
 
-Claude가 **서브에이전트**를 돌리면 하나당 모자 쓴 **컴패니언**(최대 3마리)이 나타나 펫을
-오리 행렬로 따라다니며 서브에이전트 활동을 반영하고, 끝나면 작은 축하와 함께 떠나요 — 에이전트
-작업이 지금 돌고 있다는 걸 한눈에 보여줘요.
+<p align="center">
+  <img src="docs/creature_sheet.png" width="60%" alt="states">
+</p>
+
+에이전트가 **서브에이전트**를 띄우면 하나당 모자 쓴 컴패니언(최대 3마리)이 펫을 졸졸
+따라다니며 그 작업을 따라 하고, 끝나면 인사하고 떠나요.
+
+<p align="center">
+  <img src="docs/companion_demo.gif" width="100%" alt="데스크톱 위 에이전트 컴패니언">
+</p>
 
 ## 말 걸기
 
-펫은 이제 듣기만 하지 않아요. **우클릭 → 💬 대화 시작…** 을 고르면 대화창이 떠요.
-메신저처럼 위에는 주고받은 말이, 아래에는 입력칸이 있어요. **엔터**를 치면 친 말이 그대로
-세션 프롬프트에 들어가 제출되고, **➤ 를 우클릭 → 📝 쪽지로 남기기** 는 펫이 쪽지를
-**입에 물고 있다가** 다음 훅 경계에서 전해요 — 에이전트가 일하는 중이면 다음 툴 호출에서
-바로 닿고, 쉬고 있으면 다음 프롬프트에 실려 가요. 뭘 물고 있는지 항상 보이니까 모르는
-새에 딸려 가는 일은 없고, 마음이 바뀌면 우클릭 메뉴에서 버리면 돼요.
+**우클릭 → 💬 대화 시작…** 하면 대화창이 떠요. **엔터**는 친 말을 그대로 세션에 넣고,
+**➤ 우클릭 → 📝 쪽지로 남기기** 는 펫이 쪽지를 입에 물고 있다가 다음 툴 호출이나
+프롬프트에 실어 보내요. **🎯** 로 창을 드래그하면 그 창 내용이 다음 말과 같이 가요.
+
+답은 크리처의 목소리로 머리 위 말풍선에 떠요 — 크리처마다 이름과 말투를 따로 줄 수
+있어요(설정 페이지).
 
 <p align="center"><img src="docs/chat.png" width="440" alt="대화창"></p>
 
-입력칸 왼쪽 **🎯** 로 화면의 한 영역을 드래그하면 그 창이 입력칸 위에 칩으로 붙고,
-다음에 보내는 말과 함께 그 창에서 읽은 내용이 실려 가요(✕ 로 떼면 말만 가요). 커서
-모양·세션 프로필 같은 포인터 설정은 대화창 위쪽 **⚙** 에 있어요. 창 맨 위에는 지금 입은
-크리처의 얼굴과 이름(붙여준 이름이 있으면 그것)이 떠서 누구랑 얘기하는지 보여요. 세션 없이 띄운
-펫은 클릭하면 대화창이 떠요.
+<details><summary>플랫폼별 참고</summary>
 
-![펫에게 말 걸기](docs/talk.png)
-
-답은 **크리처의 목소리로 머리 위 말풍선**에 떠요. 터미널에는 평소대로 작업 설명이
-남고, 말풍선에는 크리처가 하는 한 줄만 떠요 — 둘은 다른 거니까요. 잡담을 걸면
-에이전트는 업무 답변을 굳이 덧붙이지 않아요.
-
-크리처마다 **이름과 말투**를 따로 줄 수 있어요(설정 페이지). 이름을 부르면 자기를
-부르는 줄 알고, 말투는 답하는 목소리를 정해요. 크리처가 기본값을 들고 오고(슬라임은
-느릿느릿 물컹하게, 우주비행사는 무전 교신하듯) 적어둔 게 있으면 그게 이겨요.
-
-Claude Code 와 Codex 둘 다 돼요.KDE에서는 Konsol 설정의 *보안에 민감한 DBus API 활성화* 가 켜져 있어야 하고, 그게 아닌 곳에서는
-엔터가 쪽지로 남겨져요(입력칸에 그렇게 적혀요).
-
-> **리눅스 한글 입력(fcitx):** pip 로 깔린 Qt 에는 fcitx 입력기가 없어서 입력칸에 한글이
-> 안 쳐져요. 배포판 PyQt6(`sudo apt install python3-pyqt6`)가 있으면 펫이 알아서
-> 그쪽 Qt 로 다시 떠서 한글이 돼요.
-
-> macOS 는 터미널이어도 바로 보내기가 아직 없고 쪽지만 돼요.
+- **KDE**: 바로 보내려면 Konsole 설정의 *보안에 민감한 DBus API 활성화* 가 켜져 있어야
+  해요. 아니면 엔터가 쪽지로 남겨져요(입력칸에 그렇게 적혀요).
+- **macOS**: 아직 쪽지만 돼요.
+- **리눅스 한글 입력(fcitx)**: pip 로 깔린 Qt 에는 fcitx 입력기가 없어요. 배포판
+  PyQt6(`sudo apt install python3-pyqt6`)가 있으면 펫이 그쪽 Qt 로 다시 떠서 한글이 돼요.
+</details>
 
 ## 창 찾아오기
 
-창 열 개 뒤에 묻혔거나, 최소화했거나, 다른 데스크톱에 두고 온 창이 있나요?
-에이전트한테 "슬랙 창 꺼내줘", "아까 보던 PR 창 찾아줘" 하면 **펫이 가서 가져와요**.
-에이전트가 목록에서 제목을 보고 창을 고르고, 나머지는 펫이 **그 앱 아이콘을 입에 물고** 해요:
-
-- **최소화·최대화된 창** — 펫이 딛고 선 자리에서 폴짝 뛰어 뚫고 사라지면, 창이
-  **바로 그 자리로** 올라와요. 펫은 창 윗변을 타고 올라와 아이콘을 치켜들어요.
-- **이미 떠 있는데 가려진 창** — 펫이 달려가 이쪽을 향한 모서리에 뛰어올라 붙잡고,
-  몸 두 배씩 **낑차낑차 끌고 와요**.
-
-"**여기로** 끌고 와" 라고 하면 최대화된 창도 최대화를 풀고 끌고 와요.
-`claudlet-window chat` 은 펫 대화창을 다시 불러와요.
+창 열 개 뒤에 묻혔거나 최소화한 창이 있나요? 에이전트한테 "슬랙 창 꺼내줘" 하면
+**펫이 그 앱 아이콘을 물고 가서 가져와요**. 최소화된 창은 펫이 서 있던 자리로 올라오고,
+가려진 창은 펫이 붙잡고 낑차낑차 끌고 와요.
 
 <p align="center"><img src="docs/window-fetch.gif" width="100%" alt="펫이 창을 찾아오는 모습"></p>
 
-KDE Plasma(다른 가상 데스크톱 포함)와 Windows 에서 동작해요. macOS 에선 최소화된 창이
-목록에 안 나오고, 창 하나가 아니라 앱 전체를 앞으로 가져와요.
+KDE Plasma와 Windows에서 돼요. macOS 에선 최소화된 창이 목록에 안 나오고 앱 전체를
+앞으로 가져와요.
 
 ## 내 맘대로 꾸미기
 
-![설정 화면](docs/settings-ui.png)
+`/claudlet setting`(또는 `claudlet-config ui`)을 치면 **어떤 크리처를 입힐지**와
+**색·크기**를 고르는 페이지가 열려요. 진짜 렌더러로 미리 보여주고, 에이전트가 둘 이상이면
+에이전트마다 탭이 생겨요.
 
-`/claudlet setting`(또는 `claudlet-config ui`)을 치면 **어떤 크리처를 입힐지**, 그리고
-크리처마다 **색과 크기**를 고르는 페이지가 열려요. 목록의 크리처들은 **진짜 렌더러로
-그려서** 보여주기 때문에 화면에서 보이는 게 곧 바탕화면에 뜨는 모습이에요. 설정은
-크리처마다 따로라서, 하나를 꾸며도 다른 크리처 색이 따라 바뀌지 않아요.
+<p align="center"><img src="docs/settings-ui.png" width="360" alt="설정 화면"></p>
 
-에이전트가 둘 이상 깔려 있으면 **에이전트마다 탭**이 생겨요 — Claude Code 와 Codex 에
-각각 다른 크리처를 입힐 수 있어요. 터미널이 편하면 `claudlet-config wear <크리처>
-[--agent codex]` 한 줄로도 바뀌고, 떠 있는 펫은 바로 갈아입어요.
-
-페이지는 고정 포트로 로컬에서 열리고 평소 쓰는 브라우저로 떠요. 웹앱 manifest 도 같이
-주기 때문에 브라우저 메뉴에서 **앱으로 설치**하면 그다음부터는 자기 창으로 열리고,
-설치 없이 그 창만 쓰고 싶으면 `claudlet-config ui --app` 이에요.
-
-크리처는 데이터 파일이 아니라 작은 **패키지**예요. 펫은 "지금 이 상태" 만 알려주고,
-그게 어떻게 보이는지는 전부 크리처 안에서 정해요. 그래서 새로 만들 수 있어요:
-
-```
-/claudlet make 검은 고양이
-/claudlet make 시무룩한 작은 로봇
-```
-
-`~/.config/claudlet/creatures/<이름>/` 에 만들어지고 설정 목록에 바로 떠요. 기본으로
-네 마리가 들어 있어요:
+기본으로 네 마리가 들어 있고, `/claudlet make <원하는 것>` 으로 새로 만들 수 있어요
+(`/claudlet make 검은 고양이`):
 
 ![같은 상태를 각자 방식으로 — claudlet, codex, astronaut, slime](docs/creatures.png)
 
-**codex** 는 Codex 세션의 펫이 기본으로 입는 크리처고, 나머지 둘은 **본보기**예요.
-둘 다 기본 크리처와 몸꼴이 전혀 달라요:
+크리처는 작은 파이썬 패키지라서 사각형으로 그리든 스프라이트 시트를 찍든 마음대로예요 —
+**[크리처 만들기](src/claudlet/skill/creature-authoring.md)** 참고. 설정 페이지의 화살표
+버튼으로 zip 내보내기·가져오기를 하고, 가져올 땐 남의 코드를 돌리는 거라 설치 전에
+내용물을 먼저 보여줘요.
 
-- **astronaut** — 인간형. 헬멧·몸통·두 팔·두 다리·등에 멘 생명유지팩으로 두 발로
-  서요. 팔은 어깨가 붙박이고 **손이** 움직이고, 혼자 돌아갈 때를 헤드셋 대신
-  **빛나는 바이저와 깜빡이는 안테나**로 보여줘요.
-- **slime** — 다리가 아예 없어요. 걷기는 통통 튀는 것이 되고, 기울 때는 회전하는
-  대신 옆으로 밀려요(얇은 판을 쌓은 몸이라 돌리면 가장자리가 다 뭉개지거든요).
+## `/claudlet`
 
-둘 다 고민하고 타이핑하고 잠들어요 — 모션과 프롭은 크리처가 아니라 **펫이 주는**
-거라서, 크리처는 몸만 그리면 돼요. 직접 만들 거면 둘 중 아무거나
-[creature-authoring.md](src/claudlet/skill/creature-authoring.md) 와 같이 읽어보세요.
+`claudlet-install` 이 `/claudlet` 스킬을 찾은 에이전트 전부에 링크해줘요:
 
-크리처를 꼭 사각형으로 그려야 하는 건 아니에요. 펫은 상태와 프레임만 알려주고 그
-외에는 아무것도 묻지 않으니, 프레임을 **데이터로** — 점 하나에 문자 하나, 팔레트와
-함께 — 들고 있다가 찍어도 돼요. 얼굴이 열두 점쯤 되는 크기에서는 그 차이가
-얼굴이냐 얼굴 비슷한 것이냐를 가릅니다:
+- `/claudlet` — **이** 세션에 펫 붙이기 · `/claudlet standalone` — 세션에 안 붙은 펫
+- `/claudlet <모션>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · … (`list`, `stop`)
+- `/claudlet setting` · `wear <크리처>` · `make <설명>` · `export` / `import`
+- `/claudlet config` — 아니면 그냥 말로("Bash 돌 때 점프하게")
+- `/claudlet window <무엇>` — 창을 찾아 펫이 가져와요
+- `/claudlet update`
 
-![스프라이트 시트로 만든 크리처](docs/sprite-creature.gif)
-
-저건 스프라이트 시트에서 잘라낸 60 프레임이에요 — 좌우 각각의 걸음걸이, 달리기,
-전신 감정 표현, 누워 자는 자세, 그리고 자동으로 일하는 동안 머리카락에 붙는 불까지.
-만드는 순서와 함정들(구체적이고, 비싸게 배운 것들)은 제작 문서의 **Creatures made
-from a sprite sheet** 절에 있어요.
-
-### 크리처 주고받기
-
-![크리처 가져오기](docs/settings-import.png)
-
-크리처 줄 옆의 화살표 버튼이 **지금 보고 있는 크리처를 zip 으로 내보내고**, 남이 준
-크리처를 **가져와요**(터미널에서는 `claudlet-config export <크리처>` /
-`import <파일.zip>`).
-
-가져오기는 **남의 파이썬을 내 기계에서 돌리는 일**이에요 — 펫이 시작할 때 그 패키지를
-임포트하니까요. 그래서 일부러 두 단계예요: 압축 안에 뭐가 들었는지 먼저 보여주고,
-네가 "설치" 를 누르기 전에는 아무것도 쓰지 않아요. 대상 폴더 밖으로 나가려 하거나,
-심볼릭 링크를 숨겼거나, 파일명에 제어문자가 있거나, 크리처치고 말이 안 되게 큰
-아카이브는 그냥 거부하고, 설치가 도중에 실패해도 **원래 있던 크리처는 그대로** 남아요.
-계약과 함정은 [creature-authoring.md](src/claudlet/skill/creature-authoring.md) 에 있어요.
-
-## 명령어
-
-`pipx install claudlet` 하면 아래 명령들이 PATH에 깔려요:
+<details><summary>셸 명령어</summary>
 
 | 명령어 | 하는 일 |
 |---|---|
 | `claudlet` | 펫 바로 실행 (standalone). |
-| `claudlet-install` | Claude Code에 훅 + `/claudlet` 스킬 등록 — 설치 후 한 번 실행. |
+| `claudlet-install` | 훅 + `/claudlet` 스킬 등록 — 설치 후 한 번 실행. |
 | `claudlet-uninstall` | 펫 종료 + 훅·스킬 해제 + 정리 (`--purge`면 설정도 삭제). |
 | `claudlet-config` | 사용자 설정 보기/생성/열기 (`--path`, `init`, `open`). `ui` 는 겉모습 페이지 (`--app` 은 자기 창으로, `--agent <이름>` 은 그 에이전트 화면으로). |
 | `claudlet-config wear <크리처>` | 크리처 갈아입히기. `--agent <이름>` 이면 그 에이전트만. 인자 없이 치면 목록. |
@@ -326,36 +176,21 @@ from a sprite sheet** 절에 있어요.
 | `claudlet-version` | 설치된 버전 vs PyPI 최신 릴리즈 표시. |
 | `claudlet-attach` | 현재 Claude Code 세션에 펫 붙이기. |
 | `claudlet-motion <이름>` | 실행 중인 펫에 모션 재생 (`jump`, `wave`, … ; `stop`, `list`). |
-| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만, 감지된 에이전트 전부에 (`--agent codex`로 좁히기, `--remove`로 취소). |
-| `claudlet-window` | 창 찾아서 펫이 가져오게 하기: `list` (JSON, 맨 위부터), `raise <id>` (`--wait` 정말 앞에 뜰 때까지 대기, `--pull` 최대화 창도 끌고 오기), `chat` 은 펫 대화창. |
+| `claudlet-install-hooks` | `claudlet-install`의 훅 부분만 (`--agent codex`로 좁히기, `--remove`로 취소). |
+| `claudlet-window` | 창 `list` (JSON, 맨 위부터), `raise <id>` (`--wait`, `--pull`), `chat` 은 펫 대화창. |
 | `claudlet-doctor` | 뭐가 꺼져 있어서 뭐가 안 되는지 알려줘요 (`--quiet`: 문제 있을 때만). |
 | `claudlet-macos-diag` | macOS 창 좌표 원본 출력 (perch 문제 진단). |
-| `claudlet-hook` | 내부용 — Claude Code 훅이 호출, 직접 쓰는 게 아님. |
-
-### `/claudlet` 스킬
-
-`claudlet-install`이 `/claudlet` 스킬을 **찾은 에이전트 전부**에 링크해줘서,
-Claude Code 에서도 Codex 에서도 프롬프트로 바로 펫을 조종할 수 있어요:
-
-- `/claudlet` — **이** 세션에 펫 붙이기 (세션 활동에 반응)
-- `/claudlet standalone` — 세션에 안 붙은 장식용 펫
-- `/claudlet <모션>` — `jump` · `wave` · `sing` · `juggle` · `float` · `celebrate` · `thinking` · `sleeping` · `error` · `attention` (그리고 `list`, `stop`)
-- `/claudlet setting` — 겉모습: 어떤 크리처를 입힐지, 그 크리처의 색 · 크기 · 특수모드 표시
-- `/claudlet wear <크리처> [for <에이전트>]` — 크리처 갈아입히기 (이 에이전트, 또는 지정한 에이전트)
-- `/claudlet export <크리처>` / `/claudlet import <경로>` — 크리처를 zip 으로 주고받기 (가져올 땐 내용물을 먼저 보여줘요)
-- `/claudlet make <설명>` — 펫이 입을 새 크리처를 만들어줘요
-- `/claudlet config` — 설정 보기, 또는 자연어로 요청("Bash 돌 때 점프하게")하면 Claude가 대신 편집
-- `/claudlet window <무엇>` — 묻히거나 최소화된 창을 찾아 펫이 가져와요 (그냥 "브라우저 꺼내줘" 라고 해도 돼요)
-- `/claudlet update` — 최신 릴리즈로 업데이트 (`update latest`면 develop 최신); 버전 보여주고 단계 안내
+| `claudlet-hook` | 내부용 — 에이전트 훅이 호출, 직접 쓰는 게 아님. |
+</details>
 
 ## 문서
 
-- **[사용법 & 인터랙션](docs/usage.ko.md)** — 드래그/던지기, 클릭-포커스, 트레이 메뉴, 모션, 자동시작, 제거
-- **[설정](docs/configuration.ko.md)** — 어떤 활동에 어떤 애니를 보일지 재매핑 (`claudlet-config` 또는 `/claudlet config`로 위치 확인·점검)
-- **[크리처 만들기](src/claudlet/skill/creature-authoring.md)** — 계약, 크리처가 물려받는 모션·프롭 도구, 안 겪어도 되는 렌더링 함정들
+- **[사용법 & 인터랙션](docs/usage.ko.md)** — 드래그/던지기, 클릭-포커스, 트레이 메뉴, 모션, 자동시작
+- **[설정](docs/configuration.ko.md)** — 어떤 활동에 어떤 애니를 보일지 재매핑
+- **[크리처 만들기](src/claudlet/skill/creature-authoring.md)** — 계약, 크리처가 물려받는 모션·프롭 도구, 렌더링 함정
 - **[플랫폼 지원](docs/platform.ko.md)** — 지원 매트릭스 + 각 OS 테스트 방법
-- **[기여 가이드](CONTRIBUTING.ko.md)** — 개발 환경 설정, 테스트 실행, 코드 스타일, 브랜치 모델
-- **[변경 이력](https://github.com/YeeDochi/Claudlet/releases/latest)** — 릴리즈마다 뭐가 바뀌었는지 (한/영 병기)
+- **[기여 가이드](CONTRIBUTING.ko.md)** — 개발 환경, 테스트, 브랜치 모델
+- **[변경 이력](https://github.com/YeeDochi/Claudlet/releases/latest)**
 
 ## 기여자
 
