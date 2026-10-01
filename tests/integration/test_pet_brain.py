@@ -117,7 +117,7 @@ def test_speaking_again_answers_both(pet, world):  # noqa: F811
     # 앞의 생각을 죽였더니 앞의 말이 답도 못 받고 본 세션에도 안 가서 사라졌다.
     from claudlet.core import history as H
     _brain_on(world)
-    _fake_claude(world, 'line=$(tail -n1); sleep 0.3; echo "SAY: $line 들었어"')
+    _fake_claude(world, 'line=$(sed -n "/## The user says/{n;p;}"); sleep 0.3; echo "SAY: $line 들었어"')
     pet._talk(immediate=True, text="첫번째")
     pet._talk(immediate=True, text="두번째")
     assert _wait(lambda: not pet._brain_busy())
