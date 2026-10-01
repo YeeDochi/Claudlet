@@ -187,6 +187,9 @@ DEFAULT_POINTER = {
     # 글자를 못 읽은 창은 고른 순간의 화면을 찍어 보낸다. 이미지는 redact() 로
     # 비밀을 못 가리니 기본은 꺼 둔다.
     "screenshot": False,
+    # 말 걸기를 본 세션 대신 크리처 머리(core/brain.py)가 먼저 받는다. 말할 때마다
+    # 별도 호출이 나가 사용량이 들므로 기본은 꺼 둔다.
+    "brain": False,
 }
 POINTER_BUBBLE = ("closed", "always")
 
@@ -218,6 +221,9 @@ def _clean_pointer(v):
 
     if isinstance(v.get("screenshot"), bool):
         d["screenshot"] = v["screenshot"]
+
+    if isinstance(v.get("brain"), bool):
+        d["brain"] = v["brain"]
 
     hot = v.get("hotspot")
     if isinstance(hot, (list, tuple)) and len(hot) == 2:

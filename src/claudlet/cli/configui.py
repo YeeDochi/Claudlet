@@ -668,6 +668,9 @@ TEXT = {
         "ptr_shot": "화면 캡처",
         "ptr_shot_hint": "포인터로 고른 영역을 찍어 질문과 같이 보냅니다."
                          " 이미지 속 비밀번호·토큰은 가려지지 않아요.",
+        "ptr_brain": "크리처가 먼저 답하기",
+        "ptr_brain_hint": "말 걸기를 본 세션 대신 크리처가 받아요. 잡담은 크리처가 답하고,"
+                          " 일은 크리처가 본 세션에 넘겨요. 말할 때마다 별도 호출이 나가요.",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "redress": "다시 불러오기",
@@ -711,6 +714,10 @@ TEXT = {
         "ptr_shot": "Screenshot",
         "ptr_shot_hint": "The region you pick is sent as a picture along with"
                          " the question. Secrets in the image are not masked.",
+        "ptr_brain": "Creature answers first",
+        "ptr_brain_hint": "What you say goes to the creature instead of the session."
+                          " It handles small talk and hands real work to the session."
+                          " Each message is a separate call.",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",
@@ -1004,6 +1011,11 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <span class="hint">__T_ptr_shot_hint__</span>
     </div>
     <div class="row">
+      <label for="ptrBrain">__T_ptr_brain__</label>
+      <input type="checkbox" id="ptrBrain">
+      <span class="hint">__T_ptr_brain_hint__</span>
+    </div>
+    <div class="row">
       <button id="ptrSave">__T_save__</button>
       <span id="ptrSaid"></span>
     </div>
@@ -1195,6 +1207,7 @@ function fillPrefs(s) {
   $("ptrDir").value = p.claude_config_dir || "";
   $("ptrBubble").value = p.bubble || "closed";
   $("ptrShot").checked = !!p.screenshot;
+  $("ptrBrain").checked = !!p.brain;
 }
 $("ptrSave").addEventListener("click", async () => {
   const r = await fetch("/api/config", {method: "POST",
@@ -1202,7 +1215,8 @@ $("ptrSave").addEventListener("click", async () => {
     body: JSON.stringify({agent: S.agent, pointer: {
       cursor: $("ptrCursor").value, image: $("ptrImage").value.trim() || null,
       claude_config_dir: $("ptrDir").value.trim() || null,
-      bubble: $("ptrBubble").value, screenshot: $("ptrShot").checked}})});
+      bubble: $("ptrBubble").value, screenshot: $("ptrShot").checked,
+      brain: $("ptrBrain").checked}})});
   fill(await r.json());
   $("ptrSaid").textContent = T.ptr_saved;
 });

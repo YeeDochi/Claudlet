@@ -130,3 +130,16 @@ def test_the_bubble_choice_survives_and_junk_falls_back():
     assert P._clean_pointer({"bubble": "always"})["bubble"] == "always"
     assert P._clean_pointer({"bubble": "sometimes"})["bubble"] == "closed"
     assert P._clean_pointer(None)["bubble"] == "closed"
+
+
+# ---- 크리처 머리 ----
+
+def test_brain_is_off_by_default():
+    assert P.load_config()["pointer"]["brain"] is False
+
+
+def test_brain_takes_only_a_bool():
+    _write({"brain": True})
+    assert P.load_config()["pointer"]["brain"] is True
+    _write({"brain": "yes"})
+    assert P.load_config()["pointer"]["brain"] is False

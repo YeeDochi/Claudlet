@@ -1247,7 +1247,7 @@ def test_the_prefs_tab_drops_a_bogus_pointer(tmp_path, monkeypatch):
             broadcast=lambda line: 0)
     raw = json.loads(path.read_text(encoding="utf-8"))["pointer"]
     assert raw == {"cursor": petconfig.DEFAULT_POINTER_CURSOR, "bubble": "closed",
-                   "screenshot": False}
+                   "screenshot": False, "brain": False}
 
 
 def test_the_page_has_a_prefs_tab_with_the_pointer_settings(tmp_path, monkeypatch):
