@@ -1720,6 +1720,7 @@ class Pet(QWidget):
         self._click_times = []
 
         self._persona = getattr(self, "_persona", "")
+        self._background = getattr(self, "_background", "")
         self._nickname = getattr(self, "_nickname", "")
         self._notes = 0                    # 물고 있는 쪽지 수
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
@@ -2096,8 +2097,13 @@ class Pet(QWidget):
             os.environ.get("CLAUDLET_SCALE") or look["scale"],
             bool(getattr(self.avatar, "fractional_scale", False)))
         self._visor_mode = look["visor"]
-        self._persona = look.get("persona", "")
-        self._nickname = look.get("nickname", "")
+        voice = (look.get("persona", ""), look.get("nickname", ""),
+                 look.get("background", ""))
+        if voice != (getattr(self, "_persona", None), getattr(self, "_nickname", None),
+                     getattr(self, "_background", None)) and getattr(self, "_brain", None):
+            # 띄워 둔 머리는 처음 받은 지시(말투·배경)를 기억한다 — 바뀌었으면 새로 띄운다
+            self._brain_stop()
+        self._persona, self._nickname, self._background = voice
 
     def _restyle(self, reload=False):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -4960,7 +4966,8 @@ class Pet(QWidget):
                 hist = []
         system, user = brain.build_prompt(self._persona, self._nickname, hist,
                                           brain.recent_context(fresh), text, pointed,
-                                          alone=self._standalone(), event=event)
+                                          alone=self._standalone(), event=event,
+                                          background=self._background)
         return brain.stdin_for(system, user) if first else user
 
     def _brain_ask(self, text, pointed="", target="", read_text="", region=None,

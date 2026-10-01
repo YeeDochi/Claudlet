@@ -430,6 +430,8 @@ def clean_creature_updates(body, fractional=False):
         out["visor"] = None if v is None else petconfig.clean_visor(v)
     if "persona" in body:
         out["persona"] = petconfig.clean_persona(body.get("persona"))
+    if "background" in body:
+        out["background"] = petconfig.clean_background(body.get("background"))
     if "nickname" in body:
         out["nickname"] = petconfig.clean_nickname(body.get("nickname"))
     return out
@@ -687,6 +689,8 @@ TEXT = {
         "nickname_help": "이 이름으로 부르면 자기를 부르는 줄 안다",
         "persona": "말투", "persona_ph": "예: 짧고 퉁명스럽게, 반말로",
         "persona_help": "펫에게 말을 걸면 이 말투로 답한다",
+        "background": "배경", "background_ph": "외모, 성격, 사연, 좋아하는 것, 말버릇 예시… 깊은 설정도 OK",
+        "background_help": "크리처가 먼저 답하기를 켰을 때 크리처에게만 가요 (본 세션엔 안 들어가요)",
         "named": "지금은 %s — 색을 고르면 바뀝니다",
         "saved": "%s 설정을 저장했습니다", "switched": "%s 로 갈아입혔습니다",
         "reverted": "%s 를 기본으로 되돌렸습니다",
@@ -738,6 +742,8 @@ TEXT = {
         "nickname_help": "what to call it, so it knows when it is addressed",
         "persona": "Voice", "persona_ph": "e.g. short and blunt",
         "persona_help": "how it answers when you talk to the pet",
+        "background": "Background", "background_ph": "looks, personality, backstory, likes, sample lines… go deep",
+        "background_help": "sent only to the creature when 'Creature answers first' is on (never to the session)",
         "named": "currently %s — pick a colour to change it",
         "saved": "Saved %s", "switched": "Now wearing %s",
         "reverted": "%s back to defaults",
@@ -814,6 +820,8 @@ label{width:64px;color:var(--dim)}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
 input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+textarea{flex:1;min-width:180px;background:var(--sunk);border:1px solid var(--line);
+         color:var(--fg);border-radius:7px;padding:8px 10px;font:inherit;resize:vertical}
 input[type=text]{flex:1;min-width:180px;background:var(--sunk);
                  border:1px solid var(--line);color:var(--fg);
                  border-radius:7px;padding:8px 10px;font:inherit}
@@ -988,6 +996,11 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <input type="text" id="persona" maxlength="200"
                placeholder="__T_persona_ph__" title="__T_persona_help__">
       </div>
+      <div class="row" id="backgroundRow">
+        <label for="background">__T_background__</label>
+        <textarea id="background" rows="4" maxlength="2000"
+                  placeholder="__T_background_ph__" title="__T_background_help__"></textarea>
+      </div>
       <div id="shots"></div>
     </section>
   </div>
@@ -1107,6 +1120,7 @@ function showCreature(name) {
   $("scale").value = look.scale || S.scale;
   $("nickname").value = look.nickname || "";
   $("persona").value = look.persona || "";
+  $("background").value = look.background || "";
   $("visor").innerHTML = S.visor_modes.map((v) =>
     `<button data-v="${v}" aria-pressed="${v === (look.visor || "auto")}">` +
     `${VISOR_LABEL[v] || v}</button>`).join("");
@@ -1286,6 +1300,7 @@ $("save").addEventListener("click", async () =>
   fill(await post({agent: S.agent, creature: editing, palette: $("col").value,
                    scale: +$("scale").value, visor: visorNow(),
                    persona: $("persona").value,
+                   background: $("background").value,
                    nickname: $("nickname").value},
                   T.saved.replace("%s", editing))));
 async function doWear() {

@@ -189,3 +189,10 @@ def test_a_standalone_pet_is_told_it_cannot_relay():
     system, _ = brain.build_prompt("", "", [], "", "고쳐줘", alone=True)
     assert "standalone" in system
     assert "standalone" not in brain.build_prompt("", "", [], "", "고쳐줘")[0]
+
+
+def test_background_goes_to_the_creature_only():
+    system, user = brain.build_prompt("짧게", "루시엘", [], "", "안녕",
+                                      background="하얀 털의 설표.\n더위를 싫어한다.")
+    assert "하얀 털의 설표" in system and "더위를 싫어한다" in system
+    assert "설표" not in user

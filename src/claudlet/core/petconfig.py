@@ -311,6 +311,8 @@ def _clean_creatures(raw):
                      "visor": clean_visor(v.get("visor")),
                      # 말투도 크리처의 것이다 — 슬라임과 claudlet 은 다르게 말한다
                      "persona": clean_persona(v.get("persona")),
+                     # 배경은 크리처 머리에만 간다 — 본 세션에 안 들어가서 길어도 된다
+                     "background": clean_background(v.get("background")),
                      # 이름도 마찬가지다. 슬라임은 "라임", claudlet 은 다른 이름.
                      "nickname": clean_nickname(v.get("nickname"))}
     return out
@@ -356,9 +358,13 @@ def for_creature(cfg, name, avatar=None):
     nickname = mine.get("nickname")
     if nickname is None:
         nickname = getattr(avatar, "nickname", None)
+    background = mine.get("background")
+    if background is None:
+        background = clean_background(getattr(avatar, "background", None))
     return {"palette": palette, "scale": scale,
             "visor": mine.get("visor") or DEFAULT_VISOR,
             "persona": str(persona or "").strip(),
+            "background": str(background or "").strip(),
             "nickname": str(nickname or "").strip()}
 
 
@@ -372,6 +378,19 @@ def clean_nickname(raw):
 
 
 PERSONA_MAX = 200          # 한 줄 지시면 충분하다. 주입되는 컨텍스트이기도 하고.
+
+
+BACKGROUND_MAX = 2000      # 성격·사연·말버릇. 크리처 머리에만 가니 말투보다 길어도 된다.
+
+
+def clean_background(raw):
+    """저장할 크리처 배경(여러 줄), 또는 지우라는 뜻의 None. 순수.
+    줄바꿈은 살리고 줄마다 앞뒤 공백만 걷는다 — 문단으로 적는 글이다."""
+    lines = [" ".join(l.split()) for l in str(raw or "").splitlines()]
+    text = "\n".join(lines).strip()
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text[:BACKGROUND_MAX] if text else None
 
 
 def clean_persona(raw):

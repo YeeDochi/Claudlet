@@ -85,12 +85,16 @@ agent session to pass it to, and never write a RELAY line."""
 
 
 def build_prompt(persona, name, history, recent, text, pointed="", alone=False,
-                 event=None):
+                 event=None, background=""):
     """(시스템 프롬프트, 사용자 메시지). `history` 는 history.load 순서(최신 먼저).
     `alone`: 세션 없이 뜬 펫 — 넘길 곳이 없다. `event`: 사용자 말 대신 세션에서 생긴
     일(먼저 말 걸기) — 그때 `text` 는 쓰지 않는다."""
     voice = "Your voice: {}".format(persona) if persona else ""
     system = _SYSTEM.format(name=name or "the creature", voice=voice)
+    if background:
+        # 크리처 머리에만 가는 긴 배경. 본 세션에는 짧은 말투만 들어간다.
+        system += ("\n\nAbout you — your looks, personality and story. Stay in "
+                   "character, but keep each SAY short:\n" + background)
     if alone:
         system += _ALONE
     pairs = [r for r in (history or []) if r.get("answer")][:HISTORY_PAIRS]
