@@ -190,6 +190,9 @@ DEFAULT_POINTER = {
     # 말 걸기를 본 세션 대신 크리처 머리(core/brain.py)가 먼저 받는다. 말할 때마다
     # 별도 호출이 나가 사용량이 들므로 기본은 꺼 둔다.
     "brain": False,
+    # 켜 둔 머리가 세션의 굵직한 일(턴 끝·에러·권한 요청)에 먼저 말을 건다.
+    # 그때마다 호출이 나가므로 따로 켠다.
+    "brain_chatty": False,
 }
 POINTER_BUBBLE = ("closed", "always")
 
@@ -222,8 +225,9 @@ def _clean_pointer(v):
     if isinstance(v.get("screenshot"), bool):
         d["screenshot"] = v["screenshot"]
 
-    if isinstance(v.get("brain"), bool):
-        d["brain"] = v["brain"]
+    for key in ("brain", "brain_chatty"):
+        if isinstance(v.get(key), bool):
+            d[key] = v[key]
 
     hot = v.get("hotspot")
     if isinstance(hot, (list, tuple)) and len(hot) == 2:

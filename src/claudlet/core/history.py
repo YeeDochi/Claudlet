@@ -16,6 +16,7 @@ data on the user's own disk, but it is real content -- so the file is created
 0600, the log is capped, and `claudlet-uninstall` removes it with the rest.
 """
 import json
+import itertools
 import os
 import time
 
@@ -81,6 +82,15 @@ def _clip(text):
     return text if len(text) <= MAX_TEXT else text[:MAX_TEXT] + "\n… (truncated)"
 
 
+_seq = itertools.count()
+
+
+def _new_id(now=None):
+    """기록 하나의 id. 밀리초-pid 만으로는 같은 밀리초에 둘을 물으면 겹쳐서, 답이 엉뚱한
+    질문에 붙었다(크리처 머리에 연달아 말할 때) — 일련번호를 덧붙인다."""
+    return "%d-%d-%d" % (int((now or time.time()) * 1000), os.getpid(), next(_seq))
+
+
 def record_question(session_id, question, target="", text="", region=None,
                     now=None, image=False, brain=False):
     """Append an asked question and return its id.
@@ -90,7 +100,7 @@ def record_question(session_id, question, target="", text="", region=None,
     flight if the user asks again before the first is answered.
     """
     rec = {
-        "id": "%d-%d" % (int((now or time.time()) * 1000), os.getpid()),
+        "id": _new_id(now),
         "ts": now or time.time(),
         "session": session_id or "default",
         "question": str(question or ""),
@@ -138,7 +148,7 @@ def record_answer(session_id, answer, rec_id=None, now=None, more=False):
         # evidence that something arrived, which is exactly what someone asking
         # "did it ever reply?" needs.
         append({
-            "id": "%d-%d" % (int((now or time.time()) * 1000), os.getpid()),
+            "id": _new_id(now),
             "ts": now or time.time(),
             "session": session_id or "default",
             "question": "", "target": "", "text": "",

@@ -71,32 +71,72 @@ def test_build_prompt_skips_unanswered_history():
 
 def test_parse_say_only():
     assert brain.parse_reply("SAY: 응 지금 테스트 돌리는 중~") == {
-        "say": "응 지금 테스트 돌리는 중~", "relay": None}
+        "says": ["응 지금 테스트 돌리는 중~"], "relay": None}
 
 
 def test_parse_say_and_relay():
     r = brain.parse_reply("SAY: 알았어 전할게\nRELAY: 로그인 테스트 실패 원인을 고쳐줘")
-    assert r == {"say": "알았어 전할게", "relay": "로그인 테스트 실패 원인을 고쳐줘"}
+    assert r == {"says": ["알았어 전할게"], "relay": "로그인 테스트 실패 원인을 고쳐줘"}
+
+
+def test_parse_several_says_are_kept_in_order_up_to_three():
+    r = brain.parse_reply("SAY: 하나\nSAY: 둘\nSAY: 셋\nSAY: 넷")
+    assert r["says"] == ["하나", "둘", "셋"]
 
 
 def test_parse_ignores_format_violation_first_line_is_say():
     r = brain.parse_reply("그냥 막 대답함\n두번째 줄")
-    assert r == {"say": "그냥 막 대답함", "relay": None}
+    assert r == {"says": ["그냥 막 대답함"], "relay": None}
 
 
 def test_parse_relay_without_say_still_says_something():
     r = brain.parse_reply("RELAY: 빌드 돌려줘")
-    assert r["relay"] == "빌드 돌려줘" and r["say"]
+    assert r["relay"] == "빌드 돌려줘" and r["says"]
 
 
-def test_parse_empty_is_none():
+def test_parse_empty_and_skip_are_none():
     assert brain.parse_reply("") is None
     assert brain.parse_reply("   \n ") is None
+    assert brain.parse_reply("SKIP") is None
+    assert brain.parse_reply("skip.") is None
 
 
 def test_parse_lowercase_and_markdown_labels():
     r = brain.parse_reply("**say:** 안녕\nrelay: 없음 아님")
-    assert r["say"] == "안녕"
+    assert r["says"] == ["안녕"]
+
+
+# --- 띄워 둔 머리 ---------------------------------------------------------------
+
+def test_new_entries_returns_only_what_came_after():
+    entries = [{"kind": "user", "ts": "2026-10-01T10:00:00Z", "text": "a"},
+               {"kind": "agent", "ts": "2026-10-01T10:00:05Z", "text": "b"}]
+    fresh, last = brain.new_entries(entries, None)
+    assert len(fresh) == 2 and last == "2026-10-01T10:00:05Z"
+    fresh, last2 = brain.new_entries(entries, last)
+    assert fresh == [] and last2 == last
+    entries.append({"kind": "tool", "ts": "2026-10-01T10:01:00Z", "name": "Bash"})
+    fresh, _ = brain.new_entries(entries, last)
+    assert [e["kind"] for e in fresh] == ["tool"]
+
+
+def test_stream_roundtrip():
+    import json
+    msg = json.loads(brain.stream_message("안녕"))
+    assert msg["message"]["content"] == "안녕"
+    assert brain.stream_result('{"type":"result","subtype":"success","result":"SAY: 응"}') == (True, "SAY: 응")
+    assert brain.stream_result('{"type":"result","is_error":true,"result":"x"}')[0] is False
+    assert brain.stream_result('{"type":"assistant"}') is None
+    assert brain.stream_result("not json") is None
+
+
+def test_stream_command_is_the_hookless_command_plus_streaming():
+    argv = brain.stream_command("/usr/bin/claude")
+    assert '{"disableAllHooks":true}' in argv and "stream-json" in argv
+
+
+def test_event_prompt_allows_skip():
+    assert "SKIP" in brain.event_prompt("just finished a turn")
 
 
 # --- command ------------------------------------------------------------------

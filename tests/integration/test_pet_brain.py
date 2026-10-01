@@ -1,8 +1,8 @@
 """크리처 머리: 말 걸기를 본 세션 대신 크리처가 먼저 받는다.
 
-진짜 `claude` 대신 PATH 앞에 둔 가짜 실행 파일로 머리를 흉내 낸다 — 무엇을 답할지는
-가짜가 정하고, 테스트는 펫이 *보여주는 것*(snapshot 의 말풍선)과 본 세션에 *남은 것*
-(아웃박스 쪽지)만 본다.
+진짜 `claude` 대신 PATH 앞에 둔 가짜 실행 파일로 머리를 흉내 낸다. 가짜는 진짜처럼
+띄워 둔 채 stream-json 한 줄씩 받고 답한다 — 무엇을 답할지는 테스트가 정하고, 테스트는
+펫이 *보여주는 것*(snapshot 의 말풍선)과 본 세션에 *남은 것*(아웃박스 쪽지)만 본다.
 """
 import json
 import os
@@ -16,9 +16,9 @@ import pytest
 from claudlet import pet as P
 from claudlet.core import outbox
 
-from harness import pet  # noqa: F401  (`pet` used as a fixture)
+from harness import pet, send_hook  # noqa: F401  (`pet` used as a fixture)
 
-pytestmark = pytest.mark.skipif(os.name == "nt", reason="가짜 실행 파일이 sh 스크립트")
+pytestmark = pytest.mark.skipif(os.name == "nt", reason="가짜 실행 파일이 shebang 스크립트")
 
 
 @pytest.fixture
@@ -34,17 +34,40 @@ def world(pet, tmp_path, monkeypatch):  # noqa: F811
     outbox.drop(pet.session_id)
 
 
-def _brain_on(tmp_path, on=True):
+def _brain_on(tmp_path, on=True, chatty=False):
     from claudlet.core import petconfig
     with open(petconfig.config_path(), "w", encoding="utf-8") as f:
-        json.dump({"pointer": {"brain": on}}, f)
+        json.dump({"pointer": {"brain": on, "brain_chatty": chatty}}, f)
+
+
+_FAKE = """#!{py}
+import json, re, sys, time
+count = 0
+for line in sys.stdin:
+    msg = json.loads(line)["message"]["content"]
+    count += 1
+    with open({log!r}, "a", encoding="utf-8") as f:
+        f.write(msg + "\\n<<END>>\\n")
+    m = re.search(r"## The user says\\n(.*)", msg)
+    user = m.group(1) if m else ""
+{body}
+    print(json.dumps({{"type": "result", "subtype": "success", "result": out}}), flush=True)
+"""
 
 
 def _fake_claude(tmp_path, body):
+    """`body` 는 받은 말(msg, user, count)로 `out` 을 정하는 파이썬 몇 줄."""
     exe = tmp_path / "bin" / "claude"
-    exe.write_text("#!/bin/sh\n" + body + "\n")
+    exe.write_text(_FAKE.format(py=sys.executable, log=str(tmp_path / "stdin.txt"),
+                                body="\n".join("    " + l for l in body.splitlines())))
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     return exe
+
+
+def _seen(tmp_path):
+    """가짜 머리가 받은 말들."""
+    p = tmp_path / "stdin.txt"
+    return p.read_text(encoding="utf-8").split("\n<<END>>\n")[:-1] if p.exists() else []
 
 
 def _wait(cond, secs=5.0):
@@ -64,7 +87,7 @@ def _notes(pet):  # noqa: F811
 
 def test_small_talk_is_answered_by_the_creature_and_never_reaches_the_session(pet, world):  # noqa: F811
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; echo 'SAY: 응 지금 테스트 돌리는 중~'")
+    _fake_claude(world, 'out = "SAY: 응 지금 테스트 돌리는 중~"')
     pet._talk(immediate=True, text="지금 뭐 해?")
     assert _wait(lambda: pet.snapshot()["saying"])
     assert pet.snapshot()["saying"] == "응 지금 테스트 돌리는 중~"
@@ -74,7 +97,7 @@ def test_small_talk_is_answered_by_the_creature_and_never_reaches_the_session(pe
 def test_work_is_relayed_to_the_session(pet, world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(pet, "session_id", "sess-1")      # 세션에 붙은 펫
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; printf 'SAY: 알았어 전할게\\nRELAY: 로그인 테스트 고쳐줘\\n'")
+    _fake_claude(world, 'out = "SAY: 알았어 전할게\\nRELAY: 로그인 테스트 고쳐줘"')
     pet._talk(immediate=True, text="로그인 테스트 좀 고쳐달라고 해줘")
     assert _wait(lambda: pet.snapshot()["saying"])
     assert pet.snapshot()["saying"] == "알았어 전할게"
@@ -83,16 +106,15 @@ def test_work_is_relayed_to_the_session(pet, world, monkeypatch):  # noqa: F811
 
 def test_the_creature_sees_what_the_user_said(pet, world):  # noqa: F811
     _brain_on(world)
-    seen = world / "stdin.txt"
-    _fake_claude(world, "cat >'%s'; echo 'SAY: 들었어'" % seen)
+    _fake_claude(world, 'out = "SAY: 들었어"')
     pet._talk(immediate=True, text="오늘 점심 뭐 먹지")
     assert _wait(lambda: pet.snapshot()["saying"])
-    assert "오늘 점심 뭐 먹지" in seen.read_text()
+    assert "오늘 점심 뭐 먹지" in _seen(world)[0]
 
 
 def test_a_failing_brain_hands_the_words_to_the_session(pet, world):  # noqa: F811
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; exit 3")
+    _fake_claude(world, 'sys.exit(3)')
     pet._talk(immediate=True, text="들리나?")
     assert _wait(lambda: not pet._brain_busy())
     assert _notes(pet) == ["들리나?"]
@@ -108,7 +130,7 @@ def test_no_agent_cli_hands_the_words_to_the_session(pet, world, monkeypatch):  
 def test_a_hung_brain_times_out_to_the_session(pet, world, monkeypatch):  # noqa: F811
     _brain_on(world)
     monkeypatch.setattr(pet, "BRAIN_TIMEOUT_S", 0.3)
-    _fake_claude(world, "sleep 30")
+    _fake_claude(world, 'time.sleep(30)')
     pet._talk(immediate=True, text="왜 대답이 없어")
     assert _wait(lambda: not pet._brain_busy(), secs=5)
     assert _notes(pet) == ["왜 대답이 없어"]
@@ -118,7 +140,7 @@ def test_speaking_again_answers_both(pet, world):  # noqa: F811
     # 앞의 생각을 죽였더니 앞의 말이 답도 못 받고 본 세션에도 안 가서 사라졌다.
     from claudlet.core import history as H
     _brain_on(world)
-    _fake_claude(world, 'line=$(sed -n "/## The user says/{n;p;}"); sleep 0.3; echo "SAY: $line 들었어"')
+    _fake_claude(world, 'time.sleep(0.2)\nout = "SAY: " + user + " 들었어"')
     pet._talk(immediate=True, text="첫번째")
     pet._talk(immediate=True, text="두번째")
     assert _wait(lambda: not pet._brain_busy())
@@ -131,7 +153,7 @@ def test_the_sessions_own_reply_does_not_take_the_creatures_question(pet, world)
     # 질문에 붙거나 말풍선으로 뜨면 안 된다.
     from claudlet.core import history as H
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; sleep 0.3; echo 'SAY: 내 답'")
+    _fake_claude(world, 'time.sleep(0.3)\nout = "SAY: 내 답"')
     pet._talk(immediate=True, text="안녕")
     assert H.load(pet.session_id, pending_only=True) == []   # 본 세션 몫이 아니다
     H.record_answer(pet.session_id, "본 세션이 한 말")         # turn_end 가 하는 일
@@ -143,7 +165,7 @@ def test_the_sessions_own_reply_does_not_take_the_creatures_question(pet, world)
 def test_a_failed_brain_question_waits_for_the_sessions_answer(pet, world):  # noqa: F811
     from claudlet.core import history as H
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; exit 1")
+    _fake_claude(world, 'sys.exit(1)')
     pet._talk(immediate=True, text="넘어가라")
     assert _wait(lambda: not pet._brain_busy())
     assert [r["question"] for r in H.load(pet.session_id, pending_only=True)] == ["넘어가라"]
@@ -151,7 +173,7 @@ def test_a_failed_brain_question_waits_for_the_sessions_answer(pet, world):  # n
 
 def test_a_blank_answer_hands_the_words_to_the_session(pet, world):  # noqa: F811
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; echo 'SAY:'")
+    _fake_claude(world, 'out = "SAY:"')
     pet._talk(immediate=True, text="뭐라고?")
     assert _wait(lambda: not pet._brain_busy())
     assert _notes(pet) == ["뭐라고?"]
@@ -159,14 +181,14 @@ def test_a_blank_answer_hands_the_words_to_the_session(pet, world):  # noqa: F81
 
 def test_brain_off_keeps_the_old_path(pet, world):  # noqa: F811
     _brain_on(world, on=False)
-    _fake_claude(world, "echo 'SAY: 나오면 안 됨'")
+    _fake_claude(world, 'out = "SAY: 나오면 안 됨"')
     pet._talk(immediate=True, text="그냥 세션에")
     assert _notes(pet) == ["그냥 세션에"]
 
 
 def test_a_note_skips_the_brain(pet, world):  # noqa: F811
     _brain_on(world)
-    _fake_claude(world, "echo 'SAY: 나오면 안 됨'")
+    _fake_claude(world, 'out = "SAY: 나오면 안 됨"')
     pet._talk(immediate=False, text="나중에 봐")
     assert _notes(pet) == ["나중에 봐"]
     assert not pet._brain_busy()
@@ -175,21 +197,20 @@ def test_a_note_skips_the_brain(pet, world):  # noqa: F811
 def test_pointing_at_a_window_asks_the_creature_with_what_it_reads(pet, world, monkeypatch):  # noqa: F811
     from claudlet.platform.geom import Win
     _brain_on(world)
-    seen = world / "stdin.txt"
-    _fake_claude(world, "cat >'%s'; echo 'SAY: 그건 원장 창이야'" % seen)
+    _fake_claude(world, 'out = "SAY: 그건 원장 창이야"')
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(Win(wid=1, x=100, y=100, w=400, h=300, title="Ledger", pid=7,
                        caption="ledger"), "이거 뭐야?")
     assert _wait(lambda: pet.snapshot()["saying"])
     assert pet.snapshot()["saying"] == "그건 원장 창이야"
-    assert "Ledger" in seen.read_text() and "이거 뭐야?" in seen.read_text()
+    assert "Ledger" in _seen(world)[0] and "이거 뭐야?" in _seen(world)[0]
     assert _notes(pet) == []
 
 
 def test_a_failed_pointer_question_still_carries_the_window(pet, world, monkeypatch):  # noqa: F811
     from claudlet.platform.geom import Win
     _brain_on(world)
-    _fake_claude(world, "cat >/dev/null; exit 1")
+    _fake_claude(world, 'sys.exit(1)')
     monkeypatch.setattr(pet, "_ask_backend", lambda: None)
     pet.ask_window(Win(wid=1, x=100, y=100, w=400, h=300, title="Ledger", pid=7,
                        caption="ledger"), "이거 뭐야?")
@@ -202,10 +223,95 @@ def test_a_standalone_pet_answers_but_has_nowhere_to_relay(pet, world):  # noqa:
     # 세션 없이 뜬 펫: 크리처가 답은 하지만, 넘길 세션이 없으니 쪽지로 물지 않는다
     assert pet._standalone()
     _brain_on(world)
-    seen = world / "stdin.txt"
-    _fake_claude(world, "cat >'%s'; printf 'SAY: 넘길 데가 없네\\nRELAY: 고쳐줘\\n'" % seen)
+    _fake_claude(world, 'out = "SAY: 넘길 데가 없네\\nRELAY: 고쳐줘"')
     pet._talk(immediate=True, text="이거 고쳐줘")
     assert _wait(lambda: pet.snapshot()["saying"])
     assert pet.snapshot()["saying"] == "넘길 데가 없네"
     assert _notes(pet) == []
-    assert "standalone" in seen.read_text()
+    assert "standalone" in _seen(world)[0]
+
+
+# --- 띄워 둔 머리 ---------------------------------------------------------------
+
+def test_the_brain_stays_up_between_messages(pet, world):  # noqa: F811
+    # 매번 새로 띄우면 4~6초였다. 한 프로세스가 계속 듣고, 지시는 처음에 한 번만 간다.
+    _brain_on(world)
+    _fake_claude(world, 'out = "SAY: %d번째" % count')
+    pet._talk(immediate=True, text="하나")
+    assert _wait(lambda: pet.snapshot()["saying"] == "1번째")
+    pet._talk(immediate=True, text="둘")
+    assert _wait(lambda: pet.snapshot()["saying"] == "2번째")
+    first, second = _seen(world)
+    assert "# Instructions" in first and "# Instructions" not in second
+    assert "둘" in second
+
+
+def test_a_brain_that_dies_is_brought_back_fresh(pet, world):  # noqa: F811
+    _brain_on(world)
+    _fake_claude(world, 'if user == "죽어":\n    sys.exit(1)\nout = "SAY: " + user')
+    pet._talk(immediate=True, text="안녕")
+    assert _wait(lambda: pet.snapshot()["saying"] == "안녕")
+    pet._talk(immediate=True, text="죽어")
+    assert _wait(lambda: not pet._brain_busy())
+    assert _notes(pet) == ["죽어"]                       # 죽은 머리가 삼킨 말은 세션으로
+    pet._talk(immediate=True, text="살아났니")
+    assert _wait(lambda: pet.snapshot()["saying"] == "살아났니")
+    assert "# Instructions" in _seen(world)[-1]          # 새 머리는 처음부터 다시 배운다
+
+
+def test_the_creature_can_say_more_than_one_line(pet, world, monkeypatch):  # noqa: F811
+    from claudlet.core import history as H
+    _brain_on(world)
+    monkeypatch.setattr(pet, "BRAIN_SAY_GAP_MS", 100)
+    _fake_claude(world, 'out = "SAY: 하나\\nSAY: 둘"')
+    pet._talk(immediate=True, text="말해봐")
+    assert _wait(lambda: pet.snapshot()["saying"] == "하나")
+    assert _wait(lambda: pet.snapshot()["saying"] == "둘")
+    answers = [r["answer"] for r in H.load(pet.session_id)]
+    assert "하나" in answers and "둘" in answers
+    assert [r["answer"] for r in H.load(pet.session_id) if r["question"] == "말해봐"] == ["하나"]
+
+
+def test_a_relayed_turn_does_not_wipe_what_the_creature_just_said(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "session_id", "sess-1")
+    _brain_on(world)
+    _fake_claude(world, 'out = "SAY: 알았어 전할게\\nRELAY: 빌드 돌려줘"')
+    pet._talk(immediate=True, text="빌드 돌려달라고 해")
+    assert _wait(lambda: pet.snapshot()["saying"] == "알았어 전할게")
+    send_hook(pet, "UserPromptSubmit", session="sess-1")   # 넘긴 일로 본 세션 턴이 시작됐다
+    assert _wait(lambda: False, secs=0.3) is False
+    assert pet.snapshot()["saying"] == "알았어 전할게"
+
+
+# --- 먼저 말 걸기 --------------------------------------------------------------
+
+def test_the_creature_speaks_up_when_the_session_finishes(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "session_id", "sess-1")
+    _brain_on(world, chatty=True)
+    _fake_claude(world, 'out = "SAY: 수고했어~"')
+    send_hook(pet, "Stop", session="sess-1")
+    assert _wait(lambda: pet.snapshot()["saying"] == "수고했어~")
+    assert "## Event" in _seen(world)[0]
+
+
+def test_speaking_up_is_rare(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "session_id", "sess-1")
+    _brain_on(world, chatty=True)
+    _fake_claude(world, 'out = "SKIP"')
+    send_hook(pet, "Stop", session="sess-1")
+    assert _wait(lambda: len(_seen(world)) == 1 and not pet._brain_busy())
+    send_hook(pet, "StopFailure", session="sess-1")
+    _wait(lambda: False, secs=0.3)
+    assert len(_seen(world)) == 1                        # 간격 안이라 또 부르지 않았다
+    assert pet.snapshot()["saying"] == ""                # SKIP 이면 아무 말 안 한다
+    assert _notes(pet) == []
+
+
+def test_no_speaking_up_unless_switched_on(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "session_id", "sess-1")
+    _brain_on(world, chatty=False)
+    _fake_claude(world, 'out = "SAY: 나오면 안 됨"')
+    send_hook(pet, "Stop", session="sess-1")
+    _wait(lambda: False, secs=0.3)
+    assert _seen(world) == []
+

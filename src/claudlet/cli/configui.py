@@ -671,6 +671,9 @@ TEXT = {
         "ptr_brain": "크리처가 먼저 답하기",
         "ptr_brain_hint": "말 걸기를 본 세션 대신 크리처가 받아요. 잡담은 크리처가 답하고,"
                           " 일은 크리처가 본 세션에 넘겨요. 말할 때마다 별도 호출이 나가요.",
+        "ptr_chatty": "크리처가 먼저 말 걸기",
+        "ptr_chatty_hint": "위가 켜져 있을 때, 세션에서 턴이 끝나거나 에러·권한 요청이 생기면"
+                           " 크리처가 한마디 해요. 3분에 한 번까지, 그때마다 호출이 나가요.",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "redress": "다시 불러오기",
@@ -718,6 +721,10 @@ TEXT = {
         "ptr_brain_hint": "What you say goes to the creature instead of the session."
                           " It handles small talk and hands real work to the session."
                           " Each message is a separate call.",
+        "ptr_chatty": "Creature speaks first",
+        "ptr_chatty_hint": "With the above on, the creature remarks when the session finishes"
+                           " a turn, hits an error or asks for permission. At most once"
+                           " every 3 minutes; each remark is a call.",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",
@@ -1016,6 +1023,11 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <span class="hint">__T_ptr_brain_hint__</span>
     </div>
     <div class="row">
+      <label for="ptrChatty">__T_ptr_chatty__</label>
+      <input type="checkbox" id="ptrChatty">
+      <span class="hint">__T_ptr_chatty_hint__</span>
+    </div>
+    <div class="row">
       <button id="ptrSave">__T_save__</button>
       <span id="ptrSaid"></span>
     </div>
@@ -1208,6 +1220,7 @@ function fillPrefs(s) {
   $("ptrBubble").value = p.bubble || "closed";
   $("ptrShot").checked = !!p.screenshot;
   $("ptrBrain").checked = !!p.brain;
+  $("ptrChatty").checked = !!p.brain_chatty;
 }
 $("ptrSave").addEventListener("click", async () => {
   const r = await fetch("/api/config", {method: "POST",
@@ -1216,7 +1229,7 @@ $("ptrSave").addEventListener("click", async () => {
       cursor: $("ptrCursor").value, image: $("ptrImage").value.trim() || null,
       claude_config_dir: $("ptrDir").value.trim() || null,
       bubble: $("ptrBubble").value, screenshot: $("ptrShot").checked,
-      brain: $("ptrBrain").checked}})});
+      brain: $("ptrBrain").checked, brain_chatty: $("ptrChatty").checked}})});
   fill(await r.json());
   $("ptrSaid").textContent = T.ptr_saved;
 });

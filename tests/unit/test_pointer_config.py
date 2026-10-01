@@ -143,3 +143,9 @@ def test_brain_takes_only_a_bool():
     assert P.load_config()["pointer"]["brain"] is True
     _write({"brain": "yes"})
     assert P.load_config()["pointer"]["brain"] is False
+
+
+def test_speaking_first_is_its_own_switch_off_by_default():
+    assert P.load_config()["pointer"]["brain_chatty"] is False
+    _write({"brain": True, "brain_chatty": True})
+    assert P.load_config()["pointer"]["brain_chatty"] is True
