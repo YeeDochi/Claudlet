@@ -1703,3 +1703,34 @@ def test_the_capture_leaves_with_the_pet(monkeypatch):
     finally:
         p._cleanup()
     assert _shots(p) == []
+
+
+def test_a_long_window_name_does_not_pin_the_chat_window_wide(pet, _hist):  # noqa: F811
+    # 경로가 긴 창을 가리켰더니 "언제 · 무슨 창" 줄이 접히지 않아 대화창이 그 폭에
+    # 묶였다 — 잘려 보이고 줄일 수도 없었다(실사용).
+    from claudlet.core import history as H
+    H.record_question(pet.session_id, "이거 뭐야?",
+                      target="/home/ljh/" + "very-long-directory-name/" * 20 + "file.py — Kate")
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        _settle()
+        view = win._scroll.viewport().width()
+        assert win._scroll.widget().width() <= view          # 내용이 창 밖으로 안 나간다
+        assert win._scroll.widget().minimumSizeHint().width() <= view
+    finally:
+        win.close()
+
+
+def test_a_long_unbroken_path_in_a_message_does_not_widen_the_chat(pet, _hist):  # noqa: F811
+    from claudlet.core import history as H
+    path = "/home/ljh/" + "very-long-directory-name/" * 20 + "file.py"
+    rec = H.record_question(pet.session_id, path, text=path)
+    H.record_answer(pet.session_id, path, rec_id=rec)
+    win = pet.show_history()
+    try:
+        win.resize(440, 400)
+        _settle()
+        assert win._scroll.widget().width() <= win._scroll.viewport().width()
+    finally:
+        win.close()

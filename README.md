@@ -118,6 +118,12 @@ drag over a window so what's on it rides along with your next line.
 The answer comes back in the creature's own voice, in a bubble over its head —
 each creature can have its own name and voice (settings page).
 
+Turn on **Creature answers first** (settings → preferences) and what you say goes
+to the creature instead of your session: a separate, hook-free one-shot call that
+reads the session's recent activity, answers small talk itself, and hands real
+work to the session — so chatting never interrupts the agent mid-task. Each
+message is its own call, so it's off by default.
+
 <p align="center"><img src="docs/chat.en.png" width="440" alt="the chat window"></p>
 
 <details><summary>Platform notes</summary>

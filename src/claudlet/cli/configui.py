@@ -430,6 +430,8 @@ def clean_creature_updates(body, fractional=False):
         out["visor"] = None if v is None else petconfig.clean_visor(v)
     if "persona" in body:
         out["persona"] = petconfig.clean_persona(body.get("persona"))
+    if "background" in body:
+        out["background"] = petconfig.clean_background(body.get("background"))
     if "nickname" in body:
         out["nickname"] = petconfig.clean_nickname(body.get("nickname"))
     return out
@@ -668,6 +670,12 @@ TEXT = {
         "ptr_shot": "화면 캡처",
         "ptr_shot_hint": "포인터로 고른 영역을 찍어 질문과 같이 보냅니다."
                          " 이미지 속 비밀번호·토큰은 가려지지 않아요.",
+        "ptr_brain": "크리처가 먼저 답하기",
+        "ptr_brain_hint": "말 걸기를 본 세션 대신 크리처가 받아요. 잡담은 크리처가 답하고,"
+                          " 일은 크리처가 본 세션에 넘겨요. 말할 때마다 별도 호출이 나가요.",
+        "ptr_chatty": "크리처가 먼저 말 걸기",
+        "ptr_chatty_hint": "위가 켜져 있을 때, 세션에서 턴이 끝나거나 에러·권한 요청이 생기면"
+                           " 크리처가 한마디 해요. 3분에 한 번까지, 그때마다 호출이 나가요.",
         "creatures": "크리처", "colour": "색", "size": "크기", "special": "특수 모드",
         "save": "저장", "wear": "적용", "worn_btn": "적용됨",
         "redress": "다시 불러오기",
@@ -681,6 +689,8 @@ TEXT = {
         "nickname_help": "이 이름으로 부르면 자기를 부르는 줄 안다",
         "persona": "말투", "persona_ph": "예: 짧고 퉁명스럽게, 반말로",
         "persona_help": "펫에게 말을 걸면 이 말투로 답한다",
+        "background": "배경", "background_ph": "외모, 성격, 사연, 좋아하는 것, 말버릇 예시… 깊은 설정도 OK",
+        "background_help": "크리처가 먼저 답하기를 켰을 때 크리처에게만 가요 (본 세션엔 안 들어가요)",
         "named": "지금은 %s — 색을 고르면 바뀝니다",
         "saved": "%s 설정을 저장했습니다", "switched": "%s 로 갈아입혔습니다",
         "reverted": "%s 를 기본으로 되돌렸습니다",
@@ -711,6 +721,14 @@ TEXT = {
         "ptr_shot": "Screenshot",
         "ptr_shot_hint": "The region you pick is sent as a picture along with"
                          " the question. Secrets in the image are not masked.",
+        "ptr_brain": "Creature answers first",
+        "ptr_brain_hint": "What you say goes to the creature instead of the session."
+                          " It handles small talk and hands real work to the session."
+                          " Each message is a separate call.",
+        "ptr_chatty": "Creature speaks first",
+        "ptr_chatty_hint": "With the above on, the creature remarks when the session finishes"
+                           " a turn, hits an error or asks for permission. At most once"
+                           " every 3 minutes; each remark is a call.",
         "creatures": "Creatures", "colour": "Colour", "size": "Size", "special": "Special mode",
         "save": "Save", "wear": "Apply", "worn_btn": "Applied",
         "redress": "Reload art",
@@ -724,6 +742,8 @@ TEXT = {
         "nickname_help": "what to call it, so it knows when it is addressed",
         "persona": "Voice", "persona_ph": "e.g. short and blunt",
         "persona_help": "how it answers when you talk to the pet",
+        "background": "Background", "background_ph": "looks, personality, backstory, likes, sample lines… go deep",
+        "background_help": "sent only to the creature when 'Creature answers first' is on (never to the session)",
         "named": "currently %s — pick a colour to change it",
         "saved": "Saved %s", "switched": "Now wearing %s",
         "reverted": "%s back to defaults",
@@ -800,6 +820,8 @@ label{width:64px;color:var(--dim)}
 input[type=color]{width:48px;height:32px;padding:0;border:1px solid var(--line);
                   border-radius:7px;background:none;cursor:pointer}
 input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+textarea{flex:1;min-width:180px;background:var(--sunk);border:1px solid var(--line);
+         color:var(--fg);border-radius:7px;padding:8px 10px;font:inherit;resize:vertical}
 input[type=text]{flex:1;min-width:180px;background:var(--sunk);
                  border:1px solid var(--line);color:var(--fg);
                  border-radius:7px;padding:8px 10px;font:inherit}
@@ -974,6 +996,11 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
         <input type="text" id="persona" maxlength="200"
                placeholder="__T_persona_ph__" title="__T_persona_help__">
       </div>
+      <div class="row" id="backgroundRow">
+        <label for="background">__T_background__</label>
+        <textarea id="background" rows="4" maxlength="2000"
+                  placeholder="__T_background_ph__" title="__T_background_help__"></textarea>
+      </div>
       <div id="shots"></div>
     </section>
   </div>
@@ -1002,6 +1029,16 @@ button.ghost{background:none;color:var(--dim);border:1px solid var(--line)}
       <label for="ptrShot">__T_ptr_shot__</label>
       <input type="checkbox" id="ptrShot">
       <span class="hint">__T_ptr_shot_hint__</span>
+    </div>
+    <div class="row">
+      <label for="ptrBrain">__T_ptr_brain__</label>
+      <input type="checkbox" id="ptrBrain">
+      <span class="hint">__T_ptr_brain_hint__</span>
+    </div>
+    <div class="row">
+      <label for="ptrChatty">__T_ptr_chatty__</label>
+      <input type="checkbox" id="ptrChatty">
+      <span class="hint">__T_ptr_chatty_hint__</span>
     </div>
     <div class="row">
       <button id="ptrSave">__T_save__</button>
@@ -1083,6 +1120,7 @@ function showCreature(name) {
   $("scale").value = look.scale || S.scale;
   $("nickname").value = look.nickname || "";
   $("persona").value = look.persona || "";
+  $("background").value = look.background || "";
   $("visor").innerHTML = S.visor_modes.map((v) =>
     `<button data-v="${v}" aria-pressed="${v === (look.visor || "auto")}">` +
     `${VISOR_LABEL[v] || v}</button>`).join("");
@@ -1195,6 +1233,8 @@ function fillPrefs(s) {
   $("ptrDir").value = p.claude_config_dir || "";
   $("ptrBubble").value = p.bubble || "closed";
   $("ptrShot").checked = !!p.screenshot;
+  $("ptrBrain").checked = !!p.brain;
+  $("ptrChatty").checked = !!p.brain_chatty;
 }
 $("ptrSave").addEventListener("click", async () => {
   const r = await fetch("/api/config", {method: "POST",
@@ -1202,7 +1242,8 @@ $("ptrSave").addEventListener("click", async () => {
     body: JSON.stringify({agent: S.agent, pointer: {
       cursor: $("ptrCursor").value, image: $("ptrImage").value.trim() || null,
       claude_config_dir: $("ptrDir").value.trim() || null,
-      bubble: $("ptrBubble").value, screenshot: $("ptrShot").checked}})});
+      bubble: $("ptrBubble").value, screenshot: $("ptrShot").checked,
+      brain: $("ptrBrain").checked, brain_chatty: $("ptrChatty").checked}})});
   fill(await r.json());
   $("ptrSaid").textContent = T.ptr_saved;
 });
@@ -1259,6 +1300,7 @@ $("save").addEventListener("click", async () =>
   fill(await post({agent: S.agent, creature: editing, palette: $("col").value,
                    scale: +$("scale").value, visor: visorNow(),
                    persona: $("persona").value,
+                   background: $("background").value,
                    nickname: $("nickname").value},
                   T.saved.replace("%s", editing))));
 async function doWear() {

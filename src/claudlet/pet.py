@@ -97,15 +97,19 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                              QToolTip, QInputDialog, QLineEdit, QFileDialog,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
                              QHBoxLayout, QTabBar, QLabel, QScrollArea,
-                             QStackedWidget, QToolButton, QFrame, QMessageBox)
+                             QStackedWidget, QToolButton, QFrame, QMessageBox,
+                             QSizePolicy)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
                          QRegion, QPainterPath, QFont, QPen)
-from PyQt6.QtCore import Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF
+from PyQt6.QtCore import (Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF,
+                          QProcess, QProcessEnvironment)
 
 from claudlet import roambounds
 from claudlet.core import agents
 from claudlet.core import appicon
 from claudlet.core import ask as askbox
+from claudlet.core import brain
+from claudlet import brainproc
 from claudlet.core import avatars
 from claudlet.core import bubble as bubblegeom
 from claudlet.core import history as askhistory
@@ -328,6 +332,7 @@ DOCK_REPACK_MS = 2000
 # 크리처가 한 말이 말풍선에 머무는 시간(초). 읽을 만큼은 있고, 화면에 눌러앉지는
 # 않을 만큼.
 SAY_SEC = 12.0
+RELAY_TARGET = "→"      # 내역에서 "크리처가 본 세션에 넘긴 일" 표시 (사용자의 말이 아니다)
 
 # 글자를 보낸 뒤 엔터를 떼어 보내기까지 기다리는 시간(ms). 코덱스의 붙여넣기
 # 판정에서 벗어날 만큼은 길고, 사람 눈에 띄지 않을 만큼은 짧게.
@@ -1185,7 +1190,19 @@ class HistoryWindow(QDialog):
         lab.setTextFormat(Qt.TextFormat.PlainText)
         lab.setWordWrap(role not in ("meta", "wait"))
         lab.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if role in ("meta", "wait"):
+            # 접히지 않는 줄이 내용 폭을 정하면 안 된다 — 경로가 긴 창 이름 하나에
+            # 대화창 내용이 2900px 로 늘어 잘리고 줄일 수도 없었다(실사용)
+            lab.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         return lab
+
+    @staticmethod
+    def _short(name, keep=48):
+        """긴 창 이름은 가운데를 줄인다 — 경로는 끝(파일 이름)이 알맹이다."""
+        if len(name) <= keep:
+            return name
+        tail = keep * 2 // 3
+        return name[:keep - tail - 1] + "…" + name[-tail:]
 
     def _full_link(self):
         """"응답 전문 보기": 에이전트가 쓴 전체 답이 있는 창으로 간다."""
@@ -1233,11 +1250,21 @@ class HistoryWindow(QDialog):
                                   else "아직 기록된 대화가 없어요", "empty"), False)
         for rec in recs:
             meta = askhistory.ago(rec.get("ts"), None, self._lang)
-            if rec.get("target"):
-                meta += " · " + rec["target"]
+            relay = rec.get("target") == RELAY_TARGET
+            if relay:
+                # 크리처가 본 세션에 넘긴 일이다. 사용자가 한 말이 아니니 내 풍선에
+                # 그리면 안 된다 — 내 말이 존댓말로 바뀌어 다시 들어온 것처럼 보였다.
+                meta += " · " + ("→ handed to the session" if en else "→ 세션에 전함")
+            elif rec.get("target"):
+                meta += " · " + self._short(rec["target"])
             self._rows.addSpacing(8)
-            self._add(self._label(meta, "meta"), True)
-            if rec.get("question"):
+            lab = self._label(meta, "meta")
+            if rec.get("target") and not relay:
+                lab.setToolTip(rec["target"])
+            self._add(lab, True)
+            if relay:
+                self._add(self._label(rec.get("question") or "", "seen"), False)
+            elif rec.get("question"):
                 self._add(self._label(("📷 " if rec.get("image") else "")
                                       + rec["question"], "me"), True)
             if self._full and rec.get("text"):
@@ -1709,6 +1736,7 @@ class Pet(QWidget):
         self._click_times = []
 
         self._persona = getattr(self, "_persona", "")
+        self._background = getattr(self, "_background", "")
         self._nickname = getattr(self, "_nickname", "")
         self._notes = 0                    # 물고 있는 쪽지 수
         self._send_ok = None               # 즉시 전송이 되는 호스트인가 (한 번만 확인)
@@ -1916,6 +1944,7 @@ class Pet(QWidget):
                     pass
         for ev in events:
             self._handle_event(ev)
+            self._brain_notice(ev)
 
     def _handle_event(self, ev):
         # 새 턴이 시작되면 지난 대사는 치운다. 말풍선은 12초 떠 있는데, 그 사이
@@ -1924,7 +1953,8 @@ class Pet(QWidget):
         # rollout 에서 읽은 턴 시작(코덱스 앱)은 표정만 바꾼다 — 펫이 방금 건
         # 말의 답을 기다리는 중일 수 있어, 그 대기를 끊으면 안 된다.
         if ev.get("event") == "UserPromptSubmit" and not ev.get("rollout"):
-            self._hush()
+            # 크리처가 방금 "전할게" 하고 넘긴 일이 이 턴이다 — 그 말은 거두지 않는다
+            self._hush(keep_say=time.monotonic() < getattr(self, "_brain_keep_until", 0))
             self._mark_turn_start(ev.get("transcript"),
                                   whole=bool(self._codex_pipe))
         # A quit command (claudlet-uninstall teardown) is a shutdown request,
@@ -2083,8 +2113,13 @@ class Pet(QWidget):
             os.environ.get("CLAUDLET_SCALE") or look["scale"],
             bool(getattr(self.avatar, "fractional_scale", False)))
         self._visor_mode = look["visor"]
-        self._persona = look.get("persona", "")
-        self._nickname = look.get("nickname", "")
+        voice = (look.get("persona", ""), look.get("nickname", ""),
+                 look.get("background", ""))
+        if voice != (getattr(self, "_persona", None), getattr(self, "_nickname", None),
+                     getattr(self, "_background", None)) and getattr(self, "_brain", None):
+            # 띄워 둔 머리는 처음 받은 지시(말투·배경)를 기억한다 — 바뀌었으면 새로 띄운다
+            self._brain_stop()
+        self._persona, self._nickname, self._background = voice
 
     def _restyle(self, reload=False):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -3604,6 +3639,7 @@ class Pet(QWidget):
         말풍선은 설정(pointer.bubble)대로: 늘, 또는 대화창이 안 보일 때만."""
         try:
             askhistory.record_answer(self.session_id, text,
+                                     rec_id=getattr(self, "_answer_rec", None),
                                      more=getattr(self, "_say_more", False))
         except Exception:
             pass
@@ -3674,16 +3710,19 @@ class Pet(QWidget):
         except Exception:
             pass
 
-    def _hush(self):
+    def _hush(self, keep_say=False):
         """하던 말을 즉시 거두고, 지난 턴 대사를 기다리던 것도 그만둔다.
 
         타이머를 멈추지 않으면 새 턴이 시작된 뒤에 지난 턴 대사가 뒤늦게 떠서,
-        고치려던 "한 턴 늦음"이 그대로 재현된다."""
-        self._say = ""
-        self._say_until = 0.0
+        고치려던 "한 턴 늦음"이 그대로 재현된다. `keep_say`: 기다림만 끊고 떠 있는
+        말은 둔다."""
         self._reply_left = 0
         if self._reply_timer is not None:
             self._reply_timer.stop()
+        if keep_say:
+            return
+        self._say = ""
+        self._say_until = 0.0
         self._dismiss_bubble()
 
     def _tick_say(self):
@@ -4271,6 +4310,25 @@ class Pet(QWidget):
         png, self._ask_shot = self._ask_shot, None
         if png:
             ctx["image"] = shotmod.save(self.session_id, png)
+        # 크리처 머리는 창에서 읽은 글자로 답한다. 캡처가 실린 질문은 본 세션으로 —
+        # 머리에는 도구가 없어 이미지를 못 본다.
+        # Remember both so the answer's bubble can offer a follow-up on the same
+        # thing the user pointed at, not on the whole window.
+        self._ask_target = win
+        self._ask_region = region
+        if self._pointer_cfg().get("brain") and not ctx.get("image"):
+            pointed = "\n".join(t for t in (ctx["target"], ctx["text"]) if t)
+            # 머리가 못 답하면 원래의 길 그대로 — 창에서 읽은 내용까지 본 세션에 간다
+            self._brain_ask(question, pointed, ctx["target"], ctx["text"], region,
+                            fallback=lambda: self._ask_deliver(ctx, question, region,
+                                                               record=False))
+            self._refresh_chat()
+            return ctx
+        self._ask_deliver(ctx, question, region)
+        return ctx
+
+    def _ask_deliver(self, ctx, question, region, record=True):
+        """포인터 질문을 본 세션에 보낸다. `record=False` 는 이미 내역에 있는 것."""
         # 배달은 아웃박스로 한다. 우편함(.ask.json)은 세션이 스스로 집어가지
         # 않아 사용자가 "답해줘" 라고 시켜야 했다 — 아웃박스는 훅이 다음 경계
         # (일하는 중이면 다음 툴콜, 놀고 있으면 다음 프롬프트)에서 자동으로
@@ -4281,16 +4339,13 @@ class Pet(QWidget):
         # Log it too: the mailbox deletes the question as soon as the session
         # reads it, so without this there is no way to see what was asked --
         # or to tell "never answered" from "answered while you looked away".
-        try:
-            askhistory.record_question(self.session_id, question, ctx["target"],
-                                       ctx["text"], region,
-                                       image=bool(ctx.get("image")))
-        except Exception:
-            pass          # a history failure must never lose the question
-        # Remember both so the answer's bubble can offer a follow-up on the same
-        # thing the user pointed at, not on the whole window.
-        self._ask_target = win
-        self._ask_region = region
+        if record:
+            try:
+                askhistory.record_question(self.session_id, question, ctx["target"],
+                                           ctx["text"], region,
+                                           image=bool(ctx.get("image")))
+            except Exception:
+                pass          # a history failure must never lose the question
         # 창 텍스트는 프롬프트에 타이핑하기엔 크니 아웃박스로 보냈다. 그런데
         # 세션이 놀고 있으면 훅 경계가 생기지 않아 그것이 영영 안 실린다 —
         # 사용자는 "물어봤는데 아무 일도 안 일어난다" 로 겪는다. 그래서 짧은
@@ -4305,7 +4360,6 @@ class Pet(QWidget):
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
         self._refresh_chat()
-        return ctx
 
     def _begin_thinking(self):
         """Act out "I'm working on it" until the answer lands.
@@ -4598,6 +4652,7 @@ class Pet(QWidget):
         return "idle" if now < self._pocket_awake_until else "sleeping"
 
     def _quit(self):
+        self._brain_stop()             # 생각 중이던 머리가 펫보다 오래 살 이유가 없다
         self._cleanup()
         QApplication.quit()
 
@@ -4830,6 +4885,16 @@ class Pet(QWidget):
             text = self._ask_text()
         if not text:
             return
+        # 크리처 머리가 켜져 있으면 본 세션보다 크리처가 먼저 듣는다. 📝 쪽지는
+        # "세션에 남겨줘" 라는 뜻이니 머리를 거치지 않는다.
+        if immediate and self._pointer_cfg().get("brain"):
+            self._brain_ask(text)
+            return
+        self._send_to_session(immediate, text)
+
+    def _send_to_session(self, immediate, text, record=True):
+        """본 세션에 말을 넣는다 — 바로 칠 수 있으면 치고, 아니면 쪽지로.
+        `record=False` 는 이미 내역에 남긴 말(머리가 실패해 넘어온 것)."""
         # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
         # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
         if immediate:
@@ -4837,10 +4902,11 @@ class Pet(QWidget):
         # 프롬프트에는 질문만 찍는다. 말투·이름은 위에서 아웃박스에 넣었고,
         # 이 제출이 부르는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다.
         if immediate and self._konsole_send(text):
-            try:
-                askhistory.record_question(self.session_id, text)
-            except Exception:
-                pass
+            if record:
+                try:
+                    askhistory.record_question(self.session_id, text)
+                except Exception:
+                    pass
             self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
         outbox.append(self.session_id, text, persona=self._persona,
@@ -4849,12 +4915,169 @@ class Pet(QWidget):
             outbox.wake(self.session_id)        # 놀고 있으면 waiter 가 깨운다
         # 내역에도 남긴다. 포인터로 시작한 대화만 쌓이면 "아까 뭘 물었더라" 가
         # 절반만 답해진다 — 메뉴로 건 말도 같은 대화다.
-        try:
-            askhistory.record_question(self.session_id, text)
-        except Exception:
-            pass          # 내역이 실패해도 말은 전해져야 한다
+        if record:
+            try:
+                askhistory.record_question(self.session_id, text)
+            except Exception:
+                pass          # 내역이 실패해도 말은 전해져야 한다
         self._refresh_notes()
         self._play_motion("jump", 1.5)              # 받았다
+
+    # --- 크리처 머리 (core/brain.py + brainproc.py) -----------------------------
+
+    BRAIN_SAY_GAP_MS = 2500        # 크리처가 여러 줄 말할 때 줄 사이
+    BRAIN_EVENT_GAP_S = 180.0      # 먼저 말 걸기는 이 간격보다 자주 하지 않는다
+    BRAIN_SAID = "-"               # 질문에 붙지 않는 크리처의 말 (내역에 따로 남는다)
+
+    def _standalone(self):
+        """세션 없이 뜬 펫(`claudlet` / `/claudlet standalone`)."""
+        return (self.session_id or "default") == "default"
+
+    def _brain_link(self):
+        """크리처 머리. 실행 파일을 못 찾으면 None — 그때는 본 세션으로 간다."""
+        link = getattr(self, "_brain", None)
+        if link is not None:
+            return link
+        exe = shutil.which("codex" if self.agent == "codex" else "claude")
+        if not exe:
+            return None
+        link = brainproc.CreatureBrain(self.agent, exe, self.session_id, self)
+        link.timeout_s = self.BRAIN_TIMEOUT_S
+        link.answered.connect(self._brain_answered)
+        link.failed.connect(self._brain_failed)
+        self._brain = link
+        self._brain_seen = None
+        return link
+
+    BRAIN_TIMEOUT_S = brain.TIMEOUT_S
+
+    def _brain_busy(self):
+        link = getattr(self, "_brain", None)
+        return bool(link and link.busy())
+
+    def _brain_stop(self):
+        """떠 있는 머리를 내린다(펫이 꺼질 때·테스트 정리)."""
+        link, self._brain = getattr(self, "_brain", None), None
+        if link is not None:
+            link.failed.disconnect()
+            link.stop()
+
+    def _brain_compose(self, first, text="", pointed="", event=None):
+        """머리에 보낼 글. 새로 띄운 머리면 지시·최근 맥락·지난 대화를 다 싣고, 띄워 둔
+        머리에는 그 뒤로 세션에 새로 생긴 것과 이번 말만."""
+        if first:
+            self._brain_seen = None
+        entries = []
+        if not self._standalone():
+            try:
+                entries = transcript.load(self.session_id)
+            except Exception:
+                entries = []
+        fresh, self._brain_seen = brain.new_entries(entries, self._brain_seen)
+        hist = []
+        if first:
+            try:
+                hist = askhistory.load(self.session_id, limit=brain.HISTORY_PAIRS * 2)
+            except Exception:
+                hist = []
+        system, user = brain.build_prompt(self._persona, self._nickname, hist,
+                                          brain.recent_context(fresh), text, pointed,
+                                          alone=self._standalone(), event=event,
+                                          background=self._background)
+        return brain.stdin_for(system, user) if first else user
+
+    def _brain_ask(self, text, pointed="", target="", read_text="", region=None,
+                   fallback=None):
+        """크리처 머리에게 묻는다. 펫을 블록하지 않는다 — 답은 `_brain_answered`,
+        못 답하면 `_brain_failed` → `fallback`(기본: 그 말을 본 세션에)."""
+        if fallback is None:
+            fallback = lambda: self._send_to_session(True, text, record=False)  # noqa: E731
+        rec_id = None
+        try:
+            rec_id = askhistory.record_question(self.session_id, text, target,
+                                                read_text, region, brain=True)
+        except Exception:
+            pass
+        token = {"kind": "user", "rec": rec_id, "fallback": fallback}
+        link = self._brain_link()
+        if link is None:
+            self._brain_failed(token)
+            return
+        self._begin_thinking()
+        link.ask(token, lambda first: self._brain_compose(first, text, pointed))
+
+    def _brain_notice(self, ev):
+        """세션에서 굵직한 일이 생기면 크리처가 먼저 말을 걸 수 있다(설정, 기본 꺼짐).
+        말할 때마다 호출이 나가므로 드물게 — 간격을 두고, 사용자와 얘기 중이면 안 끼어든다."""
+        what = brain.notable_event(ev)
+        if not what or self._standalone():
+            return
+        cfg = self._pointer_cfg()
+        if not (cfg.get("brain") and cfg.get("brain_chatty")):
+            return
+        now = time.monotonic()
+        if (self._brain_busy() or self._ask_waiting
+                or now < getattr(self, "_brain_event_after", 0.0)
+                or now < self._say_until):
+            return
+        link = self._brain_link()
+        if link is None:
+            return
+        self._brain_event_after = now + self.BRAIN_EVENT_GAP_S
+        link.ask({"kind": "event"},
+                 lambda first: self._brain_compose(first, event=what))
+
+    def _brain_failed(self, token):
+        """머리가 못 답했다. 사용자의 말은 사라지면 안 된다 — 본 세션으로 넘기고, 그
+        질문에 본 세션의 답이 붙을 수 있게 머리 표시를 뗀다. 이벤트였으면 그만이다."""
+        if token.get("kind") != "user":
+            return
+        try:
+            askhistory.hand_over(token.get("rec"))
+        except Exception:
+            pass
+        if not self._brain_busy():
+            self._end_thinking()
+        token["fallback"]()
+
+    def _brain_answered(self, token, reply):
+        user = token.get("kind") == "user"
+        if reply is None:
+            if user:
+                self._brain_failed(token)        # 할 말도 넘길 일도 없었다
+            return
+        says = reply["says"]
+        self._brain_say(says[0], token.get("rec") if user else self.BRAIN_SAID)
+        for i, line in enumerate(says[1:], 1):
+            QTimer.singleShot(i * self.BRAIN_SAY_GAP_MS,
+                              lambda l=line: self._brain_say(l, self.BRAIN_SAID))
+        if self._brain_busy() and user:
+            self._begin_thinking()               # 아직 생각 중인 말이 남았다
+        # 세션 없이 뜬 펫은 넘길 곳이 없다 — 쪽지로 물면 영영 안 나간다.
+        # 이벤트에 대한 말은 일을 만들지 않는다.
+        if user and reply["relay"] and not self._standalone():
+            self._brain_relay(reply["relay"])
+
+    def _brain_relay(self, request):
+        """크리처가 본 세션의 일이라고 판단했다. 프롬프트에 쳐 넣지 않고 쪽지로 보내고
+        깨운다 — 쳐 넣었더니 사용자의 말이 존댓말로 바뀌어 터미널에 다시 찍혔고(실사용),
+        말투 쪽지가 엉뚱한 프롬프트에 붙었다. 쪽지는 일하는 중이면 다음 툴콜에, 놀고
+        있으면 waiter 가 바로 깨워 닿는다 — 키 입력이 필요 없어 어느 OS 든 같다.
+        본 세션의 🗨 답은 이 질문에 붙는다."""
+        self._brain_keep_until = time.monotonic() + 5.0   # 깨어난 턴이 "전할게" 를 안 지우게
+        outbox.append(self.session_id, request, persona=self._persona,
+                      nickname=self._nickname)
+        outbox.wake(self.session_id)
+        try:
+            askhistory.record_question(self.session_id, request, target=RELAY_TARGET)
+        except Exception:
+            pass
+        self._refresh_notes()
+
+    def _brain_say(self, text, rec):
+        self._answer_rec = rec                   # 이 말이 어느 질문의 답인가
+        self._handle_event({"cmd": "say", "text": text})
+        self._answer_rec = None
 
     def _qdbus_run(self, *args):
         return subprocess.check_output(

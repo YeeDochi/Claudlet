@@ -130,3 +130,36 @@ def test_the_bubble_choice_survives_and_junk_falls_back():
     assert P._clean_pointer({"bubble": "always"})["bubble"] == "always"
     assert P._clean_pointer({"bubble": "sometimes"})["bubble"] == "closed"
     assert P._clean_pointer(None)["bubble"] == "closed"
+
+
+# ---- 크리처 머리 ----
+
+def test_brain_is_off_by_default():
+    assert P.load_config()["pointer"]["brain"] is False
+
+
+def test_brain_takes_only_a_bool():
+    _write({"brain": True})
+    assert P.load_config()["pointer"]["brain"] is True
+    _write({"brain": "yes"})
+    assert P.load_config()["pointer"]["brain"] is False
+
+
+def test_speaking_first_is_its_own_switch_off_by_default():
+    assert P.load_config()["pointer"]["brain_chatty"] is False
+    _write({"brain": True, "brain_chatty": True})
+    assert P.load_config()["pointer"]["brain_chatty"] is True
+
+
+def test_creature_background_keeps_paragraphs_and_has_a_cap():
+    assert P.clean_background("  하얀 털.  \n\n\n\n  더위 싫음 ") == "하얀 털.\n\n더위 싫음"
+    assert P.clean_background("   ") is None
+    assert len(P.clean_background("가" * 5000)) == P.BACKGROUND_MAX
+
+
+def test_background_is_per_creature_and_the_users_wins():
+    class Av:
+        background = "기본 배경"
+    assert P.for_creature({}, "x", Av())["background"] == "기본 배경"
+    cfg = {"creatures": {"x": {"background": "내가 쓴 배경"}}}
+    assert P.for_creature(cfg, "x", Av())["background"] == "내가 쓴 배경"

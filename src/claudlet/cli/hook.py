@@ -304,6 +304,10 @@ def _send(port, payload):
 def main():
     if hostinfo is None:
         return
+    # 펫이 띄운 크리처 머리(core/brain.py) 안에서 돈 훅이다. 그 머리는 본 세션이
+    # 아니다 — 여기서 펫을 띄우거나 이벤트를 보내면 펫이 하나 더 생긴다.
+    if os.environ.get("CLAUDLET_CREATURE"):
+        return
     raw = ""
     try:
         if not sys.stdin.isatty():

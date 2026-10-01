@@ -186,7 +186,8 @@ def test_page_carries_every_creatures_settings(tmp_path, monkeypatch):
     s = U.state_payload()
     assert set(s["looks"]) == set(a["name"] for a in s["avatars"])
     for look in s["looks"].values():
-        assert set(look) == {"palette", "scale", "visor", "persona", "nickname"}
+        assert set(look) == {"palette", "scale", "visor", "persona", "nickname",
+                             "background"}
 
 
 def test_the_server_stops_once_the_page_stops_saying_it_is_open():
@@ -1247,7 +1248,8 @@ def test_the_prefs_tab_drops_a_bogus_pointer(tmp_path, monkeypatch):
             broadcast=lambda line: 0)
     raw = json.loads(path.read_text(encoding="utf-8"))["pointer"]
     assert raw == {"cursor": petconfig.DEFAULT_POINTER_CURSOR, "bubble": "closed",
-                   "screenshot": False}
+                   "screenshot": False, "brain": False,
+                   "brain_chatty": False}
 
 
 def test_the_page_has_a_prefs_tab_with_the_pointer_settings(tmp_path, monkeypatch):

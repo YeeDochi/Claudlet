@@ -196,3 +196,14 @@ def test_relative_times_read_naturally(secs, want):
 def test_relative_times_in_english(secs, want):
     assert H.ago(1000.0, now=1000.0 + secs, lang="en") == want
 
+
+
+def test_two_questions_in_the_same_millisecond_get_their_own_answers():
+    # 같은 밀리초에 둘을 물으면 id 가 겹쳐 답이 엉뚱한 질문에 붙었다.
+    a = H.record_question("s", "첫번째", now=1000.0)
+    b = H.record_question("s", "두번째", now=1000.0)
+    assert a != b
+    H.record_answer("s", "둘째 답", rec_id=b)
+    H.record_answer("s", "첫째 답", rec_id=a)
+    got = {r["question"]: r["answer"] for r in H.load("s")}
+    assert got == {"첫번째": "첫째 답", "두번째": "둘째 답"}
