@@ -4310,18 +4310,21 @@ class Pet(QWidget):
         png, self._ask_shot = self._ask_shot, None
         if png:
             ctx["image"] = shotmod.save(self.session_id, png)
-        # 크리처 머리는 창에서 읽은 글자로 답한다. 캡처가 실린 질문은 본 세션으로 —
-        # 머리에는 도구가 없어 이미지를 못 본다.
+        # 크리처 머리는 창에서 읽은 글자로 답한다. 캡처가 있어도 먼저 머리가 듣는다 —
+        # 캡처를 켜 둔 윈도우에서는 늘 사진이 실려 포인터가 머리를 한 번도 못 거쳤다
+        # (실사용). 머리는 이미지를 못 보니 글자로 모자라면 넘기고, 넘길 때 창과 사진이
+        # 같이 간다.
         # Remember both so the answer's bubble can offer a follow-up on the same
         # thing the user pointed at, not on the whole window.
         self._ask_target = win
         self._ask_region = region
-        if self._pointer_cfg().get("brain") and not ctx.get("image"):
+        if self._pointer_cfg().get("brain"):
             pointed = "\n".join(t for t in (ctx["target"], ctx["text"]) if t)
             # 머리가 못 답하면 원래의 길 그대로 — 창에서 읽은 내용까지 본 세션에 간다
             self._brain_ask(question, pointed, ctx["target"], ctx["text"], region,
                             fallback=lambda: self._ask_deliver(ctx, question, region,
-                                                               record=False))
+                                                               record=False),
+                            ctx=ctx)
             self._refresh_chat()
             return ctx
         self._ask_deliver(ctx, question, region)
@@ -4962,7 +4965,7 @@ class Pet(QWidget):
             link.failed.disconnect()
             link.stop()
 
-    def _brain_compose(self, first, text="", pointed="", event=None):
+    def _brain_compose(self, first, text="", pointed="", event=None, shot=False):
         """머리에 보낼 글. 새로 띄운 머리면 지시·최근 맥락·지난 대화를 다 싣고, 띄워 둔
         머리에는 그 뒤로 세션에 새로 생긴 것과 이번 말만."""
         if first:
@@ -4983,28 +4986,32 @@ class Pet(QWidget):
         system, user = brain.build_prompt(self._persona, self._nickname, hist,
                                           brain.recent_context(fresh), text, pointed,
                                           alone=self._standalone(), event=event,
-                                          background=self._background)
+                                          background=self._background, shot=shot)
         return brain.stdin_for(system, user) if first else user
 
     def _brain_ask(self, text, pointed="", target="", read_text="", region=None,
-                   fallback=None):
+                   fallback=None, ctx=None):
         """크리처 머리에게 묻는다. 펫을 블록하지 않는다 — 답은 `_brain_answered`,
-        못 답하면 `_brain_failed` → `fallback`(기본: 그 말을 본 세션에)."""
+        못 답하면 `_brain_failed` → `fallback`(기본: 그 말을 본 세션에).
+        `ctx`: 포인터 질문의 창 정보 — 머리가 일을 넘기면 그것도 같이 간다."""
         if fallback is None:
             fallback = lambda: self._send_to_session(True, text, record=False)  # noqa: E731
+        shot = bool(ctx and ctx.get("image"))
         rec_id = None
         try:
             rec_id = askhistory.record_question(self.session_id, text, target,
-                                                read_text, region, brain=True)
+                                                read_text, region, brain=True,
+                                                image=shot)
         except Exception:
             pass
-        token = {"kind": "user", "rec": rec_id, "fallback": fallback}
+        token = {"kind": "user", "rec": rec_id, "fallback": fallback, "ctx": ctx}
         link = self._brain_link()
         if link is None:
             self._brain_failed(token)
             return
         self._begin_thinking()
-        link.ask(token, lambda first: self._brain_compose(first, text, pointed))
+        link.ask(token, lambda first: self._brain_compose(first, text, pointed,
+                                                          shot=shot))
 
     def _brain_notice(self, ev):
         """세션에서 굵직한 일이 생기면 크리처가 먼저 말을 걸 수 있다(설정, 기본 꺼짐).
@@ -5056,16 +5063,20 @@ class Pet(QWidget):
         # 세션 없이 뜬 펫은 넘길 곳이 없다 — 쪽지로 물면 영영 안 나간다.
         # 이벤트에 대한 말은 일을 만들지 않는다.
         if user and reply["relay"] and not self._standalone():
-            self._brain_relay(reply["relay"])
+            self._brain_relay(reply["relay"], token.get("ctx"))
 
-    def _brain_relay(self, request):
+    def _brain_relay(self, request, ctx=None):
         """크리처가 본 세션의 일이라고 판단했다. 프롬프트에 쳐 넣지 않고 쪽지로 보내고
         깨운다 — 쳐 넣었더니 사용자의 말이 존댓말로 바뀌어 터미널에 다시 찍혔고(실사용),
         말투 쪽지가 엉뚱한 프롬프트에 붙었다. 쪽지는 일하는 중이면 다음 툴콜에, 놀고
         있으면 waiter 가 바로 깨워 닿는다 — 키 입력이 필요 없어 어느 OS 든 같다.
         본 세션의 🗨 답은 이 질문에 붙는다."""
         self._brain_keep_until = time.monotonic() + 5.0   # 깨어난 턴이 "전할게" 를 안 지우게
-        outbox.append(self.session_id, request, persona=self._persona,
+        # 포인터 질문이었으면 창에서 읽은 것·캡처까지 — 요청만 가면 본 세션은 무슨
+        # 창 얘기인지 모른다.
+        note = (inspectmod.render_prompt(dict(ctx, question=request)) if ctx
+                else request)
+        outbox.append(self.session_id, note, persona=self._persona,
                       nickname=self._nickname)
         outbox.wake(self.session_id)
         try:

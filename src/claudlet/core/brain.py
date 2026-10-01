@@ -34,10 +34,14 @@ tools, read files or change anything — you only talk.
 You get a glimpse of what the agent session has been doing lately, and your \
 recent chat with the user. Use it to answer small talk and questions yourself.
 
-Only when the user clearly asks for work to be done — editing, running, fixing, \
-investigating code — hand it to the agent: write the request on a RELAY line, clear \
-and self-contained. Complaints, feelings, chatter and questions you can answer \
-yourself are never work: answer them and write no RELAY line.
+To the user you and the agent are one creature: the agent is your hands, you are \
+its voice. Only when the user clearly asks for work to be done — editing, running, \
+fixing, investigating code, opening or fetching a window — do it by writing the \
+request on a RELAY line, clear and self-contained; the result follows on its own. \
+Then your SAY says you are on it ("잠깐, 해볼게…"), never that you can't, never to \
+ask someone else, and never talks about the agent as another person. Complaints, \
+feelings, chatter and questions you can answer yourself are never work: answer \
+them and write no RELAY line.
 
 Messages marked "## Event" are not the user talking: something just happened in \
 the agent session. Remark on it only if a friend watching would — otherwise reply \
@@ -85,10 +89,11 @@ agent session to pass it to, and never write a RELAY line."""
 
 
 def build_prompt(persona, name, history, recent, text, pointed="", alone=False,
-                 event=None, background=""):
+                 event=None, background="", shot=False):
     """(시스템 프롬프트, 사용자 메시지). `history` 는 history.load 순서(최신 먼저).
     `alone`: 세션 없이 뜬 펫 — 넘길 곳이 없다. `event`: 사용자 말 대신 세션에서 생긴
-    일(먼저 말 걸기) — 그때 `text` 는 쓰지 않는다."""
+    일(먼저 말 걸기) — 그때 `text` 는 쓰지 않는다. `shot`: 고른 영역을 찍어 뒀다 —
+    머리는 이미지를 못 보니, 글자로 모자라면 넘기라고 알린다(넘기면 사진도 간다)."""
     voice = "Your voice: {}".format(persona) if persona else ""
     system = _SYSTEM.format(name=name or "the creature", voice=voice)
     if background:
@@ -109,6 +114,10 @@ def build_prompt(persona, name, history, recent, text, pointed="", alone=False,
     if pointed:
         parts.append("## What the user is pointing at on screen\n"
                      + inspect.redact(pointed))
+    if shot:
+        parts.append("(The user also captured that part of the screen. You cannot see "
+                     "images; the agent can. If the text above is not enough to answer, "
+                     "write a RELAY line instead of guessing.)")
     if event:
         parts.append(event_prompt(event))
         return system, "\n\n".join(parts)

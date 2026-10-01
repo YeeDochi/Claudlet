@@ -219,6 +219,39 @@ def test_a_failed_pointer_question_still_carries_the_window(pet, world, monkeypa
     assert notes and "Ledger" in notes[0] and "이거 뭐야?" in notes[0]
 
 
+def _point_with_shot(pet, monkeypatch, question="이거 뭐야?"):
+    from claudlet.core import shot as shotmod
+    from claudlet.platform.geom import Win
+    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    monkeypatch.setattr(shotmod, "save", lambda sid, png: "/tmp/shot-1.png")
+    pet._ask_shot = b"PNG"
+    pet.ask_window(Win(wid=1, x=100, y=100, w=400, h=300, title="Ledger", pid=7,
+                       caption="ledger"), question)
+
+
+def test_a_captured_pointer_question_still_goes_to_the_creature_first(pet, world, monkeypatch):  # noqa: F811
+    # 캡처를 켜 둔 윈도우에서 포인터가 머리를 한 번도 안 거쳤다(실사용).
+    _brain_on(world)
+    _fake_claude(world, 'out = "SAY: 그건 원장 창이야"')
+    _point_with_shot(pet, monkeypatch)
+    assert _wait(lambda: pet.snapshot()["saying"])
+    assert pet.snapshot()["saying"] == "그건 원장 창이야"
+    assert "cannot see images" in _seen(world)[0]
+    assert _notes(pet) == []
+
+
+def test_a_relayed_pointer_question_carries_the_window_and_the_shot(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "session_id", "sess-1")
+    _brain_on(world)
+    _fake_claude(world, 'out = "SAY: 잠깐, 볼게\\nRELAY: 이 창 그림 설명해줘"')
+    _point_with_shot(pet, monkeypatch, "이 그림 뭐야?")
+    assert _wait(lambda: pet.snapshot()["saying"] == "잠깐, 볼게")
+    notes = _notes(pet)
+    assert len(notes) == 1
+    assert "Ledger" in notes[0] and "/tmp/shot-1.png" in notes[0]
+    assert "이 창 그림 설명해줘" in notes[0]
+
+
 def test_a_standalone_pet_answers_but_has_nowhere_to_relay(pet, world):  # noqa: F811
     # 세션 없이 뜬 펫: 크리처가 답은 하지만, 넘길 세션이 없으니 쪽지로 물지 않는다
     assert pet._standalone()

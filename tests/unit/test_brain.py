@@ -62,6 +62,13 @@ def test_build_prompt_includes_pointed_text():
     assert "NullPointerException" in user
 
 
+def test_a_captured_screen_tells_the_creature_to_hand_over_what_it_cannot_read():
+    _, user = brain.build_prompt("", "", [], "", "이거 뭐야?", pointed="Chrome", shot=True)
+    assert "cannot see images" in user and "RELAY" in user
+    assert "cannot see images" not in brain.build_prompt("", "", [], "", "이거 뭐야?",
+                                                         pointed="Chrome")[1]
+
+
 def test_build_prompt_skips_unanswered_history():
     _, user = brain.build_prompt("", "", [{"question": "아직", "answer": None}], "", "hi")
     assert "아직" not in user
