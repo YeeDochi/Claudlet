@@ -64,8 +64,8 @@ def test_build_prompt_includes_pointed_text():
 
 def test_a_captured_screen_tells_the_creature_to_hand_over_what_it_cannot_read():
     _, user = brain.build_prompt("", "", [], "", "이거 뭐야?", pointed="Chrome", shot=True)
-    assert "cannot see images" in user and "RELAY" in user
-    assert "cannot see images" not in brain.build_prompt("", "", [], "", "이거 뭐야?",
+    assert "cannot see pictures" in user and "RELAY" in user
+    assert "cannot see pictures" not in brain.build_prompt("", "", [], "", "이거 뭐야?",
                                                          pointed="Chrome")[1]
 
 
@@ -236,3 +236,20 @@ def test_rpc_lines():
     assert json.loads(brain.rpc(1, "initialize", {"a": 1})) == {
         "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"a": 1}}
     assert "id" not in json.loads(brain.rpc(None, "initialized"))
+
+
+# --- needs_eyes ---------------------------------------------------------------
+
+def test_a_shot_of_an_unreadable_window_needs_the_session():
+    assert brain.needs_eyes({"image": "/x.png", "note": "text unavailable", "lines": 0})
+    assert brain.needs_eyes({"image": "/x.png", "note": None, "lines": 2})
+
+
+def test_readable_text_or_no_shot_lets_the_creature_try():
+    assert not brain.needs_eyes({"image": "/x.png", "note": None, "lines": 5})
+    assert not brain.needs_eyes({"image": None, "note": "text unavailable", "lines": 0})
+
+
+def test_an_editor_never_needs_the_picture():
+    assert not brain.needs_eyes({"image": "/x.png", "note": None, "lines": 0,
+                                 "open": {"project": "p", "file": "f"}})

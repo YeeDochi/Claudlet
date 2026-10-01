@@ -4313,12 +4313,12 @@ class Pet(QWidget):
         # 크리처 머리는 창에서 읽은 글자로 답한다. 캡처가 있어도 먼저 머리가 듣는다 —
         # 캡처를 켜 둔 윈도우에서는 늘 사진이 실려 포인터가 머리를 한 번도 못 거쳤다
         # (실사용). 머리는 이미지를 못 보니 글자로 모자라면 넘기고, 넘길 때 창과 사진이
-        # 같이 간다.
+        # 같이 간다. 글자를 거의 못 읽은 창은 머리가 답할 거리가 없어 곧장 본 세션으로.
         # Remember both so the answer's bubble can offer a follow-up on the same
         # thing the user pointed at, not on the whole window.
         self._ask_target = win
         self._ask_region = region
-        if self._pointer_cfg().get("brain"):
+        if self._pointer_cfg().get("brain") and not brain.needs_eyes(ctx):
             pointed = "\n".join(t for t in (ctx["target"], ctx["text"]) if t)
             # 머리가 못 답하면 원래의 길 그대로 — 창에서 읽은 내용까지 본 세션에 간다
             self._brain_ask(question, pointed, ctx["target"], ctx["text"], region,

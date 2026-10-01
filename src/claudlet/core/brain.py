@@ -115,9 +115,12 @@ def build_prompt(persona, name, history, recent, text, pointed="", alone=False,
         parts.append("## What the user is pointing at on screen\n"
                      + inspect.redact(pointed))
     if shot:
-        parts.append("(The user also captured that part of the screen. You cannot see "
-                     "images; the agent can. If the text above is not enough to answer, "
-                     "write a RELAY line instead of guessing.)")
+        # 머리(haiku)는 못 본 것도 본 척 답했다(실사용) — 언제 넘기는지를 박아 둔다.
+        parts.append("(The user also captured that part of the screen as a picture. "
+                     "You cannot see pictures; the agent can. If the question is about "
+                     "the picture — what something looks like, what is in an image or "
+                     "photo, whether you can see it — or the text above does not answer "
+                     "it, you must write a RELAY line. Never guess what is on screen.)")
     if event:
         parts.append(event_prompt(event))
         return system, "\n\n".join(parts)
@@ -125,6 +128,20 @@ def build_prompt(persona, name, history, recent, text, pointed="", alone=False,
     # 지시가 메시지 앞머리에 있으면 언어 지시가 묻힌다 — RELAY 가 영어로 넘어갔다(실측).
     parts.append("(Write SAY and RELAY in the same language as the line above.)")
     return system, "\n\n".join(parts)
+
+
+MIN_READ_LINES = 3
+
+
+def needs_eyes(ctx):
+    """포인터 질문을 머리를 거치지 않고 곧장 본 세션에 보내야 하나.
+
+    찍어 둔 화면이 있는데 창에서 글자를 거의 못 읽었으면 머리가 답할 거리가 없다 —
+    그래도 머리에 물었더니 빈 창을 두고 아무 말이나 했다(실사용). 편집기는 글자가
+    없어도 열린 파일을 알려 주니 사진이 필요한 게 아니다."""
+    if not ctx.get("image") or ctx.get("open"):
+        return False
+    return bool(ctx.get("note")) or ctx.get("lines", 0) < MIN_READ_LINES
 
 
 def parse_reply(out):

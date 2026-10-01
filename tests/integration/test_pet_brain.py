@@ -219,10 +219,15 @@ def test_a_failed_pointer_question_still_carries_the_window(pet, world, monkeypa
     assert notes and "Ledger" in notes[0] and "이거 뭐야?" in notes[0]
 
 
-def _point_with_shot(pet, monkeypatch, question="이거 뭐야?"):
+_READ = ["장부", "1월 매출 120", "2월 매출 90", "3월 매출 150"]
+
+
+def _point_with_shot(pet, monkeypatch, question="이거 뭐야?", lines=_READ):
+    import types
     from claudlet.core import shot as shotmod
     from claudlet.platform.geom import Win
-    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    reader = types.SimpleNamespace(read_window=lambda w: list(lines))
+    monkeypatch.setattr(pet, "_ask_backend", lambda: reader)
     monkeypatch.setattr(shotmod, "save", lambda sid, png: "/tmp/shot-1.png")
     pet._ask_shot = b"PNG"
     pet.ask_window(Win(wid=1, x=100, y=100, w=400, h=300, title="Ledger", pid=7,
@@ -236,7 +241,7 @@ def test_a_captured_pointer_question_still_goes_to_the_creature_first(pet, world
     _point_with_shot(pet, monkeypatch)
     assert _wait(lambda: pet.snapshot()["saying"])
     assert pet.snapshot()["saying"] == "그건 원장 창이야"
-    assert "cannot see images" in _seen(world)[0]
+    assert "cannot see pictures" in _seen(world)[0]
     assert _notes(pet) == []
 
 
@@ -250,6 +255,16 @@ def test_a_relayed_pointer_question_carries_the_window_and_the_shot(pet, world, 
     assert len(notes) == 1
     assert "Ledger" in notes[0] and "/tmp/shot-1.png" in notes[0]
     assert "이 창 그림 설명해줘" in notes[0]
+
+
+def test_a_captured_window_with_nothing_readable_goes_straight_to_the_session(pet, world, monkeypatch):  # noqa: F811
+    # 글자를 못 읽은 창을 두고 머리가 아무 말이나 했다(실사용) — 사진은 본 세션이 본다.
+    _brain_on(world)
+    _fake_claude(world, 'out = "SAY: 손가락질하네"')
+    _point_with_shot(pet, monkeypatch, "이건", lines=[])
+    assert _wait(lambda: _notes(pet))
+    assert _seen(world) == []
+    assert "/tmp/shot-1.png" in _notes(pet)[0]
 
 
 def test_a_standalone_pet_answers_but_has_nowhere_to_relay(pet, world):  # noqa: F811
