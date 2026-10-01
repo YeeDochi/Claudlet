@@ -82,7 +82,7 @@ def _clip(text):
 
 
 def record_question(session_id, question, target="", text="", region=None,
-                    now=None, image=False):
+                    now=None, image=False, brain=False):
     """Append an asked question and return its id.
 
     The id comes back so the answer can be attached to this exact exchange
@@ -101,6 +101,10 @@ def record_question(session_id, question, target="", text="", region=None,
     }
     if image:
         rec["image"] = True      # 캡처를 실었다는 표시만. 이미지는 남기지 않는다
+    if brain:
+        # 크리처 머리가 답할 질문이다. 본 세션의 답이 여기 붙으면 안 된다 —
+        # 머리의 답은 이 id 로 붙는다(record_answer(rec_id=...)).
+        rec["brain"] = True
     if region:
         rec["region"] = {k: float(region[k]) for k in ("x", "y", "w", "h")
                          if k in region}
@@ -126,7 +130,7 @@ def record_answer(session_id, answer, rec_id=None, now=None, more=False):
     else:
         for rec in reversed(records):
             if (rec.get("session") == (session_id or "default")
-                    and rec.get("answer") is None):
+                    and rec.get("answer") is None and not rec.get("brain")):
                 target = rec
                 break
     if target is None:
@@ -149,6 +153,17 @@ def record_answer(session_id, answer, rec_id=None, now=None, more=False):
         target["more"] = True
     _write_all(records)
     return target.get("id")
+
+
+def hand_over(rec_id):
+    """크리처 머리가 못 답해 본 세션으로 넘긴 질문 — 이제 본 세션의 답이 붙는다."""
+    if rec_id is None:
+        return
+    records = _load_raw()
+    for rec in records:
+        if rec.get("id") == rec_id and rec.pop("brain", None):
+            _write_all(records)
+            return
 
 
 def append(rec, path=None):
@@ -183,6 +198,8 @@ def load(session_id=None, limit=None, pending_only=False):
         records = [r for r in records if r.get("session") == session_id]
     if pending_only:
         records = [r for r in records if r.get("answer") is None]
+    if pending_only:
+        records = [r for r in records if not r.get("brain")]   # 머리가 답할 몫
     records.reverse()
     return records[:limit] if limit else records
 

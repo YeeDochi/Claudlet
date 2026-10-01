@@ -3606,6 +3606,7 @@ class Pet(QWidget):
         말풍선은 설정(pointer.bubble)대로: 늘, 또는 대화창이 안 보일 때만."""
         try:
             askhistory.record_answer(self.session_id, text,
+                                     rec_id=getattr(self, "_answer_rec", None),
                                      more=getattr(self, "_say_more", False))
         except Exception:
             pass
@@ -4275,13 +4276,23 @@ class Pet(QWidget):
             ctx["image"] = shotmod.save(self.session_id, png)
         # 크리처 머리는 창에서 읽은 글자로 답한다. 캡처가 실린 질문은 본 세션으로 —
         # 머리에는 도구가 없어 이미지를 못 본다.
+        # Remember both so the answer's bubble can offer a follow-up on the same
+        # thing the user pointed at, not on the whole window.
+        self._ask_target = win
+        self._ask_region = region
         if self._pointer_cfg().get("brain") and not ctx.get("image"):
-            self._ask_target = win
-            self._ask_region = region
             pointed = "\n".join(t for t in (ctx["target"], ctx["text"]) if t)
-            self._brain_ask(question, pointed, ctx["target"], region)
+            # 머리가 못 답하면 원래의 길 그대로 — 창에서 읽은 내용까지 본 세션에 간다
+            self._brain_ask(question, pointed, ctx["target"], ctx["text"], region,
+                            fallback=lambda: self._ask_deliver(ctx, question, region,
+                                                               record=False))
             self._refresh_chat()
             return ctx
+        self._ask_deliver(ctx, question, region)
+        return ctx
+
+    def _ask_deliver(self, ctx, question, region, record=True):
+        """포인터 질문을 본 세션에 보낸다. `record=False` 는 이미 내역에 있는 것."""
         # 배달은 아웃박스로 한다. 우편함(.ask.json)은 세션이 스스로 집어가지
         # 않아 사용자가 "답해줘" 라고 시켜야 했다 — 아웃박스는 훅이 다음 경계
         # (일하는 중이면 다음 툴콜, 놀고 있으면 다음 프롬프트)에서 자동으로
@@ -4292,16 +4303,13 @@ class Pet(QWidget):
         # Log it too: the mailbox deletes the question as soon as the session
         # reads it, so without this there is no way to see what was asked --
         # or to tell "never answered" from "answered while you looked away".
-        try:
-            askhistory.record_question(self.session_id, question, ctx["target"],
-                                       ctx["text"], region,
-                                       image=bool(ctx.get("image")))
-        except Exception:
-            pass          # a history failure must never lose the question
-        # Remember both so the answer's bubble can offer a follow-up on the same
-        # thing the user pointed at, not on the whole window.
-        self._ask_target = win
-        self._ask_region = region
+        if record:
+            try:
+                askhistory.record_question(self.session_id, question, ctx["target"],
+                                           ctx["text"], region,
+                                           image=bool(ctx.get("image")))
+            except Exception:
+                pass          # a history failure must never lose the question
         # 창 텍스트는 프롬프트에 타이핑하기엔 크니 아웃박스로 보냈다. 그런데
         # 세션이 놀고 있으면 훅 경계가 생기지 않아 그것이 영영 안 실린다 —
         # 사용자는 "물어봤는데 아무 일도 안 일어난다" 로 겪는다. 그래서 짧은
@@ -4316,7 +4324,6 @@ class Pet(QWidget):
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
         self._refresh_chat()
-        return ctx
 
     def _begin_thinking(self):
         """Act out "I'm working on it" until the answer lands.
@@ -4609,6 +4616,7 @@ class Pet(QWidget):
         return "idle" if now < self._pocket_awake_until else "sleeping"
 
     def _quit(self):
+        self._brain_stop()             # 생각 중이던 머리가 펫보다 오래 살 이유가 없다
         self._cleanup()
         QApplication.quit()
 
@@ -4881,16 +4889,26 @@ class Pet(QWidget):
 
     # --- 크리처 머리 (core/brain.py) ------------------------------------------
 
-    def _brain_ask(self, text, pointed="", target="", region=None):
+    BRAIN_TIMEOUT_S = brain.TIMEOUT_S
+
+    def _brain_ask(self, text, pointed="", target="", read_text="", region=None,
+                   fallback=None):
         """크리처 머리에게 묻는다. 펫을 블록하지 않는다 — QProcess 가 끝나면
-        `_brain_done` 이 받는다. 띄울 수 없으면 그 자리에서 본 세션으로 넘긴다."""
+        `_brain_done` 이 받는다. 못 답하면 `fallback`(기본: 그 말을 본 세션에).
+
+        또 말해도 앞의 생각을 죽이지 않는다 — 죽였더니 앞의 말이 답도 못 받고
+        본 세션에도 안 가서 사라졌다(리뷰). 각자 자기 질문 id 에 답을 단다."""
+        if fallback is None:
+            fallback = lambda: self._send_to_session(True, text, record=False)  # noqa: E731
+        rec_id = None
         try:
-            askhistory.record_question(self.session_id, text, target, pointed, region)
+            rec_id = askhistory.record_question(self.session_id, text, target,
+                                                read_text, region, brain=True)
         except Exception:
             pass
         exe = shutil.which("codex" if self.agent == "codex" else "claude")
         if not exe:
-            self._send_to_session(True, text, record=False)
+            self._brain_give_up(rec_id, fallback)
             return
         try:
             recent = brain.recent_context(transcript.load(self.session_id))
@@ -4900,45 +4918,65 @@ class Pet(QWidget):
             hist = askhistory.load(self.session_id, limit=brain.HISTORY_PAIRS * 2)
         except Exception:
             hist = []
-        hist = [r for r in hist if r.get("answer")]     # 방금 넣은 질문은 아래 "말" 로 간다
         system, user = brain.build_prompt(self._persona, self._nickname, hist,
                                           recent, text, pointed)
         outfile = None
         if self.agent == "codex":
-            outfile = os.path.join(hostinfo.runtime_dir(),
-                                   "claudlet-%s.brain" % (self.session_id or "default"))
-        argv = brain.command(self.agent, system, exe, outfile)
+            self._brain_seq = getattr(self, "_brain_seq", 0) + 1
+            outfile = os.path.join(hostinfo.runtime_dir(), "claudlet-%s-%d.brain"
+                                   % (self.session_id or "default", self._brain_seq))
+        argv = brain.command(self.agent, exe, outfile)
 
-        self._brain_stop()                 # 앞의 생각은 버린다 — 새 말이 그것을 대신한다
         proc = QProcess(self)
         env = QProcessEnvironment.systemEnvironment()
         env.insert(brain.CREATURE_ENV, "1")
         proc.setProcessEnvironment(env)
         proc.setProgram(argv[0])
         proc.setArguments(argv[1:])
-        proc.finished.connect(lambda *_a, p=proc: self._brain_done(p, text, outfile))
+        done = lambda *_a, p=proc: self._brain_done(p)  # noqa: E731
+        proc.finished.connect(done)
         proc.errorOccurred.connect(
             lambda err, p=proc: err == QProcess.ProcessError.FailedToStart
-            and self._brain_done(p, text, outfile))
-        self._brain_proc = proc
+            and self._brain_done(p))
+        self._brain_procs()[proc] = (rec_id, fallback, outfile)
         proc.start()
-        proc.write(brain.stdin_for(self.agent, system, user).encode("utf-8"))
+        proc.write(brain.stdin_for(system, user).encode("utf-8"))
         proc.closeWriteChannel()
         QTimer.singleShot(int(self.BRAIN_TIMEOUT_S * 1000),
-                          lambda p=proc: p is self._brain_proc and p.kill())
+                          lambda p=proc: p in self._brain_procs() and p.kill())
         self._begin_thinking()
 
-    BRAIN_TIMEOUT_S = brain.TIMEOUT_S
+    def _brain_procs(self):
+        if not hasattr(self, "_brain_running"):
+            self._brain_running = {}
+        return self._brain_running
+
+    def _brain_busy(self):
+        return bool(self._brain_procs())
 
     def _brain_stop(self):
-        proc, self._brain_proc = getattr(self, "_brain_proc", None), None
-        if proc is not None and proc.state() != QProcess.ProcessState.NotRunning:
-            proc.kill()
+        """떠 있는 머리를 모두 거둔다(펫이 꺼질 때·테스트 정리)."""
+        running, self._brain_running = self._brain_procs(), {}
+        for proc in running:
+            if proc.state() != QProcess.ProcessState.NotRunning:
+                proc.kill()
 
-    def _brain_done(self, proc, text, outfile):
-        if proc is not getattr(self, "_brain_proc", None):
-            return                         # 더 새 말이 이것을 대신했다
-        self._brain_proc = None
+    def _brain_give_up(self, rec_id, fallback):
+        """머리가 못 답했다. 사용자의 말은 사라지면 안 된다 — 본 세션으로 넘기고,
+        그 질문에 본 세션의 답이 붙을 수 있게 머리 표시를 뗀다."""
+        try:
+            askhistory.hand_over(rec_id)
+        except Exception:
+            pass
+        if not self._brain_busy():
+            self._end_thinking()
+        fallback()
+
+    def _brain_done(self, proc):
+        info = self._brain_procs().pop(proc, None)
+        if info is None:
+            return                         # 이미 처리했다 (FailedToStart 뒤 finished 등)
+        rec_id, fallback, outfile = info
         reply = None
         if (proc.exitStatus() == QProcess.ExitStatus.NormalExit
                 and proc.exitCode() == 0):
@@ -4947,16 +4985,23 @@ class Pet(QWidget):
                 try:
                     with open(outfile, encoding="utf-8") as f:
                         out = f.read()
-                    os.unlink(outfile)
                 except OSError:
                     pass
             reply = brain.parse_reply(out)
+        if outfile:
+            try:
+                os.unlink(outfile)
+            except OSError:
+                pass
+        proc.deleteLater()
         if reply is None:
-            # 머리가 못 답했다. 사용자의 말은 사라지면 안 된다 — 본 세션으로.
-            self._end_thinking()
-            self._send_to_session(True, text, record=False)
+            self._brain_give_up(rec_id, fallback)
             return
+        self._answer_rec = rec_id          # 이 답은 이 질문의 것이다
         self._handle_event({"cmd": "say", "text": reply["say"]})
+        self._answer_rec = None
+        if self._brain_busy():
+            self._begin_thinking()         # 아직 생각 중인 말이 남았다
         if reply["relay"]:
             # 크리처가 본 세션의 일이라고 판단했다. 본 세션의 🗨 답은 이 질문에 붙는다.
             self._send_to_session(True, reply["relay"])

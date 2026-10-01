@@ -76,13 +76,16 @@ def build_prompt(persona, name, history, recent, text, pointed=""):
     if recent:
         parts.append("## What the agent session has been doing\n" + recent)
     if pairs:
-        chat = "\n".join("user: {}\nyou: {}".format(r.get("question", ""), r["answer"])
-                         for r in reversed(pairs))
+        chat = "\n".join("user: {}\nyou: {}".format(
+            inspect.redact(r.get("question") or ""), inspect.redact(r["answer"]))
+            for r in reversed(pairs))
         parts.append("## Your recent chat with the user\n" + chat)
     if pointed:
         parts.append("## What the user is pointing at on screen\n"
                      + inspect.redact(pointed))
     parts.append("## The user says\n" + text)
+    # 지시가 메시지 앞머리에 있으면 언어 지시가 묻힌다 — RELAY 가 영어로 넘어갔다(실측).
+    parts.append("(Write SAY and RELAY in the same language as the line above.)")
     return system, "\n\n".join(parts)
 
 
@@ -103,23 +106,38 @@ def parse_reply(out):
             relay = value
     if say is None:
         first = lines[0]
-        say = "…" if _LABEL.match(first) else first
-    return {"say": say, "relay": relay}
+        say = "" if _LABEL.match(first) else first
+    if not say and not relay:
+        return None            # 할 말도 넘길 일도 없다 — 실패로 보고 본 세션에 넘긴다
+    return {"say": say or "…", "relay": relay}
 
 
-def command(agent, system, exe, outfile=None):
-    """크리처 에이전트를 띄울 argv. 사용자 메시지는 stdin(`stdin_for`)으로."""
+# 띄울 때 인자로는 고정 문자열만 넘긴다. 말투는 크리처 패키지(남이 만든 것일 수도
+# 있다)가 정하는데, 윈도우에서 `claude` 는 .cmd 심이라 cmd.exe 가 인자를 다시
+# 해석한다 — 줄바꿈에서 잘리고 & | ^ % 가 명령이 된다. 그래서 진짜 시스템
+# 프롬프트는 사용자 메시지와 함께 stdin 으로 간다.
+_ARGV_SYSTEM = "You are a desktop pet creature. Follow the instructions at the top of the message."
+
+# codex 는 도구를 하나씩 꺼야 한다. read-only 샌드박스도 셸로 아무 파일이나 읽을 수
+# 있어서, 창에서 읽은 글자에 숨은 지시가 비밀을 읽어 RELAY 로 흘릴 수 있었다.
+# 사용자 설정(MCP 서버들)도 싣지 않는다. 실측: 이 조합에서 셸을 시키면 못 한다고 답한다.
+_CODEX_OFF = ("hooks", "shell_tool", "unified_exec", "apps", "browser_use",
+              "browser_use_external", "computer_use")
+
+
+def command(agent, exe, outfile=None):
+    """크리처 에이전트를 띄울 argv. 프롬프트는 전부 stdin(`stdin_for`)으로."""
     if agent == "codex":
-        return [exe, "exec", "--ephemeral", "--skip-git-repo-check",
-                "-s", "read-only", "-c", "features.hooks=false",
-                "-c", "model_reasoning_effort=low", "-o", outfile or "", "-"]
+        argv = [exe, "exec", "--ephemeral", "--skip-git-repo-check",
+                "--ignore-user-config", "-s", "read-only"]
+        for feature in _CODEX_OFF:
+            argv += ["-c", "features.%s=false" % feature]
+        return argv + ["-c", "model_reasoning_effort=low", "-o", outfile or "", "-"]
     return [exe, "-p", "--model", "haiku", "--tools", "", "--strict-mcp-config",
             "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
-            "--no-session-persistence", "--system-prompt", system]
+            "--no-session-persistence", "--system-prompt", _ARGV_SYSTEM]
 
 
-def stdin_for(agent, system, user):
-    """codex exec 에는 시스템 프롬프트 플래그가 없다 — 메시지 앞머리에 싣는다."""
-    if agent == "codex":
-        return system + "\n\n" + user
-    return user
+def stdin_for(system, user):
+    """시스템 프롬프트를 메시지 앞머리에 싣는다(위 _ARGV_SYSTEM 참고)."""
+    return "# Instructions\n" + system + "\n\n" + user

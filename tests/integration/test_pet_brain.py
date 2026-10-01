@@ -93,7 +93,7 @@ def test_a_failing_brain_hands_the_words_to_the_session(pet, world):  # noqa: F8
     _brain_on(world)
     _fake_claude(world, "cat >/dev/null; exit 3")
     pet._talk(immediate=True, text="들리나?")
-    assert _wait(lambda: pet._brain_proc is None)
+    assert _wait(lambda: not pet._brain_busy())
     assert _notes(pet) == ["들리나?"]
 
 
@@ -109,18 +109,51 @@ def test_a_hung_brain_times_out_to_the_session(pet, world, monkeypatch):  # noqa
     monkeypatch.setattr(pet, "BRAIN_TIMEOUT_S", 0.3)
     _fake_claude(world, "sleep 30")
     pet._talk(immediate=True, text="왜 대답이 없어")
-    assert _wait(lambda: pet._brain_proc is None, secs=5)
+    assert _wait(lambda: not pet._brain_busy(), secs=5)
     assert _notes(pet) == ["왜 대답이 없어"]
 
 
-def test_speaking_again_replaces_the_first_thought(pet, world):  # noqa: F811
+def test_speaking_again_answers_both(pet, world):  # noqa: F811
+    # 앞의 생각을 죽였더니 앞의 말이 답도 못 받고 본 세션에도 안 가서 사라졌다.
+    from claudlet.core import history as H
     _brain_on(world)
-    _fake_claude(world, 'line=$(tail -n1); sleep 0.5; echo "SAY: $line"')
+    _fake_claude(world, 'line=$(tail -n1); sleep 0.3; echo "SAY: $line 들었어"')
     pet._talk(immediate=True, text="첫번째")
     pet._talk(immediate=True, text="두번째")
-    assert _wait(lambda: pet.snapshot()["saying"])
-    _wait(lambda: False, secs=0.8)            # 첫 호출이 늦게라도 끝날 틈을 준다
-    assert "두번째" in pet.snapshot()["saying"]
+    assert _wait(lambda: not pet._brain_busy())
+    got = {r["question"]: r["answer"] for r in H.load(pet.session_id)}
+    assert got == {"첫번째": "첫번째 들었어", "두번째": "두번째 들었어"}
+
+
+def test_the_sessions_own_reply_does_not_take_the_creatures_question(pet, world):  # noqa: F811
+    # 크리처가 생각하는 동안 본 세션이 자기 턴을 끝내도, 그 답이 크리처에게 한
+    # 질문에 붙거나 말풍선으로 뜨면 안 된다.
+    from claudlet.core import history as H
+    _brain_on(world)
+    _fake_claude(world, "cat >/dev/null; sleep 0.3; echo 'SAY: 내 답'")
+    pet._talk(immediate=True, text="안녕")
+    assert H.load(pet.session_id, pending_only=True) == []   # 본 세션 몫이 아니다
+    H.record_answer(pet.session_id, "본 세션이 한 말")         # turn_end 가 하는 일
+    assert _wait(lambda: not pet._brain_busy())
+    mine = [r for r in H.load(pet.session_id) if r["question"] == "안녕"]
+    assert mine and mine[0]["answer"] == "내 답"
+
+
+def test_a_failed_brain_question_waits_for_the_sessions_answer(pet, world):  # noqa: F811
+    from claudlet.core import history as H
+    _brain_on(world)
+    _fake_claude(world, "cat >/dev/null; exit 1")
+    pet._talk(immediate=True, text="넘어가라")
+    assert _wait(lambda: not pet._brain_busy())
+    assert [r["question"] for r in H.load(pet.session_id, pending_only=True)] == ["넘어가라"]
+
+
+def test_a_blank_answer_hands_the_words_to_the_session(pet, world):  # noqa: F811
+    _brain_on(world)
+    _fake_claude(world, "cat >/dev/null; echo 'SAY:'")
+    pet._talk(immediate=True, text="뭐라고?")
+    assert _wait(lambda: not pet._brain_busy())
+    assert _notes(pet) == ["뭐라고?"]
 
 
 def test_brain_off_keeps_the_old_path(pet, world):  # noqa: F811
@@ -135,7 +168,7 @@ def test_a_note_skips_the_brain(pet, world):  # noqa: F811
     _fake_claude(world, "echo 'SAY: 나오면 안 됨'")
     pet._talk(immediate=False, text="나중에 봐")
     assert _notes(pet) == ["나중에 봐"]
-    assert getattr(pet, "_brain_proc", None) is None
+    assert not pet._brain_busy()
 
 
 def test_pointing_at_a_window_asks_the_creature_with_what_it_reads(pet, world, monkeypatch):  # noqa: F811
@@ -150,3 +183,15 @@ def test_pointing_at_a_window_asks_the_creature_with_what_it_reads(pet, world, m
     assert pet.snapshot()["saying"] == "그건 원장 창이야"
     assert "Ledger" in seen.read_text() and "이거 뭐야?" in seen.read_text()
     assert _notes(pet) == []
+
+
+def test_a_failed_pointer_question_still_carries_the_window(pet, world, monkeypatch):  # noqa: F811
+    from claudlet.platform.geom import Win
+    _brain_on(world)
+    _fake_claude(world, "cat >/dev/null; exit 1")
+    monkeypatch.setattr(pet, "_ask_backend", lambda: None)
+    pet.ask_window(Win(wid=1, x=100, y=100, w=400, h=300, title="Ledger", pid=7,
+                       caption="ledger"), "이거 뭐야?")
+    assert _wait(lambda: not pet._brain_busy())
+    notes = _notes(pet)
+    assert notes and "Ledger" in notes[0] and "이거 뭐야?" in notes[0]
