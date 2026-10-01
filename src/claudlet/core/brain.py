@@ -33,8 +33,8 @@ When the user asks for real work — editing, running, fixing, investigating cod
 hand it to the agent: write the request on a RELAY line, clear and self-contained, \
 as the user would ask the agent. Otherwise never write a RELAY line.
 
-Answer in the user's language. Output exactly:
-SAY: <one short line, in your voice>
+Write everything — SAY and RELAY — in the language the user wrote in. Output exactly:
+SAY: <one short line, under 60 characters, in your voice>
 RELAY: <request for the agent>   (only when handing work over)"""
 
 _NO_RELAY = {"", "-", "none", "n/a", "없음"}
