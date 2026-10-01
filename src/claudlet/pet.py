@@ -4919,7 +4919,8 @@ class Pet(QWidget):
         except Exception:
             hist = []
         system, user = brain.build_prompt(self._persona, self._nickname, hist,
-                                          recent, text, pointed)
+                                          recent, text, pointed,
+                                          alone=self._standalone())
         outfile = None
         if self.agent == "codex":
             self._brain_seq = getattr(self, "_brain_seq", 0) + 1
@@ -4945,6 +4946,10 @@ class Pet(QWidget):
         QTimer.singleShot(int(self.BRAIN_TIMEOUT_S * 1000),
                           lambda p=proc: p in self._brain_procs() and p.kill())
         self._begin_thinking()
+
+    def _standalone(self):
+        """세션 없이 뜬 펫(`claudlet` / `/claudlet standalone`)."""
+        return (self.session_id or "default") == "default"
 
     def _brain_procs(self):
         if not hasattr(self, "_brain_running"):
@@ -5002,7 +5007,8 @@ class Pet(QWidget):
         self._answer_rec = None
         if self._brain_busy():
             self._begin_thinking()         # 아직 생각 중인 말이 남았다
-        if reply["relay"]:
+        # 세션 없이 뜬 펫은 넘길 곳이 없다 — 쪽지로 물면 영영 안 나간다.
+        if reply["relay"] and not self._standalone():
             # 크리처가 본 세션의 일이라고 판단했다. 본 세션의 🗨 답은 이 질문에 붙는다.
             self._send_to_session(True, reply["relay"])
 

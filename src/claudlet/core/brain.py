@@ -67,10 +67,19 @@ def recent_context(entries, budget=6000, per=400):
     return "\n".join(reversed(picked))
 
 
-def build_prompt(persona, name, history, recent, text, pointed=""):
-    """(시스템 프롬프트, 사용자 메시지). `history` 는 history.load 순서(최신 먼저)."""
+_ALONE = """
+No agent session is attached to you right now (you are a standalone pet), so you \
+cannot hand work over. If the user asks for real work, say kindly that there is no \
+agent session to pass it to, and never write a RELAY line."""
+
+
+def build_prompt(persona, name, history, recent, text, pointed="", alone=False):
+    """(시스템 프롬프트, 사용자 메시지). `history` 는 history.load 순서(최신 먼저).
+    `alone`: 세션 없이 뜬 펫 — 넘길 곳이 없다."""
     voice = "Your voice: {}".format(persona) if persona else ""
     system = _SYSTEM.format(name=name or "the creature", voice=voice)
+    if alone:
+        system += _ALONE
     pairs = [r for r in (history or []) if r.get("answer")][:HISTORY_PAIRS]
     parts = []
     if recent:

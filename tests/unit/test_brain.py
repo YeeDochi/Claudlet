@@ -143,3 +143,9 @@ def test_history_is_redacted():
     _, user = brain.build_prompt("", "", [{"question": "키 뭐였지",
                                             "answer": "token: abc123secret"}], "", "hi")
     assert "abc123secret" not in user
+
+
+def test_a_standalone_pet_is_told_it_cannot_relay():
+    system, _ = brain.build_prompt("", "", [], "", "고쳐줘", alone=True)
+    assert "standalone" in system
+    assert "standalone" not in brain.build_prompt("", "", [], "", "고쳐줘")[0]

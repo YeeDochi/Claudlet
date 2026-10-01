@@ -71,7 +71,8 @@ def test_small_talk_is_answered_by_the_creature_and_never_reaches_the_session(pe
     assert _notes(pet) == []
 
 
-def test_work_is_relayed_to_the_session(pet, world):  # noqa: F811
+def test_work_is_relayed_to_the_session(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "session_id", "sess-1")      # 세션에 붙은 펫
     _brain_on(world)
     _fake_claude(world, "cat >/dev/null; printf 'SAY: 알았어 전할게\\nRELAY: 로그인 테스트 고쳐줘\\n'")
     pet._talk(immediate=True, text="로그인 테스트 좀 고쳐달라고 해줘")
@@ -195,3 +196,16 @@ def test_a_failed_pointer_question_still_carries_the_window(pet, world, monkeypa
     assert _wait(lambda: not pet._brain_busy())
     notes = _notes(pet)
     assert notes and "Ledger" in notes[0] and "이거 뭐야?" in notes[0]
+
+
+def test_a_standalone_pet_answers_but_has_nowhere_to_relay(pet, world):  # noqa: F811
+    # 세션 없이 뜬 펫: 크리처가 답은 하지만, 넘길 세션이 없으니 쪽지로 물지 않는다
+    assert pet._standalone()
+    _brain_on(world)
+    seen = world / "stdin.txt"
+    _fake_claude(world, "cat >'%s'; printf 'SAY: 넘길 데가 없네\\nRELAY: 고쳐줘\\n'" % seen)
+    pet._talk(immediate=True, text="이거 고쳐줘")
+    assert _wait(lambda: pet.snapshot()["saying"])
+    assert pet.snapshot()["saying"] == "넘길 데가 없네"
+    assert _notes(pet) == []
+    assert "standalone" in seen.read_text()
