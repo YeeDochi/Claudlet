@@ -196,3 +196,12 @@ def test_background_goes_to_the_creature_only():
                                       background="하얀 털의 설표.\n더위를 싫어한다.")
     assert "하얀 털의 설표" in system and "더위를 싫어한다" in system
     assert "설표" not in user
+
+
+def test_every_built_in_creature_brings_a_background():
+    # 레지스트리(avatars.get)를 거치지 않는다 — 사용자 폴더의 같은 이름 크리처가 가린다
+    from claudlet.core import petconfig
+    from claudlet.core.avatars import builtin, slime, astronaut, codex
+    for av in (builtin.Claudlet, slime.Slime, astronaut.Astronaut, codex.Codex):
+        bg = petconfig.for_creature({}, av.name, av)["background"]
+        assert bg and len(bg) <= petconfig.BACKGROUND_MAX, av.name
