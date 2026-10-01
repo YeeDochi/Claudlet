@@ -331,6 +331,7 @@ DOCK_REPACK_MS = 2000
 # 크리처가 한 말이 말풍선에 머무는 시간(초). 읽을 만큼은 있고, 화면에 눌러앉지는
 # 않을 만큼.
 SAY_SEC = 12.0
+RELAY_TARGET = "→"      # 내역에서 "크리처가 본 세션에 넘긴 일" 표시 (사용자의 말이 아니다)
 
 # 글자를 보낸 뒤 엔터를 떼어 보내기까지 기다리는 시간(ms). 코덱스의 붙여넣기
 # 판정에서 벗어날 만큼은 길고, 사람 눈에 띄지 않을 만큼은 짧게.
@@ -1236,11 +1237,18 @@ class HistoryWindow(QDialog):
                                   else "아직 기록된 대화가 없어요", "empty"), False)
         for rec in recs:
             meta = askhistory.ago(rec.get("ts"), None, self._lang)
-            if rec.get("target"):
+            relay = rec.get("target") == RELAY_TARGET
+            if relay:
+                # 크리처가 본 세션에 넘긴 일이다. 사용자가 한 말이 아니니 내 풍선에
+                # 그리면 안 된다 — 내 말이 존댓말로 바뀌어 다시 들어온 것처럼 보였다.
+                meta += " · " + ("→ handed to the session" if en else "→ 세션에 전함")
+            elif rec.get("target"):
                 meta += " · " + rec["target"]
             self._rows.addSpacing(8)
             self._add(self._label(meta, "meta"), True)
-            if rec.get("question"):
+            if relay:
+                self._add(self._label(rec.get("question") or "", "seen"), False)
+            elif rec.get("question"):
                 self._add(self._label(("📷 " if rec.get("image") else "")
                                       + rec["question"], "me"), True)
             if self._full and rec.get("text"):
@@ -5038,7 +5046,7 @@ class Pet(QWidget):
                       nickname=self._nickname)
         outbox.wake(self.session_id)
         try:
-            askhistory.record_question(self.session_id, request, target="→")
+            askhistory.record_question(self.session_id, request, target=RELAY_TARGET)
         except Exception:
             pass
         self._refresh_notes()
