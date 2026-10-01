@@ -506,3 +506,15 @@ def test_a_question_is_not_lost_when_the_hook_cannot_write(tmp_path, monkeypatch
     monkeypatch.setattr(mod.sys, "stdout", Dead())
     mod.deliver_outbox("UserPromptSubmit", "s1", "claude")
     assert [n["text"] for n in outbox.take("s1")] == ["잃어버리면 안 되는 질문"]
+
+
+def test_creature_agent_hooks_do_nothing(tmp_path, monkeypatch, capsys):
+    # 크리처 머리(claude -p / codex exec)에서 훅이 어떻게든 돌아도 펫이 하나 더
+    # 뜨거나 상태가 섞이면 안 된다 — 띄울 때 넘긴 환경변수 하나로 통째로 물러난다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAUDLET_CREATURE", "1")
+    (tmp_path / "claudlet-creature.port").write_text("54321")
+    launch_calls, sent = [], []
+    _run_main(monkeypatch, "creature", False, launch_calls, sent)
+    assert launch_calls == [] and sent == []
+    assert capsys.readouterr().out == ""
