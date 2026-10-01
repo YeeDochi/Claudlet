@@ -111,6 +111,11 @@ irm https://raw.githubusercontent.com/YeeDochi/Claudlet/master/install.py | pyth
 답은 크리처의 목소리로 머리 위 말풍선에 떠요 — 크리처마다 이름과 말투를 따로 줄 수
 있어요(설정 페이지).
 
+**크리처가 먼저 답하기**(설정 → 환경설정)를 켜면 말 건 게 본 세션이 아니라 크리처한테
+가요. 훅 없이 따로 한 번 호출되는 크리처가 세션의 최근 활동을 읽고 잡담은 직접 답하고,
+일은 본 세션에 넘겨요 — 수다가 일하던 에이전트를 끊지 않아요. 말할 때마다 별도 호출이
+나가서 기본은 꺼져 있어요.
+
 <p align="center"><img src="docs/chat.png" width="440" alt="대화창"></p>
 
 <details><summary>플랫폼별 참고</summary>
