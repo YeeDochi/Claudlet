@@ -5,10 +5,10 @@
 머리가 본 세션 안에 있었던 것이 원인이라, 머리를 밖으로 뺐다: 크리처가 직접
 답하고, 본 세션이 할 일일 때만 RELAY 로 넘긴다.
 
-claude 는 `-p --input-format stream-json` 으로 띄워 두고 계속 말을 넣는다 —
-매번 새로 띄우면 4~6초, 띄워 두면 2.3초(실측). 띄워 두니 질문 하나에 답 하나일
+claude 는 `-p --input-format stream-json` 으로, codex 는 우리만 쓰는
+`codex app-server`(stdio JSON-RPC)로 띄워 두고 계속 말을 넣는다 — 매번 새로 띄우면
+claude 4~6초·codex 8~10초, 띄워 두면 2~4초(실측). 띄워 두니 질문 하나에 답 하나일
 이유도 없다: SAY 를 여러 줄 쓰고, 세션에 일이 생기면 먼저 말을 건다(event_prompt).
-codex 는 아직 말할 때마다 `codex exec` 를 한 번 띄운다.
 
 이 모듈은 순수하다 — 맥락 자르기, 프롬프트, 응답 파싱, 띄울 argv. 프로세스를
 띄우고 기다리는 일은 `claudlet/brainproc.py`(QProcess)가 한다.
@@ -185,22 +185,71 @@ _CODEX_OFF = ("hooks", "shell_tool", "unified_exec", "apps", "browser_use",
               "browser_use_external", "computer_use")
 
 
-def command(agent, exe, outfile=None):
-    """크리처 에이전트를 띄울 argv. 프롬프트는 전부 stdin(`stdin_for`)으로."""
-    if agent == "codex":
-        argv = [exe, "exec", "--ephemeral", "--skip-git-repo-check",
-                "--ignore-user-config", "-s", "read-only"]
-        for feature in _CODEX_OFF:
-            argv += ["-c", "features.%s=false" % feature]
-        return argv + ["-c", "model_reasoning_effort=low", "-o", outfile or "", "-"]
+def command(exe):
+    """띄울 claude 의 argv (훅·도구·기록 없음). 프롬프트는 전부 stdin 으로."""
     return [exe, "-p", "--model", "haiku", "--tools", "", "--strict-mcp-config",
             "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
             "--no-session-persistence", "--system-prompt", _ARGV_SYSTEM]
 
 
+def codex_server_command(exe):
+    """우리만 쓰는 codex app-server (사용자의 관리형 데몬과 따로). 도구·훅·MCP 를 끈다."""
+    argv = [exe, "app-server", "-c", "mcp_servers={}"]
+    for feature in _CODEX_OFF:
+        argv += ["-c", "features.%s=false" % feature]
+    return argv
+
+
+def rpc(rid, method, params=None):
+    """codex app-server 에 보낼 한 줄. rid=None 이면 알림."""
+    import json
+    msg = {"jsonrpc": "2.0", "method": method}
+    if rid is not None:
+        msg["id"] = rid
+    if params is not None:
+        msg["params"] = params
+    return json.dumps(msg, ensure_ascii=False) + "\n"
+
+
+CODEX_THREAD = {"ephemeral": True, "sandbox": "read-only", "approvalPolicy": "never",
+                # 코덱스 기본 지시(코딩 에이전트)를 걷어낸다. 크리처 지시는 첫 말에 실린다.
+                "baseInstructions": _ARGV_SYSTEM}
+
+
+def codex_turn(thread_id, text):
+    return {"threadId": thread_id, "input": [{"type": "text", "text": text}],
+            "effort": "low"}
+
+
+def codex_event(line):
+    """app-server 가 내놓은 한 줄을 읽는다. 순수.
+      ("reply", id, result|None, error|None) — 요청에 대한 답
+      ("text", 말)                           — 크리처가 한 말 (턴 안에서)
+      ("done", ok)                           — 턴이 끝났다
+      None                                   — 상관없는 것"""
+    import json
+    try:
+        m = json.loads(line)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(m, dict):
+        return None
+    if "id" in m and "method" not in m:
+        return ("reply", m["id"], m.get("result"), m.get("error"))
+    method, params = m.get("method"), m.get("params") or {}
+    if method == "item/completed":
+        item = params.get("item") or {}
+        if item.get("type") in ("agentMessage", "agent_message"):
+            return ("text", str(item.get("text") or ""))
+    if method == "turn/completed":
+        status = str((params.get("turn") or {}).get("status") or "completed")
+        return ("done", status not in ("failed", "interrupted"))
+    return None
+
+
 def stream_command(exe):
     """띄워 두는 claude: 한 줄에 하나씩 JSON 메시지를 받고 내놓는다."""
-    return command("claude", exe) + ["--input-format", "stream-json",
+    return command(exe) + ["--input-format", "stream-json",
                                      "--output-format", "stream-json", "--verbose"]
 
 

@@ -142,7 +142,7 @@ def test_event_prompt_allows_skip():
 # --- command ------------------------------------------------------------------
 
 def test_command_claude_has_no_hooks_no_tools_no_persistence():
-    argv = brain.command("claude", "/usr/bin/claude")
+    argv = brain.command("/usr/bin/claude")
     assert argv[0] == "/usr/bin/claude" and "-p" in argv
     assert argv[argv.index("--settings") + 1] == '{"disableAllHooks":true}'
     assert argv[argv.index("--tools") + 1] == ""
@@ -153,20 +153,10 @@ def test_command_args_never_carry_the_persona():
     # 윈도우의 claude.cmd 는 cmd.exe 가 인자를 다시 읽는다 — 남이 만든 크리처의
     # 말투가 인자에 실리면 명령이 될 수 있다. 인자는 고정 문자열뿐이어야 한다.
     system, _ = brain.build_prompt("멍멍 & del /q *", "강아지", [], "", "hi")
-    for agent in ("claude", "codex"):
-        argv = " ".join(brain.command(agent, "/x/" + agent, outfile="/tmp/o"))
-        assert "멍멍" not in argv and "\n" not in argv
+    for argv in (brain.stream_command("/x/claude"), brain.codex_server_command("/x/codex")):
+        joined = " ".join(argv)
+        assert "멍멍" not in joined and "\n" not in joined
     assert "멍멍" in brain.stdin_for(system, "hi")
-
-
-def test_command_codex_has_no_hooks_no_shell_and_reads_stdin():
-    argv = brain.command("codex", "/usr/bin/codex", outfile="/tmp/o.txt")
-    assert argv[:2] == ["/usr/bin/codex", "exec"]
-    for f in ("hooks", "shell_tool", "unified_exec", "computer_use"):
-        assert "features.%s=false" % f in argv
-    assert "--ephemeral" in argv and "--ignore-user-config" in argv
-    assert argv[argv.index("-o") + 1] == "/tmp/o.txt"
-    assert argv[-1] == "-"
 
 
 def test_stdin_carries_system_prompt_then_message():
@@ -205,3 +195,37 @@ def test_every_built_in_creature_brings_a_background():
     for av in (builtin.Claudlet, slime.Slime, astronaut.Astronaut, codex.Codex):
         bg = petconfig.for_creature({}, av.name, av)["background"]
         assert bg and len(bg) <= petconfig.BACKGROUND_MAX, av.name
+
+
+# --- codex app-server ----------------------------------------------------------
+
+def test_codex_server_has_no_hooks_tools_or_mcp():
+    argv = brain.codex_server_command("/usr/bin/codex")
+    assert argv[:2] == ["/usr/bin/codex", "app-server"]
+    assert "mcp_servers={}" in argv
+    for f in ("hooks", "shell_tool", "unified_exec", "computer_use"):
+        assert "features.%s=false" % f in argv
+
+
+def test_codex_thread_is_ephemeral_and_read_only():
+    assert brain.CODEX_THREAD["ephemeral"] is True
+    assert brain.CODEX_THREAD["sandbox"] == "read-only"
+
+
+def test_codex_event_reading():
+    import json
+    assert brain.codex_event('{"id":2,"result":{"thread":{"id":"t"}}}') == (
+        "reply", 2, {"thread": {"id": "t"}}, None)
+    assert brain.codex_event(json.dumps({"method": "item/completed", "params": {
+        "item": {"type": "agentMessage", "text": "SAY: 응"}}})) == ("text", "SAY: 응")
+    assert brain.codex_event('{"method":"turn/completed","params":{"turn":{"status":"completed"}}}') == ("done", True)
+    assert brain.codex_event('{"method":"turn/completed","params":{"turn":{"status":"failed"}}}') == ("done", False)
+    assert brain.codex_event('{"method":"item/agentMessage/delta","params":{}}') is None
+    assert brain.codex_event("garbage") is None
+
+
+def test_rpc_lines():
+    import json
+    assert json.loads(brain.rpc(1, "initialize", {"a": 1})) == {
+        "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"a": 1}}
+    assert "id" not in json.loads(brain.rpc(None, "initialized"))

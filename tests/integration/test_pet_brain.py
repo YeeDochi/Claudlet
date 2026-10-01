@@ -329,3 +329,65 @@ def test_a_relay_is_never_typed_into_the_prompt(pet, world, monkeypatch):  # noq
     assert typed == []
     assert outbox.wants_wake(pet.session_id)
     assert _notes(pet) == ["빌드 돌려줘"]
+
+
+# --- codex: 띄워 둔 app-server ---------------------------------------------------
+
+_FAKE_CODEX = """#!{py}
+import json, re, sys
+turns = 0
+def out(m):
+    print(json.dumps(m), flush=True)
+for line in sys.stdin:
+    m = json.loads(line)
+    meth = m.get("method")
+    if meth == "initialize":
+        out({{"id": m["id"], "result": {{"userAgent": "fake"}}}})
+    elif meth == "thread/start":
+        out({{"id": m["id"], "result": {{"thread": {{"id": "t1"}}}}}})
+    elif meth == "turn/start":
+        turns += 1
+        msg = m["params"]["input"][0]["text"]
+        with open({log!r}, "a", encoding="utf-8") as f:
+            f.write(msg + "\\n<<END>>\\n")
+        mm = re.search(r"## The user says\\n(.*)", msg)
+        user = mm.group(1) if mm else ""
+        out({{"id": m["id"], "result": {{}}}})
+{body}
+"""
+
+
+def _fake_codex(tmp_path, body):
+    """`body` 는 턴마다(turns, user) 무엇을 내보낼지 정하는 파이썬 몇 줄 (out(...) 호출)."""
+    exe = tmp_path / "bin" / "codex"
+    exe.write_text(_FAKE_CODEX.format(py=sys.executable, log=str(tmp_path / "stdin.txt"),
+                                      body="\n".join("        " + l for l in body.splitlines())))
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+
+
+_SAY = ('out({"method": "item/completed", "params": {"item": {"type": "agentMessage", '
+        '"text": "SAY: %d번째 " % turns + user}}})\n'
+        'out({"method": "turn/completed", "params": {"turn": {"status": "completed"}}})')
+
+
+def test_codex_creature_stays_up_and_answers_in_order(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "agent", "codex")
+    _brain_on(world)
+    _fake_codex(world, _SAY)
+    pet._talk(immediate=True, text="하나")
+    pet._talk(immediate=True, text="둘")        # 첫 턴이 도는 중 — 줄을 서야 한다
+    assert _wait(lambda: not pet._brain_busy())
+    from claudlet.core import history as H
+    got = {r["question"]: r["answer"] for r in H.load(pet.session_id)}
+    assert got == {"하나": "1번째 하나", "둘": "2번째 둘"}   # 한 서버, 차례대로
+    first, second = _seen(world)
+    assert "# Instructions" in first and "# Instructions" not in second
+
+
+def test_a_failed_codex_turn_goes_to_the_session(pet, world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(pet, "agent", "codex")
+    _brain_on(world)
+    _fake_codex(world, 'out({"method": "turn/completed", "params": {"turn": {"status": "failed"}}})')
+    pet._talk(immediate=True, text="안 되면 세션으로")
+    assert _wait(lambda: not pet._brain_busy())
+    assert _notes(pet) == ["안 되면 세션으로"]
