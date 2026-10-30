@@ -45,7 +45,8 @@ def _launch(extra_args):
     # ensure the child interpreter can import claudlet from a source checkout
     # (pipx/pip installs already have it importable; the extra PYTHONPATH is harmless)
     env = dict(os.environ)
-    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
+    import claudlet                           # the package dir's parent is src/
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(claudlet.__file__)))
     env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
     subprocess.Popen([sys.executable, "-m", "claudlet"] + extra_args, env=env, **kw)
 

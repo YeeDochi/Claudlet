@@ -241,3 +241,12 @@ def test_no_input_method_means_we_set_nothing():
     assert pet.im_module_for("") is None
     assert pet.im_module_for("@im=") is None
     assert pet.im_module_for("garbage") is None
+
+
+def test_mac_bundle_cuts_to_outermost_app():
+    assert hostinfo.mac_bundle(
+        "/Applications/PhpStorm.app/Contents/MacOS/phpstorm") == "/Applications/PhpStorm.app"
+    assert hostinfo.mac_bundle(
+        "/Applications/A.app/Contents/Frameworks/B.app/Contents/MacOS/b") == "/Applications/A.app"
+    assert hostinfo.mac_bundle("/bin/zsh") is None
+    assert hostinfo.mac_bundle("node") is None
