@@ -5844,6 +5844,12 @@ class Pet(QWidget):
         Best-effort; UNTESTED on macOS. Can't target a specific window (no KWin),
         so it activates the whole app."""
         app = hostinfo.mac_app(self.host)
+        if not app and self._claude_pid:
+            try:
+                from claudlet.platform.geom import macos
+                app = macos.host_bundle(self._claude_pid)   # JetBrains etc.
+            except Exception:
+                app = None
         if not app or not shutil.which("osascript"):
             return
         # hostinfo.MAC_APP values are a fixed, quote-free dict today, but this

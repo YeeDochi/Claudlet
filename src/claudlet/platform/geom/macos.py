@@ -63,6 +63,8 @@ process creates — so the caller passes `exclude_pid=os.getpid()` instead.
 import subprocess
 import sys
 
+from claudlet.core import hostinfo
+
 # Guarded import: this module must be importable everywhere. On non-macOS
 # (and on macOS without pyobjc-framework-Quartz installed) `Quartz` stays
 # None and every entry point no-ops — same defensive shape as
@@ -200,7 +202,13 @@ def keep_stationary_on_desktop(win_id):
         # NSWindowCollectionBehaviorStationary == 1 << 4; use the named constant
         # when present, else the documented literal.
         stationary = getattr(AppKit, "NSWindowCollectionBehaviorStationary", 1 << 4)
-        nswindow.setCollectionBehavior_(nswindow.collectionBehavior() | stationary)
+        # CanJoinAllSpaces: follow the user to every Space/desktop, not just the
+        # one it was launched on. AppKit throws if it is combined with the
+        # MoveToActiveSpace Qt already sets, so clear that first.
+        all_spaces = getattr(AppKit, "NSWindowCollectionBehaviorCanJoinAllSpaces", 1 << 0)
+        move_to_active = getattr(AppKit, "NSWindowCollectionBehaviorMoveToActiveSpace", 1 << 1)
+        nswindow.setCollectionBehavior_(
+            (nswindow.collectionBehavior() & ~move_to_active) | stationary | all_spaces)
         return True
     except Exception:
         return False
@@ -414,6 +422,44 @@ def _proc_parents():
             except ValueError:
                 continue
     return out
+
+
+def proc_table():
+    """{pid: (comm, ppid)} from one `ps` snapshot -- the macOS twin of
+    win32.proc_table. comm is the executable's full path (it can hold spaces,
+    so it is the last column)."""
+    out = {}
+    try:
+        res = subprocess.run(["ps", "-Ao", "pid=,ppid=,comm="],
+                             capture_output=True, text=True, timeout=3)
+    except Exception:
+        return out
+    for line in res.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3:
+            try:
+                out[int(parts[0])] = (parts[2], int(parts[1]))
+            except ValueError:
+                continue
+    return out
+
+
+def host_bundle(pid, max_hops=40):
+    """The .app bundle of the nearest ancestor of `pid` that runs from one
+    (e.g. /Applications/PhpStorm.app), or None. Lets click-to-focus activate
+    hosts MAC_APP can't name -- every JetBrains IDE has its own app name."""
+    table = proc_table()
+    seen = set()
+    while pid > 1 and pid not in seen and len(seen) < max_hops:
+        seen.add(pid)
+        info = table.get(pid)
+        if info is None:
+            return None
+        bundle = hostinfo.mac_bundle(info[0])
+        if bundle:
+            return bundle
+        pid = info[1]
+    return None
 
 
 def proc_ancestors(pid, max_hops=40):

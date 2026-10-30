@@ -31,7 +31,8 @@ HOST_CLASSES = {
 }
 
 # host -> macOS application name, for `osascript ... to activate` (click-to-focus).
-# None where we can't name it reliably (varies per JetBrains IDE).
+# Hosts missing here (JetBrains: one app name per IDE) fall back to the .app
+# bundle of the agent's nearest ancestor -- see macos.host_bundle.
 MAC_APP = {
     "vscode": "Visual Studio Code",
     "apple_terminal": "Terminal",
@@ -91,6 +92,14 @@ def host_classes(host):
 def mac_app(host):
     """macOS application name to activate for a host, or None if unknown."""
     return MAC_APP.get(host)
+
+
+def mac_bundle(path):
+    """The .app bundle an executable path runs from, or None:
+    /Applications/PhpStorm.app/Contents/MacOS/phpstorm -> /Applications/PhpStorm.app.
+    The OUTERMOST bundle, so a helper nested inside an app maps to the app."""
+    i = path.find(".app/")
+    return path[:i + 4] if i > 0 else None
 
 
 def runtime_dir():

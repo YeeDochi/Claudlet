@@ -241,14 +241,15 @@ def _win_console_title(start_pid):
 
 
 _win32_proc_table = None   # lazy, cached per hook invocation (see below)
+_mac_proc_table = None
 
 
 def _proc_info(pid):
     """(comm, ppid) for a pid, or None if it's gone/undetectable.
     Linux: /proc/<pid>/stat. Windows: one cached Toolhelp snapshot (process
     names/parents don't change mid-lookup, so we only take it once even
-    though resolve_claude_pid calls this per hop). macOS: undetectable, so
-    the reaper is simply skipped there."""
+    though resolve_claude_pid calls this per hop). macOS: the same, from one
+    `ps` snapshot (comm there is a full path, so it is cut to the basename)."""
     if os.name == "nt":
         global _win32_proc_table
         if _win32_proc_table is None:
@@ -258,6 +259,16 @@ def _proc_info(pid):
             except Exception:
                 _win32_proc_table = {}
         return _win32_proc_table.get(pid)
+    if sys.platform == "darwin":
+        global _mac_proc_table
+        if _mac_proc_table is None:
+            try:
+                from claudlet.platform.geom import macos
+                _mac_proc_table = macos.proc_table()
+            except Exception:
+                _mac_proc_table = {}
+        info = _mac_proc_table.get(pid)
+        return info and (os.path.basename(info[0]), info[1])
     try:
         with open("/proc/%d/stat" % pid) as f:
             data = f.read()
@@ -283,7 +294,8 @@ def _launch_pet(session_id, host, agent):
     # Make sure the child can import claudlet from a source checkout (pipx
     # installs already have it importable; the extra PYTHONPATH is harmless).
     env = dict(os.environ)
-    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(hostinfo.__file__)))
+    import claudlet                           # the package dir's parent is src/
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(claudlet.__file__)))
     env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
     subprocess.Popen(
         [sys.executable, "-m", "claudlet", "--session", session_id,
