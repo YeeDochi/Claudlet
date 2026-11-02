@@ -10,7 +10,10 @@ import type { Register, EngineInterface } from 'claude-code'
 const POLL_MS = 500
 const BEAT_MS = 10_000
 
-type Line = { id: number; text: string; framed?: boolean }
+type Line = { id: number; text: string; framed?: boolean; context?: string }
+
+// 넣은 말 -> 그 턴에 붙일 덧붙임. 줄을 선 프롬프트가 열릴 때 prompt.submit 이 집어 간다.
+const contexts = new Map<string, string>()
 
 async function runtimeDir($: EngineInterface): Promise<string> {
   // claudlet.core.hostinfo.runtime_dir() 와 같은 규칙 (tempfile.gettempdir 순서)
@@ -74,6 +77,7 @@ export const register: Register = on => {
           await $.store.set(key, ack)
           // 일하는 중이면 Claude Code 가 줄을 세웠다가 끝나면 새 턴으로 연다.
           // resolve 는 그 턴이 시작될 때라 기다리지 않는다.
+          if (m.context) contexts.set(m.text, m.context)
           void $.prompt.submit(m.framed ? { text: m.text } : { text: m.text, asUser: true })
         }
         await beat()
@@ -88,6 +92,15 @@ export const register: Register = on => {
     $.clock.every(BEAT_MS, () => void beat())
     $.clock.every(POLL_MS, () => void poll())
     return result
+  })
+
+  // 우리가 넣은 프롬프트가 턴을 열 때 그 턴에만 말투·창 정보를 붙인다.
+  // 훅 경계(PostToolUse)에 맡기면 일하는 중인 다른 턴이 가져간다.
+  on('prompt.submit', ($, e, next) => {
+    const ctx = e.origin.kind === 'plugin' && e.origin.name === 'claudlet' ? contexts.get(e.text) : undefined
+    if (ctx === undefined) return next(e)
+    contexts.delete(e.text)
+    return next({ ...e, context: [...(e.context ?? []), ctx] })
   })
 
   on('session.end', async ($, e, next) => {

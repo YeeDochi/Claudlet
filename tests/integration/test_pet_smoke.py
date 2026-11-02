@@ -2560,7 +2560,6 @@ def _mod_lines(sid):
 
 def test_asking_now_goes_through_the_session_mod_as_the_users_own_turn(pet, monkeypatch, tmp_path):
     # mod 가 떠 있으면 어느 터미널이든 프롬프트에 치지 않고 mod 가 진짜 턴으로 넣는다.
-    # 말투는 지금처럼 쪽지로 따라가 그 턴의 UserPromptSubmit 에 실린다.
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     from claudlet.core import outbox
     from claudlet.platform import konsole
@@ -2570,7 +2569,9 @@ def test_asking_now_goes_through_the_session_mod_as_the_users_own_turn(pet, monk
     pet._talk(immediate=True, text="지금 뭐 해?")
     [line] = _mod_lines(pet.session_id)
     assert line["text"] == "지금 뭐 해?" and not line.get("framed")
-    assert [n.get("text") for n in outbox.take(pet.session_id)] == [None]   # 말투만
+    # 말투 쪽지는 이 말의 턴에 붙어 간다 — 일하는 중인 다른 턴의 훅이 가져가지 않게
+    assert "🗨" in line["context"]
+    assert outbox.take(pet.session_id) == []
 
 
 def test_a_relayed_note_is_delivered_by_the_mod_framed_as_the_pets(pet, monkeypatch, tmp_path):

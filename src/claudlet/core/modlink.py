@@ -73,12 +73,14 @@ def next_id(lines, ack, now_ms):
     return max(int(now_ms), last + 1)
 
 
-def push(session_id, text, framed=False):
+def push(session_id, text, framed=False, context=None):
     """한 줄을 쌓는다(펫 쪽). 넣은 것은 걷어내고 다시 쓴다. 실패는 False —
     호출자가 옛 길로 강등한다.
 
     framed: mod 가 "claudlet 플러그인이 보낸 말" 틀을 씌워 넣는다(쪽지 배달).
-    아니면 사용자가 직접 친 말처럼 맨말로 들어간다(지금 물어보기)."""
+    아니면 사용자가 직접 친 말처럼 맨말로 들어간다(지금 물어보기).
+    context: 그 턴에만 모델이 읽는 덧붙임(말투·창 정보). 훅 경계에 맡기면 세션이
+    일하는 중일 때 엉뚱한 턴이 가져간다(Gate 0 실측) — mod 가 이 말의 턴에 붙인다."""
     if not text:
         return False
     path = send_file(session_id)
@@ -91,6 +93,8 @@ def push(session_id, text, framed=False):
     line = {"id": next_id(lines, ack, time.time() * 1000), "text": text}
     if framed:
         line["framed"] = True
+    if context:
+        line["context"] = context
     lines.append(line)
     body = "".join(json.dumps(m, ensure_ascii=False) + "\n" for m in lines)
     tmp = path + ".tmp"

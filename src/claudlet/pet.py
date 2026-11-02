@@ -5171,7 +5171,14 @@ class Pet(QWidget):
             return True
         # 세션 안의 mod 가 살아 있으면 어느 터미널·OS 든 진짜 사용자 턴으로 넣는다
         if self._mod_alive():
-            return modlink.push(self.session_id, text)
+            # 이 말에 딸린 쪽지(말투·창 정보)를 같이 실어 보낸다
+            notes = outbox.take(self.session_id)
+            if modlink.push(self.session_id, text,
+                            context=outbox.render(notes) if notes else None):
+                return True
+            for note in notes:
+                outbox.restore(self.session_id, note)
+            return False
         if not self._can_type_now():
             return False
         split = self.agent != agents.DEFAULT
