@@ -125,6 +125,7 @@ from claudlet.platform import screenshot
 from claudlet.platform import winterm
 from claudlet.platform.qdbus import qdbus_bin
 from claudlet.core import hostinfo
+from claudlet.core import affection
 from claudlet.core import outbox
 from claudlet.core import petconfig
 from claudlet.core import dock as dockgeom
@@ -288,7 +289,8 @@ UI = {
            "chat_ph": "펫에게 할 말 · 엔터로 바로 보내기",
            "chat_ph_note": "펫에게 할 말 · 엔터로 쪽지 남기기",
            "chat_send": "보내기", "chat_note": "📝 쪽지로 남기기",
-           "chat_about": "🎯 %s 에 대해  ✕"},
+           "chat_about": "🎯 %s 에 대해  ✕",
+           "affection": ("낯가림", "친해지는 중", "친구", "단짝")},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "ptr_menu": "🎯 Pointer settings",
            "ptr_cursor": "Cursor shape",
@@ -321,7 +323,8 @@ UI = {
            "chat_ph": "Say something · Enter sends it now",
            "chat_ph_note": "Say something · Enter leaves it as a note",
            "chat_send": "Send", "chat_note": "📝 Leave as a note",
-           "chat_about": "🎯 About %s  ✕"},
+           "chat_about": "🎯 About %s  ✕",
+           "affection": ("Shy", "Warming up", "Friend", "Best friend")},
 }
 
 # 도크 재정렬 주기(ms): 앞자리 펫이 종료해 생긴 구멍을 뒷펫이 메워 대열을 다시
@@ -1152,6 +1155,7 @@ class HistoryWindow(QDialog):
         self._who.setText(name)
         # 별명을 붙였으면 무슨 크리처인지도 옆에 흐리게, 그리고 어느 세션인지(펫 호버 툴팁과 같은 것)
         parts = [creature] if creature != name else []
+        parts.append("♥ " + pet._affection_label())
         parts.append(pet._session_tip())
         self._what.setText(" · ".join(parts))
         self.setWindowTitle("claudlet — %s" % name)
@@ -1814,6 +1818,8 @@ class Pet(QWidget):
 
         # drop the taskbar/pager entry once the window is mapped (KWin script)
         QTimer.singleShot(400, self._skip_taskbar)
+        # 새 세션의 펫은 SessionStart 를 못 듣는다(훅이 띄우기만 하고 넘긴다) — 뜰 때 반긴다
+        self._greet()
 
     # ---------- dock (고정 배치) ----------
     def _dock_screen(self):
@@ -2085,6 +2091,10 @@ class Pet(QWidget):
         if was_idle and ev.get("event") not in ("Stop", "Notification"):
             self.idle_energy.wake(now)   # real activity resumed -> startle
         name = ev.get("event") or ev.get("hook_event_name") or ""
+        if name == "Stop":
+            self._affect("done")      # 함께 일 하나를 마쳤다
+        elif name == "SessionStart":
+            self._greet()
         if name == "SessionEnd":
             self._arm_quit()          # session ended -> wind down (cancellable)
         else:
@@ -2151,6 +2161,8 @@ class Pet(QWidget):
             # 띄워 둔 머리는 처음 받은 지시(말투·배경)를 기억한다 — 바뀌었으면 새로 띄운다
             self._brain_stop()
         self._persona, self._nickname, self._background = voice
+        # 호감도는 크리처마다 하나 — 갈아입으면 그 크리처의 것을 읽는다
+        self._affection = affection.points(affection.load(), self.avatar.name)
 
     def _restyle(self, reload=False):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -2229,6 +2241,8 @@ class Pet(QWidget):
             "floating": self._floating,
             "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
+            "affection": self._affection,        # 이 크리처의 호감도 점수(줄지 않는다)
+            "affection_stage": affection.STAGES[affection.stage(self._affection)],
             "notes": self._notes,                # 에이전트에게 전하려고 물고 있는 쪽지 수
             "shot": bool(self._ask_shot),        # 고른 순간 찍은 화면을 들고 있다
             "saying": self._say if time.monotonic() < self._say_until else "",
@@ -3817,9 +3831,12 @@ class Pet(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         spread, head, size = getattr(self.avatar, "hearts", None) or self.HEARTS_DEFAULT
         cx = self.w // 2
-        for i, off in enumerate((-spread * self.u, spread * self.u, 0)):
-            phase = age + i * 0.18
-            if phase >= 1.0:
+        # 친해질수록 하트가 늘어난다 — 덧붙는 것은 안쪽에서 조금 늦게 떠오른다
+        offs = (-spread, spread, 0, -spread / 2, spread / 2)
+        for i, off in enumerate(offs[:affection.HEARTS[affection.stage(self._affection)]]):
+            off *= self.u
+            phase = age + i * 0.18 if i < 3 else age - (i - 2) * 0.2
+            if not 0.0 <= phase < 1.0:
                 continue
             rise = phase * size * 2.2 * self.u
             alpha = max(0, int(235 * (1.0 - phase)))
@@ -4002,6 +4019,7 @@ class Pet(QWidget):
             self._last_pet_fire = now
             self._pet_react_until = now + PET_REACT_SEC
             self._hover_samples = []          # 소진(연속 오발동 방지)
+            self._affect("pet")
 
     def _menu(self, gpos):
         m = QMenu()
@@ -4322,6 +4340,7 @@ class Pet(QWidget):
         """
         if win is None:
             return None
+        self._affect("talk")
         backend = self._ask_backend()
         reader = None
         if backend is not None:
@@ -4369,7 +4388,7 @@ class Pet(QWidget):
         # 실어 보낸다. 창에서 읽은 텍스트는 프롬프트에 타이핑하기엔 너무 크므로
         # 즉시 전송이 아니라 언제나 이 길이다.
         outbox.append(self.session_id, inspectmod.render_prompt(ctx),
-                      persona=self._persona, nickname=self._nickname)
+                      persona=self._voice(), nickname=self._nickname)
         # Log it too: the mailbox deletes the question as soon as the session
         # reads it, so without this there is no way to see what was asked --
         # or to tell "never answered" from "answered while you looked away".
@@ -4619,6 +4638,29 @@ class Pet(QWidget):
     def _play_motion(self, name, dur=2.5):
         # reuse the same path as a socket motion command (menu is in-process)
         self._handle_event({"cmd": "motion", "motion": name, "dur": dur})
+
+    # --- 호감도 (core/affection.py) -------------------------------------------
+
+    def _affect(self, kind):
+        """교감 한 번(pet/talk/done). 디스크의 값 위에 더하고 그 결과를 들고 있는다."""
+        before = affection.stage(self._affection)
+        self._affection = affection.record(self.avatar.name, kind,
+                                           time.strftime("%Y-%m-%d"))
+        if affection.stage(self._affection) != before:
+            self._refresh_chat()                 # 대화창 머리의 단계
+
+    def _affection_label(self):
+        return self.ui["affection"][affection.stage(self._affection)]
+
+    def _voice(self):
+        """에이전트에게 실어 보내는 말투 — 설정한 말투 + 친밀도 한 줄."""
+        return affection.voice(self._persona, self._affection, self.lang)
+
+    def _greet(self):
+        """세션이 시작됐다. 낯가리는 동안은 그대로, 친해지면 반긴다."""
+        motion = affection.GREETING[affection.stage(self._affection)]
+        if motion:
+            self._play_motion(motion, 2.0)
 
     def _enter_zone_edit(self):
         if self._zone_overlays:
@@ -4919,6 +4961,7 @@ class Pet(QWidget):
             text = self._ask_text()
         if not text:
             return
+        self._affect("talk")
         # 크리처 머리가 켜져 있으면 본 세션보다 크리처가 먼저 듣는다. 📝 쪽지는
         # "세션에 남겨줘" 라는 뜻이니 머리를 거치지 않는다.
         if immediate and self._pointer_cfg().get("brain"):
@@ -4932,7 +4975,7 @@ class Pet(QWidget):
         # 말투는 프롬프트에 찍지 않고 훅으로 따로 보낸다. 타이핑보다 먼저
         # 쌓아야 그 제출이 부르는 UserPromptSubmit 이 같은 턴에 집어 간다.
         if immediate:
-            outbox.append_voice(self.session_id, self._persona, self._nickname)
+            outbox.append_voice(self.session_id, self._voice(), self._nickname)
         # 프롬프트에는 질문만 찍는다. 말투·이름은 위에서 아웃박스에 넣었고,
         # 이 제출이 부르는 UserPromptSubmit 훅이 같은 턴에 실어 보낸다.
         if immediate and self._konsole_send(text):
@@ -4943,7 +4986,7 @@ class Pet(QWidget):
                     pass
             self._play_motion("jump", 1.5)          # 바로 전했다
             return                     # 진짜로 제출됐다 — 쪽지로 남길 이유가 없다
-        outbox.append(self.session_id, text, persona=self._persona,
+        outbox.append(self.session_id, text, persona=self._voice(),
                       nickname=self._nickname)
         if immediate:
             outbox.wake(self.session_id)        # 놀고 있으면 waiter 가 깨운다
@@ -5021,7 +5064,7 @@ class Pet(QWidget):
                 hist = askhistory.load(self.session_id, limit=brain.HISTORY_PAIRS * 2)
             except Exception:
                 hist = []
-        system, user = brain.build_prompt(self._persona, self._nickname, hist,
+        system, user = brain.build_prompt(self._voice(), self._nickname, hist,
                                           brain.recent_context(fresh), text, pointed,
                                           alone=self._standalone(), event=event,
                                           background=self._background, shot=shot)
@@ -5117,7 +5160,7 @@ class Pet(QWidget):
         # 창 얘기인지 모른다.
         note = (inspectmod.render_prompt(dict(ctx, question=request)) if ctx
                 else request)
-        outbox.append(self.session_id, note, persona=self._persona,
+        outbox.append(self.session_id, note, persona=self._voice(),
                       nickname=self._nickname)
         outbox.wake(self.session_id)
         try:
