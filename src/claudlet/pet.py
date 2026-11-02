@@ -2096,6 +2096,9 @@ class Pet(QWidget):
         name = ev.get("event") or ev.get("hook_event_name") or ""
         if name == "Stop":
             self._affect("done")      # 함께 일 하나를 마쳤다
+            m = affection.DONE_MOTION[affection.stage(self._affection)]
+            if m:                     # 친해지면 끝났을 때 같이 뛴다(celebrate 뒤에)
+                QTimer.singleShot(1500, lambda: self._play_motion(m, 1.2))
         elif name == "SessionStart":
             self._greet()
         if name == "SessionEnd":
@@ -2975,6 +2978,7 @@ class Pet(QWidget):
             self._behavior_timer = random.randint(60, 200)
             self.target_x = None
             self._explore_target = None
+            self._idle_extra(affection.idle_extra(self._affection, random.random()))
         self._behavior_timer -= 1
 
         b = self._idle_behavior
@@ -4023,6 +4027,9 @@ class Pet(QWidget):
             self._pet_react_until = now + PET_REACT_SEC
             self._hover_samples = []          # 소진(연속 오발동 방지)
             self._affect("pet")
+            m = affection.PET_MOTION[affection.stage(self._affection)]
+            if m:
+                self._play_motion(m, 1.5)
 
     def _menu(self, gpos):
         m = QMenu()
@@ -4627,6 +4634,7 @@ class Pet(QWidget):
 
     # ---------- shared menu actions (used by both the pet and the tray) ----------
     def _toggle_follow(self):
+        self._approaching = False            # 사용자가 직접 켜고 끈 것이 이긴다
         self._follow_jump = False
         self._follow = not self._follow
         if self._follow:
@@ -4690,10 +4698,28 @@ class Pet(QWidget):
         if affection.stage(self._affection) != before:
             self._refresh_chat()                 # 대화창 머리의 단계
 
+    APPROACH_SEC = 6.0
+
+    def _idle_extra(self, what):
+        """호감도가 놀 때 덤으로 하게 하는 것 — 혼자 놀기, 커서 쪽으로 다가오기."""
+        if what == "play":
+            self._play_motion(random.choice(affection.PLAY_MOTIONS), 2.5)
+        elif what == "approach" and not self._follow and not self.dnd:
+            self._toggle_follow()             # 잠깐 따라오기 — 커서 곁으로 와서 선다
+            self._approaching = True
+            QTimer.singleShot(int(self.APPROACH_SEC * 1000), self._end_approach)
+
+    def _end_approach(self):
+        if getattr(self, "_approaching", False):
+            self._approaching = False
+            if self._follow:
+                self._toggle_follow()
+
     def _affection_label(self):
         """"낯가림 8/30" — 단계와 다음 단계까지 얼마나 왔나."""
-        return "%s %s" % (self.ui["affection"][affection.stage(self._affection)],
-                          affection.progress(self._affection))
+        return "%s %s %s" % (self.ui["affection"][affection.stage(self._affection)],
+                             affection.gauge(self._affection),
+                             affection.progress(self._affection))
 
     def _voice(self):
         """에이전트에게 실어 보내는 말투 — 설정한 말투 + 친밀도 한 줄."""

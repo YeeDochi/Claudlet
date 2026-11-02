@@ -38,6 +38,32 @@ def stage(pts):
     return sum(pts >= t for t in THRESHOLDS[1:])
 
 
+# 단계마다 성격이 행동으로 드러난다(낯가림 → 단짝).
+DONE_MOTION = (None, None, "jump", "jump")   # 같이 일 하나를 끝냈을 때 덧붙이는 모션
+PET_MOTION = ("tic", None, None, "sing")     # 쓰다듬으면: 낯가림은 머쓱해하고, 단짝은 흥얼거린다
+PLAY_MOTIONS = ("sing", "juggle", "wave")
+# 놀 거리를 고를 때마다 (혼자 놀기, 커서 쪽으로 다가오기) 확률
+IDLE_EXTRA = ((0.0, 0.0), (0.02, 0.0), (0.05, 0.04), (0.08, 0.10))
+
+
+def idle_extra(pts, r):
+    """놀 거리를 고르는 순간 덤으로 할 것: "approach" | "play" | None. 순수."""
+    play, come = IDLE_EXTRA[stage(pts)]
+    if r < come:
+        return "approach"
+    if r < come + play:
+        return "play"
+    return None
+
+
+def gauge(pts, width=10):
+    """"▰▰▰▱▱▱▱▱▱▱" — 이번 단계 안에서 다음 단계까지. 마지막 단계는 꽉 찬다. 순수."""
+    lo = THRESHOLDS[stage(pts)]
+    hi = next((t for t in THRESHOLDS if t > pts), None)
+    filled = width if hi is None else int(width * (pts - lo) / (hi - lo))
+    return "▰" * filled + "▱" * (width - filled)
+
+
 def progress(pts):
     """"8/30" — 다음 단계까지. 마지막 단계면 점수만. 순수."""
     nxt = next((t for t in THRESHOLDS if t > pts), None)

@@ -2699,3 +2699,33 @@ def test_the_status_line_carries_name_and_affection_when_the_mod_is_there(pet, m
     pet._poll_answer()
     line = (tmp_path / "claudlet-s-mod.status").read_text()
     assert "♥" in line and pet._affection_label() in line
+
+
+def test_how_the_pet_takes_petting_depends_on_how_close_it_is(pet):
+    # 낯가림은 머쓱해하고(tic), 단짝은 흥얼거린다(sing)
+    from claudlet.core import affection
+    now = time.monotonic()
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+        pet._maybe_pet(float(x), now + i * 0.1)
+    assert pet.snapshot()["motion"] == affection.PET_MOTION[0]
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-pet")
+    try:
+        send_hook(p, cmd="motion")                         # 인사 모션 끄기
+        for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+            p._maybe_pet(float(x), now + 10 + i * 0.1)
+        assert p.snapshot()["motion"] == "sing"
+    finally:
+        p._cleanup()
+
+
+def test_a_close_pet_sometimes_comes_over_to_the_cursor(pet):
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-come")
+    try:
+        p._idle_extra("approach")
+        assert p.snapshot()["following"]
+        p._end_approach()
+        assert not p.snapshot()["following"]
+    finally:
+        p._cleanup()
