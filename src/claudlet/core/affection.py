@@ -66,6 +66,11 @@ def gauge(pts, width=10):
     return "▰" * filled + "▱" * (width - filled)
 
 
+def span(pts):
+    """이번 단계의 (시작, 다음 단계) 점수. 마지막 단계면 (시작, None). 순수."""
+    return THRESHOLDS[stage(pts)], next((t for t in THRESHOLDS if t > pts), None)
+
+
 def progress(pts):
     """"8/30" — 다음 단계까지. 마지막 단계면 점수만. 순수."""
     nxt = next((t for t in THRESHOLDS if t > pts), None)

@@ -98,7 +98,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QMenu, QSystemTrayIcon,
                              QDialog, QTextBrowser, QPushButton, QVBoxLayout,
                              QHBoxLayout, QTabBar, QLabel, QScrollArea,
                              QStackedWidget, QToolButton, QFrame, QMessageBox,
-                             QSizePolicy)
+                             QSizePolicy, QProgressBar)
 from PyQt6.QtGui import (QPainter, QAction, QCursor, QIcon, QPixmap, QColor,
                          QRegion, QPainterPath, QFont, QPen)
 from PyQt6.QtCore import (Qt, QTimer, QSocketNotifier, QPoint, QRect, QRectF,
@@ -836,6 +836,9 @@ QLabel[role="seen"] { background:#0e0e12; color:#9A9AA8; border-radius:8px;
 QLabel[role="empty"] { color:#6E6E7C; }
 QLabel#who { color:#ECECF0; font-size:15px; font-weight:700; }
 QLabel#what { color:#6E6E7C; font-size:12px; }
+QLabel#love { color:#FF8FB1; font-size:12px; font-weight:600; }
+QProgressBar#love { background:#2A2A33; border:none; border-radius:3px; }
+QProgressBar#love::chunk { background:#FF8FB1; border-radius:3px; }
 QPushButton#chip { background:#1F2A4D; color:#B9C8FF; border:1px solid #6B8AFF;
                    border-radius:11px; padding:3px 10px; text-align:left; }
 QFrame#bar { background:#212128; border:1px solid #33333d; border-radius:20px; }
@@ -967,6 +970,22 @@ class HistoryWindow(QDialog):
         head.addWidget(self._toggle)
         head.addWidget(self._clear)
 
+        # 호감도 한 줄: "♥ 낯가림 [▬▬▬▬····] 20/30"
+        self._love = QLabel(self)
+        self._love.setObjectName("love")
+        self._love_bar = QProgressBar(self)
+        self._love_bar.setObjectName("love")
+        self._love_bar.setTextVisible(False)
+        self._love_bar.setFixedHeight(6)
+        self._love_pts = QLabel(self)
+        self._love_pts.setObjectName("what")
+        love = QHBoxLayout()
+        love.setContentsMargins(58, 2, 14, 4)     # 이름 밑으로 맞춘다(얼굴 36 + 여백)
+        love.setSpacing(8)
+        love.addWidget(self._love)
+        love.addWidget(self._love_bar, 1)
+        love.addWidget(self._love_pts)
+
         self._log = QWidget()
         self._log.setObjectName("log")
         self._rows = QVBoxLayout(self._log)
@@ -1007,6 +1026,8 @@ class HistoryWindow(QDialog):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(0)
         box.addLayout(head)
+        if pet is not None:
+            box.addLayout(love)
         box.addLayout(tabs)
         box.addWidget(self._stack, 1)
         if pet is not None:
@@ -1157,10 +1178,17 @@ class HistoryWindow(QDialog):
         self._who.setText(name)
         # 별명을 붙였으면 무슨 크리처인지도 옆에 흐리게, 그리고 어느 세션인지(펫 호버 툴팁과 같은 것)
         parts = [creature] if creature != name else []
-        parts.append("♥ " + pet._affection_label())
         parts.append(pet._session_tip())
         self._what.setText(" · ".join(parts))
         self.setWindowTitle("claudlet — %s" % name)
+        # 호감도는 머리 글자에 섞지 않고 제 줄에: 단계 · 막대 · 점수
+        pts = pet._affection
+        lo, hi = affection.span(pts)
+        self._love.setText("♥ " + pet.ui["affection"][affection.stage(pts)])
+        self._love_bar.setRange(0, (hi - lo) if hi else 1)
+        self._love_bar.setValue((pts - lo) if hi else 1)
+        full = " " + pet.ui["affection_full"] if pet._affection_left() <= 0 else ""
+        self._love_pts.setText(affection.progress(pts) + full)
 
     def refresh(self):
         self._show_identity()
@@ -4038,10 +4066,6 @@ class Pet(QWidget):
 
     def _menu(self, gpos):
         m = QMenu()
-        heart = QAction("♥ " + self._affection_label(), m)
-        heart.setEnabled(False)              # 보여주기만 — 누를 것이 아니다
-        m.addAction(heart)
-        m.addSeparator()
         a_follow = QAction(self.ui["follow"], m, checkable=True)
         a_follow.setChecked(self._follow)
         m.addAction(a_follow)
@@ -4706,12 +4730,18 @@ class Pet(QWidget):
     def _affection_label(self):
         """"낯가림 ▰▰▱▱ 8/30" — 단계와 다음 단계까지. 오늘 몫을 다 채웠으면 그렇다고
         (안 그러면 쓰다듬어도 안 올라 고장 난 줄 안다 — 실측)."""
-        label = "%s %s %s" % (self.ui["affection"][affection.stage(self._affection)],
-                              affection.gauge(self._affection),
-                              affection.progress(self._affection))
+        label = "%s %s" % (self.ui["affection"][affection.stage(self._affection)],
+                           affection.progress(self._affection))
         if self._affection_left() <= 0:
             label += " " + self.ui["affection_full"]
         return label
+
+    def _affection_gauge_label(self):
+        """게이지 바가 붙은 판 — Claude Code 상태줄 전용(메뉴·툴팁에선 길었다)."""
+        stage = self.ui["affection"][affection.stage(self._affection)]
+        full = " " + self.ui["affection_full"] if self._affection_left() <= 0 else ""
+        return "%s %s %s%s" % (stage, affection.gauge(self._affection),
+                               affection.progress(self._affection), full)
 
     def _voice(self):
         """에이전트에게 실어 보내는 말투 — 설정한 말투 + 친밀도 한 줄."""
