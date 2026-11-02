@@ -2618,12 +2618,14 @@ def test_affection_belongs_to_the_creature_not_to_every_creature(pet):
 
 
 def test_how_the_pet_takes_petting_depends_on_how_close_it_is(pet):
-    # 낯가림은 머쓱해하고(tic), 단짝은 흥얼거린다(sing)
-    from claudlet.core import affection
+    # 낯가림은 손에서 고개를 돌리고 물러서고, 단짝은 흥얼거린다(sing)
     now = time.monotonic()
-    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+    pet.mode, pet.facing, pet._docked = "roam", -1, False   # 도크(기본 켜짐)면 자리를 지킨다
+    x0 = pet.x
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):    # 끝은 왼쪽(0) — 손이 왼쪽에
         pet._maybe_pet(float(x), now + i * 0.1)
-    assert pet.snapshot()["motion"] == affection.PET_MOTION[0]
+    snap = pet.snapshot()
+    assert snap["facing"] == 1 and pet.x > x0 and snap["motion"] is None
     _seed_affection(pet.snapshot()["avatar"], 300)
     p = P.Pet(session_id="aff-pet")
     try:
