@@ -210,3 +210,65 @@ class CreatureBrain(QObject):
             else:
                 self.failed.emit(token)
             self._codex_next()
+
+
+class ForkBrain(QObject):
+    """세션 안의 claudlet mod 를 머리로 쓴다 — `$.model.fork` 로 **이 세션의 대화 위에서**
+    따로 묻는다. 프로세스를 띄우지 않고(claude -p 220MB 가 없다), 크리처가 세션이 한
+    일을 트랜스크립트 요약이 아니라 그대로 안다. 본 세션의 턴은 잡아먹지 않는다.
+
+    CreatureBrain 과 같은 얼굴(answered/failed/busy/pending/ask/stop). 말은 늘 한 번
+    answered 아니면 failed 로 돌아온다 — fork 가 못 답하면(세션 첫 턴 전, API 오류,
+    제한 시간) failed 로, 펫이 그 말을 본 세션에 넘긴다."""
+    answered = pyqtSignal(object, object)
+    failed = pyqtSignal(object)
+    POLL_MS = 300
+
+    def __init__(self, session_id, parent=None):
+        super().__init__(parent)
+        self.session_id = session_id
+        self.timeout_s = brain.TIMEOUT_S
+        self._waiting = {}          # line id -> (token, 마감 시각)
+        self._poll = QTimer(self)
+        self._poll.timeout.connect(self._check)
+
+    def busy(self):
+        return bool(self._waiting)
+
+    def pending(self):
+        return [t for t, _d in self._waiting.values()]
+
+    def ask(self, token, compose):
+        import time
+        from claudlet.core import modlink
+        # fork 는 매번 새로 묻는다 — 지시와 지난 대화를 늘 처음부터 싣는다
+        rid = modlink.push(self.session_id, compose(True), fork=True)
+        if rid is None:
+            self.failed.emit(token)
+            return
+        self._waiting[rid] = (token, time.monotonic() + self.timeout_s)
+        self._poll.start(self.POLL_MS)
+
+    def stop(self):
+        waiting, self._waiting = self._waiting, {}
+        self._poll.stop()
+        for token, _d in waiting.values():
+            self.failed.emit(token)
+
+    def _check(self):
+        import time
+        from claudlet.core import modlink
+        got = modlink.forked(self.session_id)
+        now = time.monotonic()
+        for rid in list(self._waiting):
+            token, deadline = self._waiting[rid]
+            out = got.get(rid)
+            if out is None and now < deadline:
+                continue
+            del self._waiting[rid]
+            if out is not None and out.get("text"):
+                self.answered.emit(token, brain.parse_reply(out["text"]))
+            else:
+                self.failed.emit(token)
+        if not self._waiting:
+            self._poll.stop()

@@ -1557,7 +1557,9 @@ def test_the_window_says_which_creature_you_are_talking_to(pet, _hist):  # noqa:
     win = pet.show_history()
     try:
         assert win._who.text() == "슈텐도지"
-        assert win._what.text() == "%s · %s" % (pet.avatar.name, pet._session_tip())  # what it is, which session
+        # what it is, which session — closeness has its own row below
+        assert win._what.text() == "%s · %s" % (pet.avatar.name, pet._session_tip())
+        assert win._love.text().startswith("♥ ") and "/" in win._love_pts.text()
         assert "슈텐도지" in win.windowTitle()
     finally:
         win.close()
@@ -1568,7 +1570,7 @@ def test_without_a_nickname_the_creature_name_is_not_repeated(pet, _hist):  # no
     win = pet.show_history()
     try:
         assert win._who.text() == pet.avatar.name
-        assert win._what.text() == pet._session_tip()      # just the session
+        assert win._what.text() == pet._session_tip()
     finally:
         win.close()
 
@@ -1732,5 +1734,16 @@ def test_a_long_unbroken_path_in_a_message_does_not_widen_the_chat(pet, _hist): 
         win.resize(440, 400)
         _settle()
         assert win._scroll.widget().width() <= win._scroll.viewport().width()
+    finally:
+        win.close()
+
+
+def test_the_closeness_row_follows_new_points_while_the_chat_is_open(pet, _hist):  # noqa: F811
+    win = pet.show_history()
+    try:
+        before = win._love_pts.text()
+        pet._affect("pet")                      # 대화창을 열어 둔 채 쓰다듬었다
+        pet._poll_answer()                      # 1초마다 도는 것
+        assert win._love_pts.text() != before
     finally:
         win.close()

@@ -303,3 +303,20 @@ def test_link_skills_is_idempotent(tmp_path):
     assert first == second
     assert _linked_to_skill(tmp_path / ".claude" / "skills" / "claudlet")
     assert _linked_to_skill(tmp_path / ".codex" / "skills" / "claudlet")
+
+
+def test_mod_install_registers_the_packaged_folder_as_a_marketplace(_no_real_plugin_cli, monkeypatch):
+    from claudlet.cli import install_mod
+    monkeypatch.setattr(install_mod, "_run",
+                        lambda argv: _no_real_plugin_cli.append(argv) or (True, ""))
+    assert install_mod.install(claude="claude") == (True, install_mod.MOD_DIR)
+    assert _no_real_plugin_cli == [
+        ["claude", "plugin", "marketplace", "add", install_mod.MOD_DIR],
+        ["claude", "plugin", "install", "claudlet@claudlet", "--scope", "user"]]
+
+
+def test_mod_is_optional_without_the_claude_cli(monkeypatch):
+    from claudlet.cli import install_mod
+    monkeypatch.setattr(install_mod.shutil, "which", lambda _: None)
+    ok, note = install_mod.install()
+    assert not ok and "claude CLI not found" in note

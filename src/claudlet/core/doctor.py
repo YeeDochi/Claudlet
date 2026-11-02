@@ -22,6 +22,7 @@ CHECKS = {
     "skill": Check("skill", "slash_command", "reinstall_skill"),
     "konsole_send": Check("konsole_send", "ask_now", "konsole_switch"),
     "rewake": Check("rewake", "ask_anywhere", "install_hooks"),
+    "mod": Check("mod", "mod_send", "install_mod"),
     "codex_rule": Check("codex_rule", "codex_app_voice", "install_hooks"),
     "codex_daemon": Check("codex_daemon", "codex_ask_now", "codex_daemon"),
     "input_dialog": Check("input_dialog", "hangul_input", "install_kdialog"),
@@ -55,6 +56,8 @@ TEXT = {
             "ask_now": "💬 지금 물어보기 (프롬프트에 바로 제출)",
             "ask_anywhere": "💬 IDE 터미널·데스크톱 앱의 Claude Code 에 지금 물어보기"
                             " (놀고 있는 세션을 깨운다)",
+            "mod_send": "💬 어느 터미널·OS 에서든 지금 물어보기를 진짜 사용자 턴으로"
+                        " (Claude Code mod — 없으면 위의 길로 보낸다)",
             "codex_app_voice": "코덱스 앱에서 펫 말투로 답하기 (없으면 코덱스 말투 그대로)",
             "codex_ask_now": "💬 코덱스 CLI 에 지금 물어보기 (어느 터미널이든)",
             "hangul_input": "펫 입력창에 한글 치기",
@@ -64,6 +67,8 @@ TEXT = {
         },
         "fix": {
             "install_hooks": "claudlet-install-hooks 를 실행한 뒤 세션을 다시 여세요.",
+            "install_mod": "claudlet-install 을 다시 실행한 뒤 세션을 다시 여세요"
+                           " (claude CLI 가 PATH 에 있어야 합니다).",
             "reinstall_skill": "스킬 링크가 끊어져 있습니다(설치 방식이 바뀌면"
                                " 생깁니다). claudlet-install 을 다시 실행하세요.",
             "codex_daemon": "코덱스 CLI 데몬 소켓은 있는데 붙지 못했습니다."
@@ -115,6 +120,8 @@ TEXT = {
             "ask_now": "💬 Ask now (typed straight into the prompt)",
             "ask_anywhere": "💬 Ask now for Claude Code in an IDE terminal or the"
                             " desktop app (wakes the idle session)",
+            "mod_send": "💬 Ask now as a real user turn in any terminal or OS"
+                        " (Claude Code mod; without it the paths above are used)",
             "codex_app_voice": "the pet's own voice in the Codex app (otherwise"
                                " Codex answers in its own)",
             "codex_ask_now": "💬 Ask now for the Codex CLI (any terminal)",
@@ -126,6 +133,8 @@ TEXT = {
         },
         "fix": {
             "install_hooks": "Run claudlet-install-hooks, then restart the session.",
+            "install_mod": "Run claudlet-install again (with the claude CLI on"
+                           " PATH), then restart the session.",
             "reinstall_skill": "The skill link is dangling (this happens when the"
                                " install method changes). Run claudlet-install again.",
             "codex_daemon": "The Codex CLI daemon socket is there but would not"
@@ -178,6 +187,7 @@ FIXES = {
     "codex_rule": (["claudlet-install-hooks", "--agent", "codex"],
                    ["claudlet-install-hooks", "--remove", "--agent", "codex"]),
     "skill": (["claudlet-install"], ["claudlet-uninstall"]),
+    "mod": (["claudlet-install"], ["claude", "plugin", "uninstall", "claudlet@claudlet"]),
 }
 
 

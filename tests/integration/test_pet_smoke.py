@@ -2542,3 +2542,202 @@ def test_a_codex_app_turn_shows_as_thinking_though_no_prompt_hook_comes(pet, mon
     pet._tick()
     assert pet.snapshot()["state"] != before
     assert pet.snapshot()["state"] == "thinking"
+
+
+def _mod_beat(tmp_path, pet, monkeypatch):
+    import json as _json
+    monkeypatch.setattr(pet, "session_id", "s-mod")    # 세션 없이 뜬 펫은 mod 도 없다
+    sid = pet.session_id
+    (tmp_path / "claudlet-{}.mod".format(sid)).write_text(_json.dumps({"ack": 0}))
+
+
+def _mod_lines(sid):
+    import json as _json
+    from claudlet.core import modlink
+    with open(modlink.send_file(sid), encoding="utf-8") as f:
+        return [_json.loads(l) for l in f if l.strip()]
+
+
+def test_asking_now_goes_through_the_session_mod_as_the_users_own_turn(pet, monkeypatch, tmp_path):
+    # mod 가 떠 있으면 어느 터미널이든 프롬프트에 치지 않고 mod 가 진짜 턴으로 넣는다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    from claudlet.platform import konsole
+    monkeypatch.setattr(konsole, "send_text", lambda *a, **k: pytest.fail("typed"))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    assert pet._can_talk_now()
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    [line] = _mod_lines(pet.session_id)
+    assert line["text"] == "지금 뭐 해?" and not line.get("framed")
+    # 말투 쪽지는 이 말의 턴에 붙어 간다 — 일하는 중인 다른 턴의 훅이 가져가지 않게
+    assert "mcp__claudlet__say" in line["context"]     # 🗨 마커 대신 mod 의 say 도구
+    assert outbox.take(pet.session_id) == []
+
+
+def test_a_relayed_note_is_delivered_by_the_mod_framed_as_the_pets(pet, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    _mod_beat(tmp_path, pet, monkeypatch)
+    pet._brain_relay("README 고쳐 줘")
+    [line] = _mod_lines(pet.session_id)
+    assert line["framed"] and "README 고쳐 줘" in line["text"]
+    assert outbox.take(pet.session_id) == []            # 펫이 직접 가져갔다
+
+
+def test_the_agent_speaks_through_the_mod_say_tool(pet, monkeypatch, tmp_path):
+    # 에이전트가 mcp__claudlet__say 를 부르면 mod 가 .said 에 남기고 펫이 말풍선에 띄운다.
+    # 펫이 뜨기 전에 있던 말은 다시 틀지 않는다.
+    import json as _json
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    said = tmp_path / "claudlet-s-mod.said"
+    said.write_text(_json.dumps({"id": 1, "text": "옛날 말"}) + "\n")
+    pet._poll_answer()
+    assert pet.snapshot()["saying"] != "옛날 말"
+    said.write_text(said.read_text() + _json.dumps({"id": 2, "text": "다 됐어!"}) + "\n")
+    pet._poll_answer()
+    assert pet.snapshot()["saying"] == "다 됐어!"
+
+
+def test_the_creature_brain_asks_the_session_fork_when_the_mod_is_there(pet, monkeypatch, tmp_path):
+    # mod 가 있으면 머리는 프로세스를 띄우지 않고 mod 의 fork 로 묻는다.
+    import json as _json
+    from claudlet import brainproc
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    monkeypatch.setattr(pet, "_pointer_cfg", lambda: {"brain": True})
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    [line] = _mod_lines(pet.session_id)
+    assert line["fork"] and "지금 뭐 해?" in line["text"]
+    (tmp_path / "claudlet-s-mod.forked").write_text(
+        _json.dumps({"id": line["id"], "text": "SAY: 테스트 고치는 중!"}) + "\n")
+    pet._brain._check()
+    deadline = time.monotonic() + 5
+    while pet.snapshot()["saying"] != "테스트 고치는 중!" and time.monotonic() < deadline:
+        P.QApplication.processEvents()
+        time.sleep(0.05)
+    assert pet.snapshot()["saying"] == "테스트 고치는 중!"
+    assert isinstance(pet._brain, brainproc.ForkBrain)
+
+
+# ---- 호감도: 크리처마다 쌓이고, 줄지 않고, 하루치만 오른다 ----
+
+def _seed_affection(creature, points):
+    import json
+    from claudlet.core import affection
+    with open(affection.path(), "w", encoding="utf-8") as f:
+        json.dump({creature: {"points": points}}, f)
+
+
+def test_a_new_creature_starts_shy_and_does_not_greet(pet):
+    snap = pet.snapshot()
+    assert (snap["affection"], snap["affection_stage"], snap["motion"]) == (0, "shy", None)
+    send_hook(pet, "SessionStart", session="a")
+    assert pet.snapshot()["motion"] is None
+
+
+def test_finished_work_raises_affection_but_only_a_day_s_worth(pet):
+    from claudlet.core import affection
+    send_hook(pet, "Stop", session="a")
+    assert pet.snapshot()["affection"] > 0
+    for _ in range(40):
+        send_hook(pet, "Stop", session="a")
+    assert pet.snapshot()["affection"] == affection.DAILY_CAP
+
+
+def test_petting_and_talking_raise_affection(pet):
+    now = time.monotonic()
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+        pet._maybe_pet(float(x), now + i * 0.1)
+    petted = pet.snapshot()["affection"]
+    assert petted > 0
+    pet._talk(immediate=False, text="안녕")
+    assert pet.snapshot()["affection"] > petted
+
+
+def test_affection_carries_into_the_next_session_s_pet_and_it_greets(pet):
+    # 세션마다 새 펫이 뜨지만 같은 크리처면 이어진다 — 단짝은 뜨자마자 반긴다
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-next")
+    try:
+        snap = p.snapshot()
+        assert snap["affection_stage"] == "bestie"
+        assert snap["motion"] == "jump"
+        send_hook(p, cmd="motion")                         # stop
+        assert p.snapshot()["motion"] is None
+        send_hook(p, "SessionStart", session="aff-next")   # /clear, resume
+        assert p.snapshot()["motion"] == "jump"
+    finally:
+        p._cleanup()
+
+
+def test_a_close_creature_tells_the_agent_how_close_it_is(pet):
+    # 에이전트가 받는 쪽지(훅이 싣는 그대로)에 친밀도 한 줄이 말투로 붙는다
+    from claudlet.core import affection, outbox
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-voice")
+    try:
+        p._talk(immediate=False, text="안녕")
+        said = outbox.render(outbox.take("aff-voice"))
+        assert affection.VOICE[p.lang][3] in said
+    finally:
+        p._cleanup()
+
+
+def test_affection_belongs_to_the_creature_not_to_every_creature(pet):
+    _seed_affection("some-other-creature", 500)
+    p = P.Pet(session_id="aff-other")
+    try:
+        assert p.snapshot()["affection_stage"] == "shy"
+    finally:
+        p._cleanup()
+
+
+def test_the_status_line_carries_name_and_affection_when_the_mod_is_there(pet, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    pet._poll_answer()
+    line = (tmp_path / "claudlet-s-mod.status").read_text()
+    assert "♥" in line and pet._affection_gauge_label() in line   # 바는 상태줄에만
+
+
+def test_how_the_pet_takes_petting_depends_on_how_close_it_is(pet):
+    # 낯가림은 손에서 고개를 돌리고 물러서고, 단짝은 흥얼거린다(sing)
+    now = time.monotonic()
+    pet.mode, pet.facing, pet._docked = "roam", -1, False   # 도크(기본 켜짐)면 자리를 지킨다
+    x0 = pet.x
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):    # 끝은 왼쪽(0) — 손이 왼쪽에
+        pet._maybe_pet(float(x), now + i * 0.1)
+    snap = pet.snapshot()
+    assert snap["facing"] == 1 and pet.x > x0 and snap["motion"] is None
+    assert snap["shy"]                                   # 웃지 않고 눈을 피한다
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-pet")
+    try:
+        send_hook(p, cmd="motion")                         # 인사 모션 끄기
+        for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+            p._maybe_pet(float(x), now + 10 + i * 0.1)
+        assert p.snapshot()["motion"] == "sing"
+    finally:
+        p._cleanup()
+
+
+def test_a_close_pet_sometimes_comes_over_to_the_cursor(pet):
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-come")
+    try:
+        p._idle_extra("approach")
+        assert p.snapshot()["following"]
+        p._end_approach()
+        assert not p.snapshot()["following"]
+    finally:
+        p._cleanup()
+
+
+def test_a_full_day_says_so_and_the_brain_is_told_the_real_closeness(pet):
+    # 한도를 채우면 표시가 그렇다고 하고, 머리는 대화에서 주워들은 숫자 대신 실제 값을 받는다
+    for _ in range(30):
+        send_hook(pet, "Stop", session="a")
+    assert pet.ui["affection_full"] in pet._affection_label()
+    system, user = None, pet._brain_compose(True, text="호감도 몇이야?")
+    assert "20/30" in user
