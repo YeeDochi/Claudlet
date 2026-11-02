@@ -2618,3 +2618,76 @@ def test_the_creature_brain_asks_the_session_fork_when_the_mod_is_there(pet, mon
         time.sleep(0.05)
     assert pet.snapshot()["saying"] == "테스트 고치는 중!"
     assert isinstance(pet._brain, brainproc.ForkBrain)
+
+
+# ---- 호감도: 크리처마다 쌓이고, 줄지 않고, 하루치만 오른다 ----
+
+def _seed_affection(creature, points):
+    import json
+    from claudlet.core import affection
+    with open(affection.path(), "w", encoding="utf-8") as f:
+        json.dump({creature: {"points": points}}, f)
+
+
+def test_a_new_creature_starts_shy_and_does_not_greet(pet):
+    snap = pet.snapshot()
+    assert (snap["affection"], snap["affection_stage"], snap["motion"]) == (0, "shy", None)
+    send_hook(pet, "SessionStart", session="a")
+    assert pet.snapshot()["motion"] is None
+
+
+def test_finished_work_raises_affection_but_only_a_day_s_worth(pet):
+    from claudlet.core import affection
+    send_hook(pet, "Stop", session="a")
+    assert pet.snapshot()["affection"] > 0
+    for _ in range(40):
+        send_hook(pet, "Stop", session="a")
+    assert pet.snapshot()["affection"] == affection.DAILY_CAP
+
+
+def test_petting_and_talking_raise_affection(pet):
+    now = time.monotonic()
+    for i, x in enumerate([0, 40, 0, 40, 0, 40, 0]):
+        pet._maybe_pet(float(x), now + i * 0.1)
+    petted = pet.snapshot()["affection"]
+    assert petted > 0
+    pet._talk(immediate=False, text="안녕")
+    assert pet.snapshot()["affection"] > petted
+
+
+def test_affection_carries_into_the_next_session_s_pet_and_it_greets(pet):
+    # 세션마다 새 펫이 뜨지만 같은 크리처면 이어진다 — 단짝은 뜨자마자 반긴다
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-next")
+    try:
+        snap = p.snapshot()
+        assert snap["affection_stage"] == "bestie"
+        assert snap["motion"] == "jump"
+        send_hook(p, cmd="motion")                         # stop
+        assert p.snapshot()["motion"] is None
+        send_hook(p, "SessionStart", session="aff-next")   # /clear, resume
+        assert p.snapshot()["motion"] == "jump"
+    finally:
+        p._cleanup()
+
+
+def test_a_close_creature_tells_the_agent_how_close_it_is(pet):
+    # 에이전트가 받는 쪽지(훅이 싣는 그대로)에 친밀도 한 줄이 말투로 붙는다
+    from claudlet.core import affection, outbox
+    _seed_affection(pet.snapshot()["avatar"], 300)
+    p = P.Pet(session_id="aff-voice")
+    try:
+        p._talk(immediate=False, text="안녕")
+        said = outbox.render(outbox.take("aff-voice"))
+        assert affection.VOICE[p.lang][3] in said
+    finally:
+        p._cleanup()
+
+
+def test_affection_belongs_to_the_creature_not_to_every_creature(pet):
+    _seed_affection("some-other-creature", 500)
+    p = P.Pet(session_id="aff-other")
+    try:
+        assert p.snapshot()["affection_stage"] == "shy"
+    finally:
+        p._cleanup()
