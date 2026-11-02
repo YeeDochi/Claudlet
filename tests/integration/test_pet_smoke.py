@@ -2542,3 +2542,42 @@ def test_a_codex_app_turn_shows_as_thinking_though_no_prompt_hook_comes(pet, mon
     pet._tick()
     assert pet.snapshot()["state"] != before
     assert pet.snapshot()["state"] == "thinking"
+
+
+def _mod_beat(tmp_path, pet, monkeypatch):
+    import json as _json
+    monkeypatch.setattr(pet, "session_id", "s-mod")    # 세션 없이 뜬 펫은 mod 도 없다
+    sid = pet.session_id
+    (tmp_path / "claudlet-{}.mod".format(sid)).write_text(_json.dumps({"ack": 0}))
+
+
+def _mod_lines(sid):
+    import json as _json
+    from claudlet.core import modlink
+    with open(modlink.send_file(sid), encoding="utf-8") as f:
+        return [_json.loads(l) for l in f if l.strip()]
+
+
+def test_asking_now_goes_through_the_session_mod_as_the_users_own_turn(pet, monkeypatch, tmp_path):
+    # mod 가 떠 있으면 어느 터미널이든 프롬프트에 치지 않고 mod 가 진짜 턴으로 넣는다.
+    # 말투는 지금처럼 쪽지로 따라가 그 턴의 UserPromptSubmit 에 실린다.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    from claudlet.platform import konsole
+    monkeypatch.setattr(konsole, "send_text", lambda *a, **k: pytest.fail("typed"))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    assert pet._can_talk_now()
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    [line] = _mod_lines(pet.session_id)
+    assert line["text"] == "지금 뭐 해?" and not line.get("framed")
+    assert [n.get("text") for n in outbox.take(pet.session_id)] == [None]   # 말투만
+
+
+def test_a_relayed_note_is_delivered_by_the_mod_framed_as_the_pets(pet, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    from claudlet.core import outbox
+    _mod_beat(tmp_path, pet, monkeypatch)
+    pet._brain_relay("README 고쳐 줘")
+    [line] = _mod_lines(pet.session_id)
+    assert line["framed"] and "README 고쳐 줘" in line["text"]
+    assert outbox.take(pet.session_id) == []            # 펫이 직접 가져갔다

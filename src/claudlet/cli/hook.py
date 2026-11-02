@@ -29,10 +29,12 @@ try:
     from claudlet.core import hostinfo
     from claudlet.core import agents
     from claudlet.core import outbox
+    from claudlet.core import modlink
 except Exception:
     hostinfo = None
     agents = None
     outbox = None
+    modlink = None
 
 
 def agent_arg(argv):
@@ -493,7 +495,9 @@ def rewake_wait(session_id, poll=REWAKE_POLL, sleep=None, alive=None):
     alive = alive or (lambda: os.name == "nt" or os.getppid() != 1)
     me = os.getpid()
     outbox.claim_waiter(session_id, me)
-    while outbox.waiter_owner(session_id) == me and alive():
+    # 세션 안의 mod 가 깨우기를 대신한다(펫이 쪽지를 직접 가져가 넣는다)
+    while (outbox.waiter_owner(session_id) == me and alive()
+           and not modlink.alive(session_id)):
         if outbox.wants_wake(session_id):
             notes = outbox.take(session_id)
             if notes:

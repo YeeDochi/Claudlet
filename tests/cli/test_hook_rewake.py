@@ -68,3 +68,12 @@ def test_a_tool_worker_without_a_rollout_still_gets_no_pet():
     assert not hook.should_launch_late("codex", "PreToolUse", False, False)
     assert not hook.should_launch_late("codex", "SessionEnd", False, True)
     assert not hook.should_launch_late("claude", "PreToolUse", False, True)
+
+
+def test_the_waiter_steps_aside_while_the_session_mod_is_alive(tmp_path, capsys):
+    import json
+    (tmp_path / "claudlet-s1.mod").write_text(json.dumps({"ack": 0, "ts": 1}))
+    outbox.append("s1", "지금 뭐 해?")
+    outbox.wake("s1")
+    assert _wait("s1") == 0                     # mod 가 대신 넣는다 — 깨우지 않는다
+    assert capsys.readouterr().err == ""

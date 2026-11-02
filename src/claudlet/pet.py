@@ -115,6 +115,7 @@ from claudlet.core import bubble as bubblegeom
 from claudlet.core import history as askhistory
 from claudlet.core import transcript
 from claudlet.core import inspect as inspectmod
+from claudlet.core import modlink
 from claudlet.core import shot as shotmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
@@ -4389,7 +4390,7 @@ class Pet(QWidget):
             # 바로 못 보냈으면 우리 쪽지 체계로 들어간다 — 펫이 물고 있는 것이
             # 보이고 우클릭으로 버릴 수 있어야 "물어봤는데 어디 갔지" 가 안 생긴다.
             # 깨울 수 있는 세션이면 waiter 가 이 쪽지를 들고 곧바로 깨운다.
-            outbox.wake(self.session_id)
+            self._wake()
             self._refresh_notes()
         self.say(self.ui["ask_sent"])
         self._begin_thinking()
@@ -4855,6 +4856,7 @@ class Pet(QWidget):
         적이 있는 세션(Claude Code — IDE 터미널, 데스크톱 앱 어디든).
         아니면 메뉴에서 이 항목이 아예 빠지고 쪽지만 남는다."""
         if (self._codex_pipe or outbox.can_wake(self.session_id)
+                or self._mod_alive()
                 or (self.agent == "codex" and codexd.available())):
             return True
         return self._can_type_now()
@@ -4946,7 +4948,7 @@ class Pet(QWidget):
         outbox.append(self.session_id, text, persona=self._persona,
                       nickname=self._nickname)
         if immediate:
-            outbox.wake(self.session_id)        # 놀고 있으면 waiter 가 깨운다
+            self._wake()        # 놀고 있으면 waiter 가 깨운다
         # 내역에도 남긴다. 포인터로 시작한 대화만 쌓이면 "아까 뭘 물었더라" 가
         # 절반만 답해진다 — 메뉴로 건 말도 같은 대화다.
         if record:
@@ -5119,7 +5121,7 @@ class Pet(QWidget):
                 else request)
         outbox.append(self.session_id, note, persona=self._persona,
                       nickname=self._nickname)
-        outbox.wake(self.session_id)
+        self._wake()
         try:
             askhistory.record_question(self.session_id, request, target=RELAY_TARGET)
         except Exception:
@@ -5140,6 +5142,23 @@ class Pet(QWidget):
             [qdbus_bin(), *args], text=True, timeout=3,
             stderr=subprocess.DEVNULL)
 
+    def _mod_alive(self):
+        """세션 안에 claudlet mod 가 떠 있나(Claude Code 만). 하트비트 파일 하나 본다."""
+        return (self.agent == agents.DEFAULT and not self._standalone()
+                and modlink.alive(self.session_id))
+
+    def _wake(self):
+        """쌓인 쪽지를 지금 배달해 달라. mod 가 있으면 쪽지를 펫이 직접 가져가
+        "claudlet 이 보낸 말" 로 넣고, 없으면 waiter 가 보고 깨우도록 표시만 한다."""
+        if self._mod_alive():
+            notes = outbox.take(self.session_id)
+            if not notes or modlink.push(self.session_id, outbox.render_short(notes),
+                                         framed=True):
+                return
+            for note in notes:                 # 못 넣었다 — 옛 길로
+                outbox.restore(self.session_id, note)
+        outbox.wake(self.session_id)
+
     def _konsole_send(self, text):
         """이 세션의 프롬프트에 직접 써 넣는다. 실패는 False — 호출자가
         쪽지로 강등한다(깨울 수 있는 세션이면 그 쪽지가 곧바로 깨운다).
@@ -5150,6 +5169,9 @@ class Pet(QWidget):
         # 코덱스 CLI 는 데몬이 대화를 돌린다 — 어느 터미널이든 데몬에 턴을 넣는다
         if self.agent == "codex" and codexd.start_turn(self.session_id, text):
             return True
+        # 세션 안의 mod 가 살아 있으면 어느 터미널·OS 든 진짜 사용자 턴으로 넣는다
+        if self._mod_alive():
+            return modlink.push(self.session_id, text)
         if not self._can_type_now():
             return False
         split = self.agent != agents.DEFAULT
