@@ -2244,6 +2244,7 @@ class Pet(QWidget):
             "floating": self._floating,
             "in_notch": self._in_notch,
             "petted": time.monotonic() < self._pet_react_until,   # 하트 반응 활성
+            "shy": time.monotonic() < getattr(self, "_shy_until", 0.0),  # 낯가려 눈을 피하는 중
             "affection": self._affection,        # 이 크리처의 호감도 점수(줄지 않는다)
             "affection_stage": affection.STAGES[affection.stage(self._affection)],
             "notes": self._notes,                # 에이전트에게 전하려고 물고 있는 쪽지 수
@@ -3606,12 +3607,15 @@ class Pet(QWidget):
         # ignore it). The setting can pin it on or off for creatures that use it.
         autonomous = self._autonomous()
         petted = now < self._pet_react_until
+        shy = now < getattr(self, "_shy_until", 0.0)
         energy = 1.0 if pocket and now < self._pocket_awake_until else self.idle_energy.value
         gaze = cursor_gaze(
             self._cursor_pos(),
             (self.x + self.w / 2, self.y + self.h / 2),
             (self.w / 2, self.h / 2),
         ) if pocket or self._follow else (0.0, 0.0)
+        if shy:
+            gaze = (float(self.facing), 1.0)   # 낯가림: 웃지 않고 눈을 내리깔아 딴 데를 본다
         # facing handled inside draw_creature (body mirrors, text upright)
         p.translate(0, self._sunk_dy())    # below the floor: art slides down inside the window
         if getattr(self, "_in_notch", False):
@@ -3628,7 +3632,7 @@ class Pet(QWidget):
         self.avatar.draw(p, ox, oy, u, state, self.frame,
                          facing=self.facing, autonomous=autonomous,
                          energy=energy,
-                         palette=self._palette, happy=petted, hovering=pocket,
+                         palette=self._palette, happy=petted and not shy, hovering=pocket,
                          gaze=gaze)
         if petted:
             self._draw_hearts(p, 1.0 - (self._pet_react_until - now) / PET_REACT_SEC)
@@ -4669,6 +4673,7 @@ class Pet(QWidget):
         """낯가림: 쓰다듬는 손(커서 x, 창 기준)에서 고개를 돌리고 반 발짝 물러선다."""
         away = -1 if x > self.w / 2 else 1
         self.facing = away
+        self._shy_until = time.monotonic() + PET_REACT_SEC
         if self.mode == "roam" and not (self._docked or self._floating):
             self.x += away * self.SHY_STEP * self.u
 
