@@ -1736,3 +1736,14 @@ def test_a_long_unbroken_path_in_a_message_does_not_widen_the_chat(pet, _hist): 
         assert win._scroll.widget().width() <= win._scroll.viewport().width()
     finally:
         win.close()
+
+
+def test_the_closeness_row_follows_new_points_while_the_chat_is_open(pet, _hist):  # noqa: F811
+    win = pet.show_history()
+    try:
+        before = win._love_pts.text()
+        pet._affect("pet")                      # 대화창을 열어 둔 채 쓰다듬었다
+        pet._poll_answer()                      # 1초마다 도는 것
+        assert win._love_pts.text() != before
+    finally:
+        win.close()
