@@ -1790,6 +1790,7 @@ class Pet(QWidget):
         self._say_until = 0.0
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
         self._said_id = -1                 # mod say 도구로 받은 마지막 말 (-1: 아직 안 봄)
+        self._status_sent, self._status_at = None, 0.0   # mod 상태줄에 마지막으로 쓴 것
         self._reply_path = ""
         self._reply_whole = False          # 🗨 줄 없이 최종 답 전체가 답인 턴
         self._reply_left = 0
@@ -4597,9 +4598,25 @@ class Pet(QWidget):
             self._say_more = False
             self._handle_event({"cmd": "say", "text": m["text"]})
 
+    def _status_line(self):
+        """Claude Code 상태줄에 띄울 한 줄 — 이름과 호감도."""
+        who = self._nickname or self.avatar.name
+        return "%s ♥ %s" % (who, self._affection_label())
+
+    def _sync_status(self):
+        """mod 가 있으면 상태줄을 맞춘다. 바뀌었거나 오래됐을 때만 쓴다(mod 는 오래된
+        줄을 지운다 — 펫이 죽으면 상태줄도 사라지게)."""
+        if self._standalone() or not self._mod_alive():
+            return
+        line, now = self._status_line(), time.monotonic()
+        if line != self._status_sent or now - self._status_at > modlink.STATUS_REFRESH_S:
+            if modlink.set_status(self.session_id, line):
+                self._status_sent, self._status_at = line, now
+
     def _poll_answer(self):
         """Show an answer the session posted back, if any."""
         self._poll_said()
+        self._sync_status()
         try:
             text = askbox.take_answer(self.session_id)
         except Exception:

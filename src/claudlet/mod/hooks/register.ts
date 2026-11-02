@@ -16,6 +16,7 @@ const POLL_MS = 500
 const BEAT_MS = 10_000
 const KEEP = 20 // .forked/.said 에 남길 최근 줄 수
 const SAY = 'mcp__claudlet__say'
+const STATUS_STALE_MS = 30_000 // 펫이 10초마다 다시 쓴다 — 이만큼 안 쓰면 펫이 죽은 것
 
 type Line = { id: number; text: string; framed?: boolean; context?: string; fork?: boolean }
 type Out = { id: number; text?: string; error?: string }
@@ -76,6 +77,18 @@ export const register: Register = on => {
     let ack = Number((await $.store.get(key)) ?? 0)
     let seen = -1
     let busy = false
+    let shown: string | undefined
+
+    // 펫이 정한 한 줄(이름·호감도)을 프롬프트 아래 상태줄에. 줄을 늘리지 않는다.
+    const status = async () => {
+      const st = await $.fs.stat(`${b}.status`).catch(() => null)
+      const fresh = st && st.kind === 'file' && Date.now() - st.mtimeMs < STATUS_STALE_MS
+      const text = fresh ? (await $.fs.read(`${b}.status`).catch(() => '')).trim() || undefined : undefined
+      if (text !== shown) {
+        shown = text
+        $.ui.status(text)
+      }
+    }
 
     const beat = (gone = false) =>
       $.fs.write(`${b}.mod`, JSON.stringify({ ack, ts: Date.now(), gone })).catch(() => {})
@@ -133,6 +146,7 @@ export const register: Register = on => {
     await beat()
     $.clock.every(BEAT_MS, () => void beat())
     $.clock.every(POLL_MS, () => void poll())
+    $.clock.every(1000, () => void status().catch(() => {}))
     return result
   })
 

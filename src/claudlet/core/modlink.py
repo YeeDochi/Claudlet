@@ -140,3 +140,18 @@ def said(session_id, after=0):
     """에이전트가 say 도구로 펫에게 시킨 말 중 `after` 보다 새 것들, 오래된 것부터."""
     return sorted((m for m in _mod_lines(session_id, "said")
                    if m["id"] > after and m.get("text")), key=lambda m: m["id"])
+
+
+STATUS_REFRESH_S = 10.0    # mod 는 이보다 3배 오래 안 바뀐 상태줄을 지운다(펫이 죽었다)
+
+
+def set_status(session_id, text):
+    """Claude Code 프롬프트 아래 상태줄 한 칸(mod 의 $.ui.status). 쓰는 쪽은 펫 하나."""
+    path = _path(session_id, "status")
+    try:
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            f.write(text or "")
+        os.replace(path + ".tmp", path)
+        return True
+    except OSError:
+        return False

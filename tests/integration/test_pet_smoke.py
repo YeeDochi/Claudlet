@@ -2691,3 +2691,11 @@ def test_affection_belongs_to_the_creature_not_to_every_creature(pet):
         assert p.snapshot()["affection_stage"] == "shy"
     finally:
         p._cleanup()
+
+
+def test_the_status_line_carries_name_and_affection_when_the_mod_is_there(pet, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    pet._poll_answer()
+    line = (tmp_path / "claudlet-s-mod.status").read_text()
+    assert "♥" in line and pet._affection_label() in line
