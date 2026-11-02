@@ -16,7 +16,7 @@ const POLL_MS = 500
 const FRAME_MS = 150
 const BEAT_MS = 10_000
 const STALE_S = 3 // 펫이 이만큼 그림을 안 보내면 띠를 비운다
-const LIFT = 2 // 점프·떨어지기 높이(줄). 크리처는 띠 위 대화 줄에 겹쳐 그린다 — 띠는 늘 한 줄
+const BAND_ROWS = 4 // 펫이 보내는 그림의 최대 높이(TERM_MAX_PX 8 / 2). 자세마다 높이가 달라도 띠는 그대로
 
 type Line = { id: number; text: string; framed?: boolean; context?: string }
 
@@ -169,21 +169,15 @@ export const register: Register = on => {
     if (!f) return next(e)
     const { Box, Raster, Button } = $.ui.resolve(e)
     const room = Math.max(0, e.props.bodyColumns - f.columns - 4)
-    // 이전 버전이 남긴 값에는 y 가 없다(상태는 리로드를 넘어 남는다)
-    const y = Number.isFinite(f.y) ? Math.min(1, Math.max(0, f.y)) : 0
+    // 이전 버전이 남긴 값에는 x 가 이상할 수 있다(상태는 리로드를 넘어 남는다)
     const x = Number.isFinite(f.x) ? Math.min(1, Math.max(0, f.x)) : 0
-    // 띠는 ⌂ 한 줄. 크리처는 그 줄을 바닥 삼아 위쪽 대화 줄에 겹쳐 그린다
-    // (position absolute 는 주변을 밀어내지 않는다) — 프롬프트가 내려가지 않게.
+    // 띠는 크리처 높이만큼만. 띠 밖으로 겹쳐 그리면 잘린다(실측: 발만 보였다).
+    // 점프는 높이 대신 자세로만 — 띠 높이가 변하면 프롬프트가 들썩인다.
     return (
-      <Box key="band" height={1}>
+      <Box key="band" flexDirection="row" alignItems="flex-end" height={Math.max(BAND_ROWS, f.rows)}>
         <Button key="home" plain label="⌂" onPress={() => void goHome?.()} />
-        <Box
-          position="absolute"
-          left={3 + Math.round(x * room)}
-          top={1 - f.rows - Math.round(y * LIFT)}
-        >
-          <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
-        </Box>
+        <Box width={2 + Math.round(x * room)} />
+        <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
       </Box>
     )
   })
