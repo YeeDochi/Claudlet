@@ -31,26 +31,18 @@ def beat_file(session_id):
     return _path(session_id, "mod")
 
 
-def beat(session_id):
-    """mod 가 남긴 하트비트 dict + "alive". 없거나 깨졌으면 {"alive": False}.
-    `home` 은 띠의 [집에 가] 를 누른 시각 — 바뀌면 터미널 방문을 끝낸다."""
+def read_beat(session_id):
+    """(ack, 살아 있나). 하트비트가 없거나 깨졌으면 (0, False)."""
     path = beat_file(session_id)
     try:
         with open(path, encoding="utf-8") as f:
-            body = json.load(f)
+            beat = json.load(f)
         mtime = os.path.getmtime(path)
     except (OSError, ValueError):
-        return {"alive": False}
-    if not isinstance(body, dict):
-        return {"alive": False}
-    body["alive"] = is_alive(body, mtime, time.time())
-    return body
-
-
-def read_beat(session_id):
-    """(ack, 살아 있나)."""
-    b = beat(session_id)
-    return int(b.get("ack") or 0), b["alive"]
+        return 0, False
+    if not isinstance(beat, dict):
+        return 0, False
+    return int(beat.get("ack") or 0), is_alive(beat, mtime, time.time())
 
 
 def is_alive(beat, mtime, now):

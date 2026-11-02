@@ -116,7 +116,6 @@ from claudlet.core import history as askhistory
 from claudlet.core import transcript
 from claudlet.core import inspect as inspectmod
 from claudlet.core import modlink
-from claudlet.core import termframe
 from claudlet.core import shot as shotmod
 from claudlet.core.state_engine import StateEngine, AUTO_ROAM
 from claudlet.platform import focus
@@ -271,7 +270,6 @@ UI = {
            "ptr_bad_image": "그 파일은 이미지로 읽을 수 없어요",
            "float": "호버링 (제자리에 떠 있기)", "quiet": "조용히 (알림 끔)",
            "release": "창에서 꺼내기", "quit": "종료",
-           "term_visit": "🖥 터미널에 놀러가기",
            "comp_add": "🐣 컴패니언 추가 (테스트)",
            "comp_del": "컴패니언 제거 (테스트)",
            "talk_drop": "물고 있는 쪽지 버리기 (%d장)",
@@ -305,7 +303,6 @@ UI = {
            "ptr_bad_image": "That file could not be read as an image",
            "float": "Hover (stay put)", "quiet": "Quiet (mute)",
            "release": "Release from window", "quit": "Quit",
-           "term_visit": "🖥 Visit the terminal",
            "comp_add": "🐣 Add companion (test)",
            "comp_del": "Remove companion (test)",
            "talk_drop": "Drop the note it holds (%d)",
@@ -1728,7 +1725,6 @@ class Pet(QWidget):
         self._behavior_timer = 0             # ticks left before choosing a new behavior
         self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
         self._fetch = None                   # 창 찾아오기 진행 상태 (_raise_window), 없으면 None
-        self._term = None                    # 터미널 방문 중이면 dict (_term_step)
         # KDE 는 창을 바닥 밑에서 끌어올린다(KWin 스크립트 안 타이머). 다른 OS 는
         # 창이 스스로 뜨길 기다렸다가 올라탄다(gone)
         self._can_pull = sys.platform.startswith("linux") or os.name == "nt"
@@ -2243,7 +2239,6 @@ class Pet(QWidget):
             "fetching": self._fetch["wid"] if self._fetch else None,  # window being fetched
             "fetch_phase": self._fetch["phase"] if self._fetch else None,  # out | sink | pull | gone | ride; on-screen: run | leap | grip | pull | ride
             "fetch_icon": bool(self._fetch and self._fetch.get("icon")),  # carrying the app's icon
-            "in_terminal": self._term is not None,   # 세션 터미널(mod 띠)에 놀러 가 있다
             "tab_title": self._tab_title,        # terminal tab we click-focus
             "tooltip": self.toolTip(),           # which session this pet is
             "host_wid": self._host_wid,          # window click-to-focus raises
@@ -2316,11 +2311,7 @@ class Pet(QWidget):
         resting = self._idle_behavior in idle_engine.RESTING
         self.idle_energy.update(now, resting=(roaming and resting))
 
-        if self._term is not None:
-            # 터미널 안에서 논다 — 이 창은 숨어 있다. 떨어지던 중(thrown)에 불려가도
-            # 여기가 먼저다: 물리가 이기면 띠에 그림이 한 장도 안 갔다(실측)
-            self._term_step(now)
-        elif self.mode == "held":
+        if self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()
@@ -3411,9 +3402,6 @@ class Pet(QWidget):
         wandering the wallpaper). No-op without an active geometry feed."""
         # 도크 중엔 창을 타고 있지 않다(고정 좌표에 떠 있다) -> 가릴 근거가 없다.
         # 마스킹을 그대로 두면 코너에 겹친 최대화 창이 펫을 통째로 지워버린다.
-        if self._term is not None:
-            self._hide_fully()               # 터미널 띠에 가 있다
-            return
         if self._fetch is not None and self._fetch["phase"] in ("sink", "gone", "pull"):
             # sinking: only what's still above the floor line shows (in window
             # coords — the window itself is held at the screen edge, see _sunk_dy)
@@ -4044,10 +4032,6 @@ class Pet(QWidget):
         a_dnd = QAction(self.ui["quiet"], m, checkable=True)
         a_dnd.setChecked(self.dnd)
         m.addAction(a_dnd)
-        a_term = None
-        if self._mod_alive():
-            a_term = QAction(self.ui["term_visit"], m)
-            m.addAction(a_term)
         a_release = None
         if self._contain is not None:
             a_release = QAction(self.ui["release"], m)
@@ -4100,8 +4084,6 @@ class Pet(QWidget):
             self._toggle_float()
         elif chosen == a_dnd:
             self._toggle_dnd()
-        elif a_term is not None and chosen == a_term:
-            self._term_enter()
         elif a_release is not None and chosen == a_release:
             self._contain = None
         elif chosen == a_comp_add:
@@ -5159,75 +5141,6 @@ class Pet(QWidget):
         return subprocess.check_output(
             [qdbus_bin(), *args], text=True, timeout=3,
             stderr=subprocess.DEVNULL)
-
-    # --- 터미널 방문: mod 가 프롬프트 위 띠에 펫을 그린다 ------------------------
-    # 펫 창은 마스크로 숨기고, 매 몇 틱 크리처 한 장을 반 블록 칸으로 뽑아
-    # claudlet-<sid>.frame 에 쓴다(core/termframe). 띠 안에서의 자리(0..1)도 같이.
-    TERM_FRAME_EVERY = 3          # 20fps 중 ~7fps 만 내보낸다
-    TERM_VISIT_S = (25.0, 50.0)
-    TERM_SUPERSAMPLE = 3           # 크게 그려 다수결로 줄인다 (4배는 장당 18ms — 7fps 엔 무겁다)
-    TERM_MAX_PX = 24              # 크리처 그리드가 이보다 크면 정수 배로 줄인다 (내장 22x17 은 그대로)
-
-    def _term_enter(self, secs=None):
-        if self._term is not None or not self._mod_alive():
-            return False
-        now = time.monotonic()
-        t = termframe.new_visit(now, random.random)
-        self.mode, self.vx, self.vy = "roam", 0.0, 0.0   # 떨어지던 중이었어도 멈춘다
-        t.update(until=now + (secs or random.uniform(*self.TERM_VISIT_S)), n=0,
-                 home=modlink.beat(self.session_id).get("home"))
-        self._term = t
-        return True
-
-    def _term_leave(self):
-        if self._term is None:
-            return
-        self._term = None
-        termframe.write(self.session_id, None, 0)
-        self._show_full()
-        self._play_motion("jump", 1.0)          # 돌아왔다
-
-    def _term_step(self, now):
-        t = self._term
-        t["n"] += 1
-        beat = modlink.beat(self.session_id) if t["n"] % FPS == 0 else None
-        if beat is not None and not beat.get("alive"):
-            self._term_leave()                   # 세션이 닫혔다 — 띠도 없다
-            return
-        if now > t["until"] or (beat is not None and beat.get("home") != t["home"]):
-            termframe.leave(t, now)              # 시간이 됐거나 띠의 ⌂ — 뛰어서 나간다
-        # 바깥에서처럼 반응한다: 일·끝남·에러·잠·모션(점프·손 흔들기…)은 제자리에서
-        shown = self._motion or self.claude_state
-        state, done = termframe.step(t, now, shown != "idle", shown, random.random)
-        if done:
-            self._term_leave()
-            return
-        self._render_state = state
-        if t["n"] % self.TERM_FRAME_EVERY == 1:
-            try:
-                pic = self._term_picture(state, t["dir"])
-            except Exception:
-                pic = None
-            termframe.write(self.session_id, pic, t["x"], y=t["y"])
-
-    def _term_picture(self, state, facing):
-        """크리처 한 장을 아트 픽셀 1:1 로 그려 칸으로. 큰 크리처만 정수 배로 줄인다
-        (크리처마다 한 배율 — 자세마다 다르면 크기가 출렁인다)."""
-        from PyQt6.QtGui import QImage
-        gw, gh = self.avatar.grid
-        # 크게(SS배) 그렸다가 최빈값으로 줄인다. 1:1 로 그리면 몸을 기울일 때 회전이
-        # 1픽셀 단위로 부서졌다(실측) — 칸 묶음의 다수결이 그 부스러기를 지운다.
-        ss = self.TERM_SUPERSAMPLE
-        W, H = gw * ss, gh * ss
-        img = QImage(W, H, QImage.Format.Format_ARGB32)
-        img.fill(0)
-        p = QPainter(img)
-        self.avatar.draw(p, 0, 0, ss, state, self.frame, facing=facing,
-                         palette=self._palette)
-        p.end()
-        px = [img.pixel(x, y) for y in range(H) for x in range(W)]
-        w, h, px = termframe.shrink(W, H, px, ss * termframe.factor(gh, self.TERM_MAX_PX))
-        return termframe.encode(w, h, px)
 
     def _mod_alive(self):
         """세션 안에 claudlet mod 가 떠 있나(Claude Code 만). 하트비트 파일 하나 본다."""
