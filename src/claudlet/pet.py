@@ -2316,14 +2316,16 @@ class Pet(QWidget):
         resting = self._idle_behavior in idle_engine.RESTING
         self.idle_energy.update(now, resting=(roaming and resting))
 
-        if self.mode == "held":
+        if self._term is not None:
+            # 터미널 안에서 논다 — 이 창은 숨어 있다. 떨어지던 중(thrown)에 불려가도
+            # 여기가 먼저다: 물리가 이기면 띠에 그림이 한 장도 안 갔다(실측)
+            self._term_step(now)
+        elif self.mode == "held":
             self._render_state = "held"     # dangling from the cursor
         elif self.mode == "thrown":
             self._physics()
         elif self._fetch is not None:
             self._fetch_step(now)           # 창 찾아오기 — 도크 중이어도 나선다
-        elif self._term is not None:
-            self._term_step(now)            # 터미널 안에서 논다 — 이 창은 숨어 있다
         elif docked:
             # 자리에 붙어 서기: 배회·중력·창 걸터앉기를 모두 건너뛰고 슬롯 위치를
             # 매 틱 다시 계산한다(모니터 해상도나 작업표시줄이 바뀌어도 따라온다).
@@ -5170,6 +5172,7 @@ class Pet(QWidget):
             return False
         now = time.monotonic()
         t = termframe.new_visit(now, random.random)
+        self.mode, self.vx, self.vy = "roam", 0.0, 0.0   # 떨어지던 중이었어도 멈춘다
         t.update(until=now + (secs or random.uniform(*self.TERM_VISIT_S)), n=0,
                  home=modlink.beat(self.session_id).get("home"))
         self._term = t

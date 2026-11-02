@@ -2606,5 +2606,17 @@ def test_the_pet_visits_the_terminal_band_and_comes_home_when_called(pet, monkey
     assert _json.loads(open(termframe.frame_file(pet.session_id)).read())["gone"]
 
 
+def test_a_pet_called_in_mid_fall_still_reaches_the_band(pet, monkeypatch, tmp_path):
+    import json as _json
+    from claudlet.core import termframe
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    pet.mode = "thrown"                 # 막 떠서 떨어지는 중
+    assert pet._term_enter(secs=60)
+    for _ in range(4):
+        pet._tick()
+    assert not _json.loads(open(termframe.frame_file(pet.session_id)).read())["gone"]
+
+
 def test_no_terminal_visit_without_the_mod(pet):
     assert not pet._term_enter()
