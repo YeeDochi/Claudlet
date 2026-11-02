@@ -152,3 +152,31 @@ def step(t, now, working, state, rnd):
 def leave(t, now):
     if t["phase"] != "leave":
         t.update(phase="leave", since=now, dur=LEAVE_S)
+
+
+def shrink(width, height, pixels, n):
+    """n×n 칸마다 가장 많은 색 하나로 — 정수 배라 도트가 고르게 남는다. 순수.
+    반 이상이 투명이면 투명. (루시엘 교훈: 최빈값 축소가 도트 느낌의 핵심)"""
+    if n <= 1:
+        return width, height, list(pixels)
+    w, h = (width + n - 1) // n, (height + n - 1) // n
+    out = []
+    for by in range(h):
+        for bx in range(w):
+            counts, total, clear = {}, 0, 0
+            for y in range(by * n, min(height, by * n + n)):
+                for x in range(bx * n, min(width, bx * n + n)):
+                    total += 1
+                    px = pixels[y * width + x]
+                    if _rgb(px) is None:
+                        clear += 1
+                    else:
+                        counts[px] = counts.get(px, 0) + 1
+            out.append(0 if clear * 2 > total or not counts
+                       else max(counts, key=counts.get))
+    return w, h, out
+
+
+def factor(grid_h, max_h):
+    """크리처 하나에 한 배율 — 자세마다 다르면 크기가 출렁인다. 순수."""
+    return max(1, -(-grid_h // max_h))

@@ -64,3 +64,14 @@ def test_leaving_jumps_up_and_ends():
     t = T.new_visit(0.0, _rnd(0.5, 0.9))
     T.leave(t, 1.0)
     assert T.step(t, 1.0 + T.LEAVE_S, False, "idle", _rnd()) == ("jump", True)
+
+
+def test_shrinking_keeps_the_most_common_colour_per_block():
+    # 2x2 블록: 빨강 3 + 초록 1 → 빨강, 투명 3 + 빨강 1 → 투명
+    w, h, px = T.shrink(4, 2, [R, R, _, _,
+                               R, G, _, R], 2)
+    assert (w, h) == (2, 1) and px == [R, 0]
+
+
+def test_one_scale_per_creature():
+    assert T.factor(17, 24) == 1 and T.factor(240, 24) == 10

@@ -16,7 +16,6 @@ const POLL_MS = 500
 const FRAME_MS = 150
 const BEAT_MS = 10_000
 const STALE_S = 3 // 펫이 이만큼 그림을 안 보내면 띠를 비운다
-const BAND_ROWS = 4 // 펫이 보내는 그림의 최대 높이(TERM_MAX_PX 8 / 2). 자세마다 높이가 달라도 띠는 그대로
 
 type Line = { id: number; text: string; framed?: boolean; context?: string }
 
@@ -26,6 +25,8 @@ const frame = atom({ plugin: 'claudlet', key: 'frame' } as const, null)
 const contexts = new Map<string, string>()
 // 턴이 도는 동안엔 띠를 멈춘다 — 답이 쏟아질 때 움직이면 읽기를 방해한다
 let turning = false
+// 이번 방문에서 가장 큰 자세의 높이 — 띠는 줄어들지 않는다(프롬프트가 들썩이지 않게)
+let bandRows = 0
 // [집에 가] 버튼이 하트비트를 다시 쓰는 길 (session.start 가 채운다)
 let goHome: (() => Promise<void>) | null = null
 
@@ -166,7 +167,11 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const f = await read($, frame)
-    if (!f) return next(e)
+    if (!f) {
+      bandRows = 0
+      return next(e)
+    }
+    bandRows = Math.max(bandRows, f.rows)
     const { Box, Raster, Button } = $.ui.resolve(e)
     const room = Math.max(0, e.props.bodyColumns - f.columns - 4)
     // 이전 버전이 남긴 값에는 x 가 이상할 수 있다(상태는 리로드를 넘어 남는다)
@@ -174,7 +179,7 @@ export const register: Register = on => {
     // 띠는 크리처 높이만큼만. 띠 밖으로 겹쳐 그리면 잘린다(실측: 발만 보였다).
     // 점프는 높이 대신 자세로만 — 띠 높이가 변하면 프롬프트가 들썩인다.
     return (
-      <Box key="band" flexDirection="row" alignItems="flex-end" height={Math.max(BAND_ROWS, f.rows)}>
+      <Box key="band" flexDirection="row" alignItems="flex-end" height={bandRows}>
         <Button key="home" plain label="⌂" onPress={() => void goHome?.()} />
         <Box width={2 + Math.round(x * room)} />
         <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
