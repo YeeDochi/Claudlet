@@ -5165,6 +5165,7 @@ class Pet(QWidget):
     # claudlet-<sid>.frame 에 쓴다(core/termframe). 띠 안에서의 자리(0..1)도 같이.
     TERM_FRAME_EVERY = 3          # 20fps 중 ~7fps 만 내보낸다
     TERM_VISIT_S = (25.0, 50.0)
+    TERM_SUPERSAMPLE = 3           # 크게 그려 다수결로 줄인다 (4배는 장당 18ms — 7fps 엔 무겁다)
     TERM_MAX_PX = 24              # 크리처 그리드가 이보다 크면 정수 배로 줄인다 (내장 22x17 은 그대로)
 
     def _term_enter(self, secs=None):
@@ -5214,14 +5215,18 @@ class Pet(QWidget):
         (크리처마다 한 배율 — 자세마다 다르면 크기가 출렁인다)."""
         from PyQt6.QtGui import QImage
         gw, gh = self.avatar.grid
-        img = QImage(gw, gh, QImage.Format.Format_ARGB32)
+        # 크게(SS배) 그렸다가 최빈값으로 줄인다. 1:1 로 그리면 몸을 기울일 때 회전이
+        # 1픽셀 단위로 부서졌다(실측) — 칸 묶음의 다수결이 그 부스러기를 지운다.
+        ss = self.TERM_SUPERSAMPLE
+        W, H = gw * ss, gh * ss
+        img = QImage(W, H, QImage.Format.Format_ARGB32)
         img.fill(0)
         p = QPainter(img)
-        self.avatar.draw(p, 0, 0, 1, state, self.frame, facing=facing,
+        self.avatar.draw(p, 0, 0, ss, state, self.frame, facing=facing,
                          palette=self._palette)
         p.end()
-        px = [img.pixel(x, y) for y in range(gh) for x in range(gw)]
-        w, h, px = termframe.shrink(gw, gh, px, termframe.factor(gh, self.TERM_MAX_PX))
+        px = [img.pixel(x, y) for y in range(H) for x in range(W)]
+        w, h, px = termframe.shrink(W, H, px, ss * termframe.factor(gh, self.TERM_MAX_PX))
         return termframe.encode(w, h, px)
 
     def _mod_alive(self):
