@@ -1785,6 +1785,7 @@ class Pet(QWidget):
         self._say = ""                     # 크리처가 지금 하는 말
         self._say_until = 0.0
         self._reply_timer = None           # 턴 끝나고 대사를 기다리는 타이머
+        self._said_id = -1                 # mod say 도구로 받은 마지막 말 (-1: 아직 안 봄)
         self._reply_path = ""
         self._reply_whole = False          # 🗨 줄 없이 최종 답 전체가 답인 턴
         self._reply_left = 0
@@ -4556,8 +4557,26 @@ class Pet(QWidget):
             return None
         return self.ask_window(win, question, region=rect)
 
+    def _poll_said(self):
+        """에이전트가 mod 의 say 도구로 펫에게 시킨 말. 🗨 마커·트랜스크립트 읽기 대신."""
+        if self._standalone():
+            return
+        try:
+            new = modlink.said(self.session_id, after=self._said_id)
+        except Exception:
+            return
+        if self._said_id < 0:                # 처음 볼 때는 지난 말을 다시 틀지 않는다
+            self._said_id = max([m["id"] for m in modlink.said(self.session_id)] + [0])
+            return
+        for m in new:
+            self._said_id = m["id"]
+            self._hush(keep_say=True)        # 트랜스크립트에서 같은 답을 또 찾지 않게
+            self._say_more = False
+            self._handle_event({"cmd": "say", "text": m["text"]})
+
     def _poll_answer(self):
         """Show an answer the session posted back, if any."""
+        self._poll_said()
         try:
             text = askbox.take_answer(self.session_id)
         except Exception:
@@ -4970,14 +4989,22 @@ class Pet(QWidget):
         return (self.session_id or "default") == "default"
 
     def _brain_link(self):
-        """크리처 머리. 실행 파일을 못 찾으면 None — 그때는 본 세션으로 간다."""
+        """크리처 머리. 세션 안에 mod 가 있으면 mod 의 fork(세션 맥락을 그대로 아는
+        머리, 프로세스 없음), 아니면 띄워 두는 claude/codex. 실행 파일을 못 찾으면
+        None — 그때는 본 세션으로 간다."""
+        fork = self._mod_alive()
         link = getattr(self, "_brain", None)
         if link is not None:
-            return link
-        exe = shutil.which("codex" if self.agent == "codex" else "claude")
-        if not exe:
-            return None
-        link = brainproc.CreatureBrain(self.agent, exe, self.session_id, self)
+            if isinstance(link, brainproc.ForkBrain) == fork or link.busy():
+                return link
+            self._brain_stop()             # mod 가 생겼거나 사라졌다 — 머리를 갈아 끼운다
+        if fork:
+            link = brainproc.ForkBrain(self.session_id, self)
+        else:
+            exe = shutil.which("codex" if self.agent == "codex" else "claude")
+            if not exe:
+                return None
+            link = brainproc.CreatureBrain(self.agent, exe, self.session_id, self)
         link.timeout_s = self.BRAIN_TIMEOUT_S
         link.answered.connect(self._brain_answered)
         link.failed.connect(self._brain_failed)
@@ -5152,7 +5179,8 @@ class Pet(QWidget):
         "claudlet 이 보낸 말" 로 넣고, 없으면 waiter 가 보고 깨우도록 표시만 한다."""
         if self._mod_alive():
             notes = outbox.take(self.session_id)
-            if not notes or modlink.push(self.session_id, outbox.render_short(notes),
+            if not notes or modlink.push(self.session_id,
+                                         outbox.render_short(notes, tool=True),
                                          framed=True):
                 return
             for note in notes:                 # 못 넣었다 — 옛 길로
@@ -5174,7 +5202,7 @@ class Pet(QWidget):
             # 이 말에 딸린 쪽지(말투·창 정보)를 같이 실어 보낸다
             notes = outbox.take(self.session_id)
             if modlink.push(self.session_id, text,
-                            context=outbox.render(notes) if notes else None):
+                            context=outbox.render(notes, tool=True) if notes else None):
                 return True
             for note in notes:
                 outbox.restore(self.session_id, note)

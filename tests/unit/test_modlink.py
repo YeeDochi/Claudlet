@@ -61,4 +61,19 @@ def test_broken_lines_are_skipped():
 
 
 def test_empty_text_is_not_sent():
-    assert modlink.push("s1", "") is False
+    assert modlink.push("s1", "") is None
+
+
+def test_fork_lines_are_marked_and_answers_are_read_back(tmp_path):
+    rid = modlink.push("s1", "뭐 해?", fork=True)
+    assert _lines()[0]["fork"] is True and _lines()[0]["id"] == rid
+    (tmp_path / "claudlet-s1.forked").write_text(
+        json.dumps({"id": rid, "text": "SAY: 일해"}) + "\nbroken\n")
+    assert modlink.forked("s1")[rid]["text"] == "SAY: 일해"
+
+
+def test_said_lines_after_the_last_seen_one(tmp_path):
+    (tmp_path / "claudlet-s1.said").write_text(
+        "\n".join(json.dumps(m) for m in [{"id": 2, "text": "b"}, {"id": 1, "text": "a"}]))
+    assert [m["text"] for m in modlink.said("s1")] == ["a", "b"]
+    assert [m["text"] for m in modlink.said("s1", after=1)] == ["b"]

@@ -2570,7 +2570,7 @@ def test_asking_now_goes_through_the_session_mod_as_the_users_own_turn(pet, monk
     [line] = _mod_lines(pet.session_id)
     assert line["text"] == "지금 뭐 해?" and not line.get("framed")
     # 말투 쪽지는 이 말의 턴에 붙어 간다 — 일하는 중인 다른 턴의 훅이 가져가지 않게
-    assert "🗨" in line["context"]
+    assert "mcp__claudlet__say" in line["context"]     # 🗨 마커 대신 mod 의 say 도구
     assert outbox.take(pet.session_id) == []
 
 
@@ -2582,3 +2582,39 @@ def test_a_relayed_note_is_delivered_by_the_mod_framed_as_the_pets(pet, monkeypa
     [line] = _mod_lines(pet.session_id)
     assert line["framed"] and "README 고쳐 줘" in line["text"]
     assert outbox.take(pet.session_id) == []            # 펫이 직접 가져갔다
+
+
+def test_the_agent_speaks_through_the_mod_say_tool(pet, monkeypatch, tmp_path):
+    # 에이전트가 mcp__claudlet__say 를 부르면 mod 가 .said 에 남기고 펫이 말풍선에 띄운다.
+    # 펫이 뜨기 전에 있던 말은 다시 틀지 않는다.
+    import json as _json
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    said = tmp_path / "claudlet-s-mod.said"
+    said.write_text(_json.dumps({"id": 1, "text": "옛날 말"}) + "\n")
+    pet._poll_answer()
+    assert pet.snapshot()["saying"] != "옛날 말"
+    said.write_text(said.read_text() + _json.dumps({"id": 2, "text": "다 됐어!"}) + "\n")
+    pet._poll_answer()
+    assert pet.snapshot()["saying"] == "다 됐어!"
+
+
+def test_the_creature_brain_asks_the_session_fork_when_the_mod_is_there(pet, monkeypatch, tmp_path):
+    # mod 가 있으면 머리는 프로세스를 띄우지 않고 mod 의 fork 로 묻는다.
+    import json as _json
+    from claudlet import brainproc
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    monkeypatch.setattr(pet, "_pointer_cfg", lambda: {"brain": True})
+    pet._talk(immediate=True, text="지금 뭐 해?")
+    [line] = _mod_lines(pet.session_id)
+    assert line["fork"] and "지금 뭐 해?" in line["text"]
+    (tmp_path / "claudlet-s-mod.forked").write_text(
+        _json.dumps({"id": line["id"], "text": "SAY: 테스트 고치는 중!"}) + "\n")
+    pet._brain._check()
+    deadline = time.monotonic() + 5
+    while pet.snapshot()["saying"] != "테스트 고치는 중!" and time.monotonic() < deadline:
+        P.QApplication.processEvents()
+        time.sleep(0.05)
+    assert pet.snapshot()["saying"] == "테스트 고치는 중!"
+    assert isinstance(pet._brain, brainproc.ForkBrain)

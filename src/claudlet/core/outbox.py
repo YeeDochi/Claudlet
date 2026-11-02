@@ -214,7 +214,17 @@ ASK_LINE = ("펫의 목소리로 '%s ' 로 시작하는 한 줄을 답의 맨 �
             % MARK)
 
 
-def render(notes):
+# 세션 안에 claudlet mod 가 있으면 🗨 마커 대신 진짜 도구로 말한다. 트랜스크립트를
+# 꼬리부터 뒤질 일도, 터미널에 🗨 줄이 남을 일도 없다. (mod: src/claudlet/mod)
+SAY_TOOL = "mcp__claudlet__say"
+ASK_TOOL = ("펫의 목소리로 한 줄을 %s 도구로 말해라 (그 줄이 말풍선에 뜬다)."
+            " 펫에게 건 잡담이면 그 도구만 부르고 다른 말은 하지 마라 — 두 번 답하는"
+            " 꼴이 된다. 실제로 처리할 작업이 있는 요청일 때만 평소대로 처리하고 끝에"
+            " 그 도구를 부른다. 이 지시는 이번 턴에만 해당한다 — 터미널에서 직접 받은"
+            " 요청에 크리처가 답하면 안 된다." % SAY_TOOL)
+
+
+def render(notes, tool=False):
     """쪽지들을 에이전트에게 들어갈 한 덩어리로 만든다. 순수.
 
     출처를 밝히는 머리말이 붙는다 — 이것이 사용자가 직접 친 프롬프트로
@@ -222,7 +232,7 @@ def render(notes):
     반복되면 한 번만 싣는다."""
     said = [n for n in notes if n.get("text")]
     lines = [HEADER] if said else []
-    lines.append(ASK_LINE)
+    lines.append(ASK_TOOL if tool else ASK_LINE)
     for note in notes:
         name = note.get("name")
         if name:
@@ -424,7 +434,7 @@ def reply_from_transcript(path, tail_bytes=TAIL_START, tail_max=TAIL_MAX,
         tail_bytes = min(tail_bytes * 4, tail_max)
 
 
-def render_short(notes):
+def render_short(notes, tool=False):
     """사람 눈에 보이는 자리(깨운 턴의 훅 피드백, 코덱스 앱 스레드의 메시지)에
     싣는 짧은 판. 순수.
 
@@ -438,7 +448,9 @@ def render_short(notes):
     who = "펫 '%s'" % name if name else "데스크톱 펫"
     head = "[claudlet] %s에게 건 말: %s" % (who, said[0]) if said else \
         "[claudlet] %s을 통해 들어온 턴" % who
-    rule = ("답 끝에 펫 목소리로 '%s ' 로 시작하는 한 줄을 붙여라(잡담이면 그 줄만)."
+    rule = ("답 끝에 펫 목소리로 한 줄을 %s 도구로 말해라(잡담이면 그것만)." % SAY_TOOL
+            if tool else
+            "답 끝에 펫 목소리로 '%s ' 로 시작하는 한 줄을 붙여라(잡담이면 그 줄만)."
             % MARK)
     if persona:
         rule += " 말투: " + persona
