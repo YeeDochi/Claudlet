@@ -24,6 +24,8 @@ const frame = atom({ plugin: 'claudlet', key: 'frame' } as const, null)
 
 // 넣은 말 -> 그 턴에 붙일 덧붙임. 줄을 선 프롬프트가 열릴 때 prompt.submit 이 집어 간다.
 const contexts = new Map<string, string>()
+// 턴이 도는 동안엔 띠를 멈춘다 — 답이 쏟아질 때 움직이면 읽기를 방해한다
+let turning = false
 // [집에 가] 버튼이 하트비트를 다시 쓰는 길 (session.start 가 채운다)
 let goHome: (() => Promise<void>) | null = null
 
@@ -122,6 +124,7 @@ export const register: Register = on => {
     const pollFrame = async () => {
       const st = await $.fs.stat(p.frame).catch(() => null)
       const now = Date.now() / 1000
+      if (turning) return // 마지막 그림 그대로 가만히 — 다시 그리지 않는다
       if (st && st.kind === 'file' && st.mtimeMs !== seenFrame) {
         seenFrame = st.mtimeMs
         const f = parseFrame(await $.fs.read(p.frame).catch(() => ''), now)
@@ -138,6 +141,15 @@ export const register: Register = on => {
     $.clock.every(POLL_MS, () => void poll())
     $.clock.every(FRAME_MS, () => void pollFrame().catch(() => {}))
     return result
+  })
+
+  on('turn.start', ($, e, next) => {
+    turning = true
+    return next(e)
+  })
+  on('turn.complete', ($, e, next) => {
+    turning = false
+    return next(e)
   })
 
   // 우리가 넣은 프롬프트가 턴을 열 때 그 턴에만 말투·창 정보를 붙인다.
@@ -157,12 +169,15 @@ export const register: Register = on => {
     if (!f || f.rows + LIFT > e.props.maxRows) return next(e)
     const { Box, Raster, Button } = $.ui.resolve(e)
     const room = Math.max(0, e.props.bodyColumns - f.columns - 6)
+    // 이전 버전이 남긴 값에는 y 가 없다(상태는 리로드를 넘어 남는다)
+    const y = Number.isFinite(f.y) ? Math.min(1, Math.max(0, f.y)) : 0
+    const x = Number.isFinite(f.x) ? Math.min(1, Math.max(0, f.x)) : 0
     return (
       <Box flexDirection="row" alignItems="flex-end">
         <Button key="home" plain label="⌂" onPress={() => void goHome?.()} />
-        <Box width={1 + Math.round(f.x * room)} />
+        <Box width={1 + Math.round(x * room)} />
         <Box flexDirection="column" height={f.rows + LIFT}>
-          <Box height={Math.round((1 - f.y) * LIFT)} />
+          <Box height={Math.round((1 - y) * LIFT)} />
           <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
         </Box>
       </Box>

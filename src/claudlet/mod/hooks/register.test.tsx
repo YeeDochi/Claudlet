@@ -27,6 +27,15 @@ test('a gone or stale frame clears the band', () => {
   expect(parseFrame('{"ts":100,"gone":true}', 100)).toBe(null)
 })
 
+test('a frame an earlier version stored (no y) still draws', async ($, on) => {
+  on('state.get', () => ({
+    value: { value: { columns: 1, rows: 1, cells: 'gCUAAAAA/wAAAAAB', x: 0.5, ts: Date.now() / 1000 }, version: 1 },
+  }))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ key: 'pet' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('the visiting pet is drawn above the prompt with a way home', async ($, on) => {
   const cells = btoa(String.fromCharCode(...new Uint8Array(Uint32Array.of(0x2580, 0xff0000, 0x01000000).buffer)))
   on('state.get', () => ({

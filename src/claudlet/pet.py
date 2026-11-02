@@ -1729,7 +1729,6 @@ class Pet(QWidget):
         self._explore_target = None          # (x, y) window point EXPLORE/HOP is walking to
         self._fetch = None                   # 창 찾아오기 진행 상태 (_raise_window), 없으면 None
         self._term = None                    # 터미널 방문 중이면 dict (_term_step)
-        self._term_roll = 0                  # 놀러 갈지 1분마다 굴린다
         # KDE 는 창을 바닥 밑에서 끌어올린다(KWin 스크립트 안 타이머). 다른 OS 는
         # 창이 스스로 뜨길 기다렸다가 올라탄다(gone)
         self._can_pull = sys.platform.startswith("linux") or os.name == "nt"
@@ -2428,7 +2427,6 @@ class Pet(QWidget):
                 self.y = floor
                 self._render_state = eff
 
-        self._term_maybe_visit(roaming)
         # 소셜 act: 만료되면 종료(일반 follow 복귀), 없으면 적격 시 새 act 롤
         if self._social_act is not None and now >= self._social_until:
             self._social_act = None
@@ -5165,18 +5163,7 @@ class Pet(QWidget):
     # claudlet-<sid>.frame 에 쓴다(core/termframe). 띠 안에서의 자리(0..1)도 같이.
     TERM_FRAME_EVERY = 3          # 20fps 중 ~7fps 만 내보낸다
     TERM_VISIT_S = (25.0, 50.0)
-    TERM_CHANCE = 1 / 40.0        # 놀고 있을 때 1분마다 — 평균 40분에 한 번
     TERM_MAX_PX = 24              # 띠 12줄을 넘지 않게
-
-    def _term_maybe_visit(self, roaming):
-        self._term_roll += 1
-        if self._term_roll < FPS * 60:
-            return
-        self._term_roll = 0
-        if (roaming and self._term is None and self._fetch is None
-                and not (self._floating or self._docked or self._follow)
-                and random.random() < self.TERM_CHANCE):
-            self._term_enter()
 
     def _term_enter(self, secs=None):
         if self._term is not None or not self._mod_alive():
