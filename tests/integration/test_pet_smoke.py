@@ -2710,6 +2710,7 @@ def test_how_the_pet_takes_petting_depends_on_how_close_it_is(pet):
         pet._maybe_pet(float(x), now + i * 0.1)
     snap = pet.snapshot()
     assert snap["facing"] == 1 and pet.x > x0 and snap["motion"] is None
+    assert snap["shy"]                                   # 웃지 않고 눈을 피한다
     _seed_affection(pet.snapshot()["avatar"], 300)
     p = P.Pet(session_id="aff-pet")
     try:
