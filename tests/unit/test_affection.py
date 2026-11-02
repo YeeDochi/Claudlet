@@ -72,3 +72,18 @@ def test_progress_shows_the_way_to_the_next_stage():
     from claudlet.core import affection as A
     assert A.progress(8) == "8/30" and A.progress(30) == "30/120"
     assert A.progress(999) == "999"            # 마지막 단계는 점수만
+
+
+def test_gauge_fills_toward_the_next_stage():
+    from claudlet.core import affection as A
+    assert A.gauge(0) == "▱" * 10 and A.gauge(15) == "▰" * 5 + "▱" * 5
+    assert A.gauge(30) == "▱" * 10            # 새 단계의 시작
+    assert A.gauge(999) == "▰" * 10
+
+
+def test_only_close_pets_come_over_or_play_on_their_own():
+    from claudlet.core import affection as A
+    assert A.idle_extra(0, 0.0) is None                 # 낯가림은 아무것도
+    assert A.idle_extra(300, 0.05) == "approach"
+    assert A.idle_extra(300, 0.15) == "play"
+    assert A.idle_extra(300, 0.5) is None
