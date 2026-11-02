@@ -2698,7 +2698,7 @@ def test_the_status_line_carries_name_and_affection_when_the_mod_is_there(pet, m
     _mod_beat(tmp_path, pet, monkeypatch)
     pet._poll_answer()
     line = (tmp_path / "claudlet-s-mod.status").read_text()
-    assert "♥" in line and pet._affection_label() in line
+    assert "♥" in line and pet._affection_gauge_label() in line   # 바는 상태줄에만
 
 
 def test_how_the_pet_takes_petting_depends_on_how_close_it_is(pet):

@@ -4640,7 +4640,7 @@ class Pet(QWidget):
     def _status_line(self):
         """Claude Code 상태줄에 띄울 한 줄 — 이름과 호감도."""
         who = self._nickname or self.avatar.name
-        return "%s ♥ %s" % (who, self._affection_label())
+        return "%s ♥ %s" % (who, self._affection_gauge_label())
 
     def _sync_status(self):
         """mod 가 있으면 상태줄을 맞춘다. 바뀌었거나 오래됐을 때만 쓴다(mod 는 오래된
