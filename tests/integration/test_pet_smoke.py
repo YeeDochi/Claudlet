@@ -2582,3 +2582,27 @@ def test_a_relayed_note_is_delivered_by_the_mod_framed_as_the_pets(pet, monkeypa
     [line] = _mod_lines(pet.session_id)
     assert line["framed"] and "README 고쳐 줘" in line["text"]
     assert outbox.take(pet.session_id) == []            # 펫이 직접 가져갔다
+
+
+def test_the_pet_visits_the_terminal_band_and_comes_home_when_called(pet, monkeypatch, tmp_path):
+    import json as _json
+    from claudlet.core import termframe
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _mod_beat(tmp_path, pet, monkeypatch)
+    assert pet._term_enter(secs=60)
+    for _ in range(4):
+        pet._tick()
+    snap = pet.snapshot()
+    assert snap["in_terminal"] and snap["hidden"]          # 바탕화면에선 사라졌다
+    frame = _json.loads(open(termframe.frame_file(pet.session_id)).read())
+    assert not frame["gone"] and frame["rows"] >= 1 and frame["cells"]
+    # 띠의 [집에 가] — mod 가 하트비트에 home 을 찍는다
+    (tmp_path / "claudlet-s-mod.mod").write_text(_json.dumps({"ack": 0, "home": 123}))
+    for _ in range(P.FPS):
+        pet._tick()
+    assert not pet.snapshot()["in_terminal"]
+    assert _json.loads(open(termframe.frame_file(pet.session_id)).read())["gone"]
+
+
+def test_no_terminal_visit_without_the_mod(pet):
+    assert not pet._term_enter()
