@@ -114,6 +114,24 @@ def path():
     return os.path.join(os.path.dirname(petconfig.config_path()), "affection.json")
 
 
+def left_today(data, creature, today):
+    """오늘 더 오를 수 있는 점수. 순수."""
+    rec = _rec(data, creature)
+    return DAILY_CAP - (rec["used"] if rec["day"] == today else 0)
+
+
+def fact(stage_name, pts, left, lang="ko"):
+    """크리처 머리에 주는 사실 한 줄 — 대화에서 주워들은 숫자 대신 이것으로 답하게. 순수."""
+    if lang == "en":
+        return ("Fact: your closeness with the user is '%s', %s points; %s. If asked"
+                " about it, use exactly this." % (stage_name, progress(pts),
+                "no more can be gained today" if left <= 0 else "%d more can be gained today" % left))
+    return ("사실: 지금 사용자와의 친밀도는 '%s', %s점이다. %s. 물으면 이 값으로만"
+            " 답해라." % (stage_name, progress(pts),
+                       "오늘 몫은 다 찼다(내일 다시 오른다)" if left <= 0
+                       else "오늘은 %d점 더 오를 수 있다" % left))
+
+
 def load():
     try:
         with open(path(), encoding="utf-8") as f:

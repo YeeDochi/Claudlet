@@ -2732,3 +2732,12 @@ def test_a_close_pet_sometimes_comes_over_to_the_cursor(pet):
         assert not p.snapshot()["following"]
     finally:
         p._cleanup()
+
+
+def test_a_full_day_says_so_and_the_brain_is_told_the_real_closeness(pet):
+    # 한도를 채우면 표시가 그렇다고 하고, 머리는 대화에서 주워들은 숫자 대신 실제 값을 받는다
+    for _ in range(30):
+        send_hook(pet, "Stop", session="a")
+    assert pet.ui["affection_full"] in pet._affection_label()
+    system, user = None, pet._brain_compose(True, text="호감도 몇이야?")
+    assert "20/30" in user

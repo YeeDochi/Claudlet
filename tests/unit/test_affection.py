@@ -87,3 +87,12 @@ def test_only_close_pets_come_over_or_play_on_their_own():
     assert A.idle_extra(300, 0.05) == "approach"
     assert A.idle_extra(300, 0.15) == "play"
     assert A.idle_extra(300, 0.5) is None
+
+
+def test_what_is_left_today_and_the_fact_the_brain_is_given():
+    from claudlet.core import affection as A
+    data = {"c": {"points": 20, "day": "2026-11-02", "used": 20}}
+    assert A.left_today(data, "c", "2026-11-02") == 0
+    assert A.left_today(data, "c", "2026-11-03") == A.DAILY_CAP     # 새 날
+    f = A.fact("낯가림", 20, 0)
+    assert "20/30" in f and "오늘 몫은 다 찼다" in f
