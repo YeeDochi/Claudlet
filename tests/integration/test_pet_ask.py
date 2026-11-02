@@ -1559,7 +1559,7 @@ def test_the_window_says_which_creature_you_are_talking_to(pet, _hist):  # noqa:
         assert win._who.text() == "슈텐도지"
         # what it is, how close you are, which session
         assert win._what.text() == "%s · ♥ %s · %s" % (
-            pet.avatar.name, pet.ui["affection"][0], pet._session_tip())
+            pet.avatar.name, pet._affection_label(), pet._session_tip())
         assert "슈텐도지" in win.windowTitle()
     finally:
         win.close()
@@ -1571,7 +1571,7 @@ def test_without_a_nickname_the_creature_name_is_not_repeated(pet, _hist):  # no
     try:
         assert win._who.text() == pet.avatar.name
         # how close you are, then the session
-        assert win._what.text() == "♥ %s · %s" % (pet.ui["affection"][0],
+        assert win._what.text() == "♥ %s · %s" % (pet._affection_label(),
                                                   pet._session_tip())
     finally:
         win.close()
