@@ -5165,7 +5165,7 @@ class Pet(QWidget):
     # claudlet-<sid>.frame 에 쓴다(core/termframe). 띠 안에서의 자리(0..1)도 같이.
     TERM_FRAME_EVERY = 3          # 20fps 중 ~7fps 만 내보낸다
     TERM_VISIT_S = (25.0, 50.0)
-    TERM_MAX_PX = 24              # 띠 12줄을 넘지 않게
+    TERM_MAX_PX = 8               # 4줄 — 덤이니 작게 (대화 줄 위에 겹쳐 그린다)
 
     def _term_enter(self, secs=None):
         if self._term is not None or not self._mod_alive():
@@ -5210,7 +5210,7 @@ class Pet(QWidget):
             termframe.write(self.session_id, pic, t["x"], y=t["y"])
 
     def _term_picture(self, state, facing):
-        """크리처 한 장을 아트 픽셀 1:1 로 그려 칸으로. 큰 크리처는 줄인다."""
+        """크리처 한 장을 아트 픽셀 1:1 로 그려, 빈 둘레를 잘라내고 작게 줄여 칸으로."""
         from PyQt6.QtGui import QImage
         gw, gh = self.avatar.grid
         img = QImage(gw, gh, QImage.Format.Format_ARGB32)
@@ -5219,7 +5219,12 @@ class Pet(QWidget):
         self.avatar.draw(p, 0, 0, 1, state, self.frame, facing=facing,
                          palette=self._palette)
         p.end()
-        if gh > self.TERM_MAX_PX:
+        box = termframe.crop_box(gw, gh, [img.pixel(x, y) for y in range(gh) for x in range(gw)])
+        if box is None:
+            return None
+        x0, y0, x1, y1 = box
+        img = img.copy(x0, y0, x1 - x0, y1 - y0)
+        if img.height() > self.TERM_MAX_PX:
             img = img.scaledToHeight(self.TERM_MAX_PX,
                                      Qt.TransformationMode.FastTransformation)
         w, h = img.width(), img.height()

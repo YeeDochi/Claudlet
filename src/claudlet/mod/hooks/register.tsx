@@ -16,7 +16,7 @@ const POLL_MS = 500
 const FRAME_MS = 150
 const BEAT_MS = 10_000
 const STALE_S = 3 // 펫이 이만큼 그림을 안 보내면 띠를 비운다
-const LIFT = 3 // 점프·떨어지기에 쓰는 줄. 띠 높이는 늘 같다 — 프롬프트가 들썩이지 않게
+const LIFT = 2 // 점프·떨어지기 높이(줄). 크리처는 띠 위 대화 줄에 겹쳐 그린다 — 띠는 늘 한 줄
 
 type Line = { id: number; text: string; framed?: boolean; context?: string }
 
@@ -166,18 +166,22 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const f = await read($, frame)
-    if (!f || f.rows + LIFT > e.props.maxRows) return next(e)
+    if (!f) return next(e)
     const { Box, Raster, Button } = $.ui.resolve(e)
-    const room = Math.max(0, e.props.bodyColumns - f.columns - 6)
+    const room = Math.max(0, e.props.bodyColumns - f.columns - 4)
     // 이전 버전이 남긴 값에는 y 가 없다(상태는 리로드를 넘어 남는다)
     const y = Number.isFinite(f.y) ? Math.min(1, Math.max(0, f.y)) : 0
     const x = Number.isFinite(f.x) ? Math.min(1, Math.max(0, f.x)) : 0
+    // 띠는 ⌂ 한 줄. 크리처는 그 줄을 바닥 삼아 위쪽 대화 줄에 겹쳐 그린다
+    // (position absolute 는 주변을 밀어내지 않는다) — 프롬프트가 내려가지 않게.
     return (
-      <Box flexDirection="row" alignItems="flex-end">
+      <Box key="band" height={1}>
         <Button key="home" plain label="⌂" onPress={() => void goHome?.()} />
-        <Box width={1 + Math.round(x * room)} />
-        <Box flexDirection="column" height={f.rows + LIFT}>
-          <Box height={Math.round((1 - y) * LIFT)} />
+        <Box
+          position="absolute"
+          left={3 + Math.round(x * room)}
+          top={1 - f.rows - Math.round(y * LIFT)}
+        >
           <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
         </Box>
       </Box>
