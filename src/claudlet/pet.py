@@ -2196,6 +2196,7 @@ class Pet(QWidget):
         self._persona, self._nickname, self._background = voice
         # 호감도는 크리처마다 하나 — 갈아입으면 그 크리처의 것을 읽는다
         self._affection = affection.points(affection.load(), self.avatar.name)
+        self._affection_shown = None         # 대화창 호감도 줄에 마지막으로 그린 점수
 
     def _restyle(self, reload=False):
         """A settings change landed (claudlet-config ui). Re-read and re-dress
@@ -4617,8 +4618,23 @@ class Pet(QWidget):
             return None
         return self.ask_window(win, question, region=rect)
 
+    def _sync_affection(self):
+        """디스크의 호감도를 따라간다(1초마다). 쓰다듬기처럼 이 펫이 올린 것도, 같은
+        크리처의 다른 세션 펫이 올린 것도 — 바뀌었을 때만 대화창 호감도 줄을 다시 그린다."""
+        try:
+            pts = affection.points(affection.load(), self.avatar.name)
+        except Exception:
+            return
+        if pts != self._affection or self._affection_shown != pts:
+            self._affection = pts
+            win = self._chat_open()
+            if win is not None:
+                win._show_identity()
+                self._affection_shown = pts
+
     def _poll_answer(self):
         """Show an answer the session posted back, if any."""
+        self._sync_affection()
         try:
             text = askbox.take_answer(self.session_id)
         except Exception:
