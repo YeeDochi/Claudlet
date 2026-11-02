@@ -290,7 +290,8 @@ UI = {
            "chat_ph_note": "펫에게 할 말 · 엔터로 쪽지 남기기",
            "chat_send": "보내기", "chat_note": "📝 쪽지로 남기기",
            "chat_about": "🎯 %s 에 대해  ✕",
-           "affection": ("낯가림", "친해지는 중", "친구", "단짝")},
+           "affection": ("낯가림", "친해지는 중", "친구", "단짝"),
+           "affection_full": "(오늘 몫 다 참)"},
     "en": {"follow": "Follow cursor", "motions": "Motions",
            "ptr_menu": "🎯 Pointer settings",
            "ptr_cursor": "Cursor shape",
@@ -324,7 +325,8 @@ UI = {
            "chat_ph_note": "Say something · Enter leaves it as a note",
            "chat_send": "Send", "chat_note": "📝 Leave as a note",
            "chat_about": "🎯 About %s  ✕",
-           "affection": ("Shy", "Warming up", "Friend", "Best friend")},
+           "affection": ("Shy", "Warming up", "Friend", "Best friend"),
+           "affection_full": "(full for today)"},
 }
 
 # 도크 재정렬 주기(ms): 앞자리 펫이 종료해 생긴 구멍을 뒷펫이 메워 대열을 다시
@@ -4694,11 +4696,22 @@ class Pet(QWidget):
             if self._follow:
                 self._toggle_follow()
 
+    def _affection_left(self):
+        try:
+            return affection.left_today(affection.load(), self.avatar.name,
+                                        time.strftime("%Y-%m-%d"))
+        except Exception:
+            return affection.DAILY_CAP
+
     def _affection_label(self):
-        """"낯가림 8/30" — 단계와 다음 단계까지 얼마나 왔나."""
-        return "%s %s %s" % (self.ui["affection"][affection.stage(self._affection)],
-                             affection.gauge(self._affection),
-                             affection.progress(self._affection))
+        """"낯가림 ▰▰▱▱ 8/30" — 단계와 다음 단계까지. 오늘 몫을 다 채웠으면 그렇다고
+        (안 그러면 쓰다듬어도 안 올라 고장 난 줄 안다 — 실측)."""
+        label = "%s %s %s" % (self.ui["affection"][affection.stage(self._affection)],
+                              affection.gauge(self._affection),
+                              affection.progress(self._affection))
+        if self._affection_left() <= 0:
+            label += " " + self.ui["affection_full"]
+        return label
 
     def _voice(self):
         """에이전트에게 실어 보내는 말투 — 설정한 말투 + 친밀도 한 줄."""
@@ -5112,7 +5125,12 @@ class Pet(QWidget):
                 hist = askhistory.load(self.session_id, limit=brain.HISTORY_PAIRS * 2)
             except Exception:
                 hist = []
-        system, user = brain.build_prompt(self._voice(), self._nickname, hist,
+        # 친밀도는 사실로 넣는다 — fork 머리는 세션 대화에서 옛 숫자를 주워듣는다(실측)
+        stage = affection.stage(self._affection)
+        known = affection.fact(self.ui["affection"][stage], self._affection,
+                               self._affection_left(), self.lang)
+        system, user = brain.build_prompt(", ".join(x for x in (self._voice(), known) if x),
+                                          self._nickname, hist,
                                           brain.recent_context(fresh), text, pointed,
                                           alone=self._standalone(), event=event,
                                           background=self._background, shot=shot)
