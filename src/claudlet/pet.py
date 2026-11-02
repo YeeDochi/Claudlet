@@ -4028,7 +4028,9 @@ class Pet(QWidget):
             self._hover_samples = []          # 소진(연속 오발동 방지)
             self._affect("pet")
             m = affection.PET_MOTION[affection.stage(self._affection)]
-            if m:
+            if m == "shy":
+                self._shy_away(x)
+            elif m:
                 self._play_motion(m, 1.5)
 
     def _menu(self, gpos):
@@ -4697,6 +4699,15 @@ class Pet(QWidget):
                                            time.strftime("%Y-%m-%d"))
         if affection.stage(self._affection) != before:
             self._refresh_chat()                 # 대화창 머리의 단계
+
+    SHY_STEP = 10                # 아트 픽셀 — 쓰다듬는 손에서 물러서는 거리
+
+    def _shy_away(self, x):
+        """낯가림: 쓰다듬는 손(커서 x, 창 기준)에서 고개를 돌리고 반 발짝 물러선다."""
+        away = -1 if x > self.w / 2 else 1
+        self.facing = away
+        if self.mode == "roam" and not (self._docked or self._floating):
+            self.x += away * self.SHY_STEP * self.u
 
     APPROACH_SEC = 6.0
 

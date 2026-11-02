@@ -30,7 +30,7 @@ VOICE = {
            "warm and familiar, like a best friend"),
 }
 GREETING = (None, "wave", "wave", "jump")  # 세션이 시작될 때 반기는 모션
-HEARTS = (3, 3, 4, 5)                       # 쓰다듬으면 뜨는 하트 수
+HEARTS = (1, 3, 4, 5)                       # 쓰다듬으면 뜨는 하트 수
 
 
 def stage(pts):
@@ -40,7 +40,9 @@ def stage(pts):
 
 # 단계마다 성격이 행동으로 드러난다(낯가림 → 단짝).
 DONE_MOTION = (None, None, "jump", "jump")   # 같이 일 하나를 끝냈을 때 덧붙이는 모션
-PET_MOTION = ("tic", None, None, "sing")     # 쓰다듬으면: 낯가림은 머쓱해하고, 단짝은 흥얼거린다
+# 쓰다듬으면: 낯가림은 고개를 돌리고 물러서고("shy" — 모션이 아니라 펫이 직접 한다),
+# 단짝은 흥얼거린다. (tic 은 기지개라 웃는 얼굴과 겹쳐 머쓱해 보이지 않았다 — 실측)
+PET_MOTION = ("shy", None, None, "sing")
 PLAY_MOTIONS = ("sing", "juggle", "wave")
 # 놀 거리를 고를 때마다 (혼자 놀기, 커서 쪽으로 다가오기) 확률
 IDLE_EXTRA = ((0.0, 0.0), (0.02, 0.0), (0.05, 0.04), (0.08, 0.10))
