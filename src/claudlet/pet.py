@@ -3885,7 +3885,7 @@ class Pet(QWidget):
             self._maybe_pet(e.position().x(), time.monotonic())   # 호버 = 쓰다듬기
             # 어느 세션이지? frameless + 반투명 + always-on-top Tool 창은 네이티브
             # 툴팁이 저절로 뜨지 않으므로 커서 위치에 직접 띄운다.
-            self.setToolTip(self._session_tip())
+            self.setToolTip(self._session_tip() + "\n♥ " + self._affection_label())
             # rect 를 주면 커서가 펫 밖으로 나가는 즉시 사라진다. 안 주면 커서가
             # 떠나도 Qt 자체 타임아웃까지 남아 허공에 떠 있다 -- 배회하는 펫에게는
             # 펫보다 툴팁이 더 오래 보인다. 표시 시간도 짧게 건다.
@@ -4023,6 +4023,10 @@ class Pet(QWidget):
 
     def _menu(self, gpos):
         m = QMenu()
+        heart = QAction("♥ " + self._affection_label(), m)
+        heart.setEnabled(False)              # 보여주기만 — 누를 것이 아니다
+        m.addAction(heart)
+        m.addSeparator()
         a_follow = QAction(self.ui["follow"], m, checkable=True)
         a_follow.setChecked(self._follow)
         m.addAction(a_follow)
@@ -4650,7 +4654,9 @@ class Pet(QWidget):
             self._refresh_chat()                 # 대화창 머리의 단계
 
     def _affection_label(self):
-        return self.ui["affection"][affection.stage(self._affection)]
+        """"낯가림 8/30" — 단계와 다음 단계까지 얼마나 왔나."""
+        return "%s %s" % (self.ui["affection"][affection.stage(self._affection)],
+                          affection.progress(self._affection))
 
     def _voice(self):
         """에이전트에게 실어 보내는 말투 — 설정한 말투 + 친밀도 한 줄."""

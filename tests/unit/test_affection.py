@@ -66,3 +66,9 @@ def test_load_survives_a_missing_or_broken_file():
         f.write("{not json")
     assert A.load() == {}
     assert A.record("slime", "pet", D1) == A.GAINS["pet"] + A.DAY_BONUS
+
+
+def test_progress_shows_the_way_to_the_next_stage():
+    from claudlet.core import affection as A
+    assert A.progress(8) == "8/30" and A.progress(30) == "30/120"
+    assert A.progress(999) == "999"            # 마지막 단계는 점수만

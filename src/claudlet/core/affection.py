@@ -38,6 +38,12 @@ def stage(pts):
     return sum(pts >= t for t in THRESHOLDS[1:])
 
 
+def progress(pts):
+    """"8/30" — 다음 단계까지. 마지막 단계면 점수만. 순수."""
+    nxt = next((t for t in THRESHOLDS if t > pts), None)
+    return "%d/%d" % (pts, nxt) if nxt is not None else str(pts)
+
+
 def voice(persona, pts, lang="ko"):
     """말투에 친밀도 한 줄을 덧붙인 것. 둘 다 비면 ""."""
     line = VOICE.get(lang, VOICE["ko"])[stage(pts)]
