@@ -123,6 +123,19 @@ def check_rewake(home=None):
                for g in groups for h in g.get("hooks", [])), ""
 
 
+def check_mod(home=None):
+    """claudlet mod 가 사용자 설정에 켜져 있나 (`claude plugin install` 이 남긴 자리)."""
+    import json
+    if "claude" not in agents.detected(home):
+        return None, ""
+    try:
+        with open(agents.settings_path("claude", home), encoding="utf-8") as f:
+            enabled = json.load(f).get("enabledPlugins") or {}
+    except (OSError, ValueError):
+        return False, ""
+    return bool(enabled.get("claudlet@claudlet")), ""
+
+
 def check_codex_rule(home=None):
     """코덱스 AGENTS.md 에 claudlet 블록이 있나 — 코덱스 앱에서 펫 말투의 전제."""
     from claudlet.cli import install_hooks
@@ -270,6 +283,7 @@ ORDER = [
     ("skill", check_skill),
     ("konsole_send", check_konsole_send),
     ("rewake", check_rewake),
+    ("mod", check_mod),
     ("codex_rule", check_codex_rule),
     ("codex_daemon", check_codex_daemon),
     ("input_dialog", check_input_dialog),

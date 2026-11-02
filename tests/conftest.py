@@ -26,6 +26,17 @@ def _isolated_config(request, tmp_path, monkeypatch):
     return path
 
 
+@pytest.fixture(autouse=True)
+def _no_real_plugin_cli(monkeypatch):
+    """The installer runs `claude plugin marketplace add/install`; a test must
+    never install the mod into the developer's real Claude Code."""
+    from claudlet.cli import install_mod
+    calls = []
+    monkeypatch.setattr(install_mod, "_run",
+                        lambda argv: calls.append(argv) or (False, "stubbed in tests"))
+    return calls
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",

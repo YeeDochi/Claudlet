@@ -439,6 +439,12 @@ def main(argv=None):
             ok("/claudlet skill (%s)" % label, path)
         if note:
             warn("%s: %s" % (label, note))
+    from claudlet.cli import install_mod
+    m_ok, m_note = install_mod.install()
+    if m_ok:
+        ok("Claude Code mod (instant send)", m_note)
+    else:
+        warn("mod skipped: %s" % m_note)
     d_path, d_note = install_desktop_entry()
     if d_path:
         ok("desktop entry", d_path)

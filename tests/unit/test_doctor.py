@@ -183,3 +183,15 @@ def test_the_capture_rule_is_checked_only_once_the_camera_is_on(tmp_path, monkey
     assert doctorcli.check_shot_rule(str(tmp_path))[0] is True
     install_hooks.main(["x", "--remove", "--agent", "claude"], home=str(tmp_path))
     assert doctorcli.check_shot_rule(str(tmp_path))[0] is False
+
+
+def test_the_mod_counts_once_claude_code_has_it_enabled(tmp_path):
+    from claudlet.cli import doctorcli
+    import os
+    assert doctorcli.check_mod(str(tmp_path))[0] is None         # Claude Code 없음
+    os.makedirs(tmp_path / ".claude")
+    (tmp_path / ".claude" / "settings.json").write_text('{"enabledPlugins": {}}')
+    assert doctorcli.check_mod(str(tmp_path))[0] is False
+    (tmp_path / ".claude" / "settings.json").write_text(
+        '{"enabledPlugins": {"claudlet@claudlet": true}}')
+    assert doctorcli.check_mod(str(tmp_path))[0] is True
