@@ -73,13 +73,13 @@ def frame_file(session_id):
     return os.path.join(hostinfo.runtime_dir(), "claudlet-{}.frame".format(sid))
 
 
-def write(session_id, frame, x, gone=False):
-    """한 장을 내보낸다. frame = encode() 결과, x = 띠 안에서 0..1 위치.
-    gone 이면 띠에서 사라지라는 뜻."""
+def write(session_id, frame, x, gone=False, y=0.0):
+    """한 장을 내보낸다. frame = encode() 결과, x = 띠 안에서 0..1 위치,
+    y = 바닥에서 뜬 높이 0..1. gone 이면 띠에서 사라지라는 뜻."""
     body = {"ts": time.time(), "gone": bool(gone or frame is None)}
     if frame is not None and not gone:
         body.update(columns=frame[0], rows=frame[1], cells=frame[2],
-                    x=max(0.0, min(1.0, x)))
+                    x=max(0.0, min(1.0, x)), y=max(0.0, min(1.0, y)))
     path = frame_file(session_id)
     tmp = path + ".tmp"
     try:
@@ -89,3 +89,66 @@ def write(session_id, frame, x, gone=False):
         return True
     except OSError:
         return False
+
+
+# ---------- 띠 안에서의 몸짓: 순수 ----------
+# t = {"phase", "since", "dur", "x", "dir", "y"}. y 는 띠 바닥에서 뜬 높이(0..1),
+# mod 가 LIFT 줄 안에서 위아래로 옮긴다. 일하는 중이면 제자리에서 그 일을 한다.
+
+SPEED = 0.01                       # 띠 너비 비율 / 틱
+FALL_S, JUMP_S, LEAVE_S = 0.5, 0.8, 0.6
+
+
+def new_visit(now, rnd):
+    """떨어지며 들어온다."""
+    return {"phase": "enter", "since": now, "dur": FALL_S, "x": rnd(),
+            "dir": -1 if rnd() < 0.5 else 1, "y": 1.0}
+
+
+def _next(t, now, rnd):
+    """걷기·멈춰 두리번·점프 중 하나를 고른다."""
+    r = rnd()
+    if r < 0.55:
+        t.update(phase="walk", dur=2.0 + 3.0 * rnd())
+    elif r < 0.85:
+        t.update(phase="pause", dur=1.5 + 2.0 * rnd(),
+                 look="observe" if rnd() < 0.5 else "idle")
+        if rnd() < 0.4:
+            t["dir"] = -t["dir"]          # 뒤돌아본다
+    else:
+        t.update(phase="jump", dur=JUMP_S)
+    t["since"] = now
+
+
+def step(t, now, working, state, rnd):
+    """한 틱. (그릴 상태, 끝났나) 를 돌려주고 t 를 고친다."""
+    k = min(1.0, (now - t["since"]) / t["dur"]) if t["dur"] else 1.0
+    phase = t["phase"]
+    if phase == "leave":                 # 위로 뛰어 사라진다
+        t["y"] = min(1.0, 2.0 * k)
+        return "jump", k >= 1.0
+    if phase == "enter":
+        t["y"] = 1.0 - k * k             # 중력처럼 점점 빨리
+        if k >= 1.0:
+            _next(t, now, rnd)
+        return "falling", False
+    if working:
+        t["y"] = 0.0
+        return state, False
+    if phase == "jump":
+        t["y"] = 4 * k * (1 - k)         # 포물선
+    else:
+        t["y"] = 0.0
+    if phase in ("walk", "jump"):
+        t["x"] += t["dir"] * SPEED
+        if not 0.0 <= t["x"] <= 1.0:
+            t["dir"] = -t["dir"]
+            t["x"] = min(max(t["x"], 0.0), 1.0)
+    if k >= 1.0:
+        _next(t, now, rnd)
+    return {"walk": "walk", "jump": "jump"}.get(phase, t.get("look", "idle")), False
+
+
+def leave(t, now):
+    if t["phase"] != "leave":
+        t.update(phase="leave", since=now, dur=LEAVE_S)

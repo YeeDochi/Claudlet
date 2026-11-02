@@ -2598,8 +2598,10 @@ def test_the_pet_visits_the_terminal_band_and_comes_home_when_called(pet, monkey
     assert not frame["gone"] and frame["rows"] >= 1 and frame["cells"]
     # 띠의 [집에 가] — mod 가 하트비트에 home 을 찍는다
     (tmp_path / "claudlet-s-mod.mod").write_text(_json.dumps({"ack": 0, "home": 123}))
-    for _ in range(P.FPS):
-        pet._tick()
+    deadline = time.monotonic() + 3
+    while pet.snapshot()["in_terminal"] and time.monotonic() < deadline:
+        pet._tick()                     # 뛰어올라 사라지는 데 잠깐 걸린다
+        time.sleep(0.02)
     assert not pet.snapshot()["in_terminal"]
     assert _json.loads(open(termframe.frame_file(pet.session_id)).read())["gone"]
 

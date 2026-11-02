@@ -5,7 +5,14 @@ import { parseFrame, parseLines } from './register'
 const BAND = {
   plugin: 'claudlet',
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 60 },
+  props: {
+    hasSurvey: false,
+    isWorking: false,
+    maxRows: 20,
+    bodyColumns: 60,
+    scroll: { offset: 0, bodyRows: 20 },
+    view: {},
+  },
 } as const
 
 test('only lines past the ack are sent, in id order', () => {
@@ -23,7 +30,7 @@ test('a gone or stale frame clears the band', () => {
 test('the visiting pet is drawn above the prompt with a way home', async ($, on) => {
   const cells = btoa(String.fromCharCode(...new Uint8Array(Uint32Array.of(0x2580, 0xff0000, 0x01000000).buffer)))
   on('state.get', () => ({
-    value: { value: { columns: 1, rows: 1, cells, x: 0, ts: Date.now() / 1000 }, version: 1 },
+    value: { value: { columns: 1, rows: 1, cells, x: 0, y: 0, ts: Date.now() / 1000 }, version: 1 },
   }))
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ key: 'pet' })).toBeDefined()

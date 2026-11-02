@@ -38,3 +38,29 @@ def test_written_frames_say_where_and_when(tmp_path, monkeypatch):
     assert body["x"] == 1.0 and not body["gone"]
     T.write("s1", None, 0)
     assert json.loads(open(T.frame_file("s1")).read())["gone"]
+
+
+def _rnd(*vals):
+    it = iter(vals)
+    return lambda: next(it, 0.0)
+
+
+def test_a_visit_drops_in_then_starts_doing_something():
+    t = T.new_visit(0.0, _rnd(0.5, 0.9))
+    assert T.step(t, 0.0, False, "idle", _rnd())[0] == "falling" and t["y"] == 1.0
+    T.step(t, T.FALL_S, False, "idle", _rnd(0.1, 0.0))      # 바닥에 닿았다 → 걷기
+    assert t["phase"] == "walk" and t["y"] == 0.0
+
+
+def test_work_and_motions_are_acted_out_in_place():
+    t = T.new_visit(0.0, _rnd(0.5, 0.9))
+    T.step(t, 1.0, False, "idle", _rnd(0.1, 0.0))
+    x = t["x"]
+    assert T.step(t, 1.1, True, "work_computer", _rnd()) == ("work_computer", False)
+    assert t["x"] == x                                       # 일하는 동안 안 걷는다
+
+
+def test_leaving_jumps_up_and_ends():
+    t = T.new_visit(0.0, _rnd(0.5, 0.9))
+    T.leave(t, 1.0)
+    assert T.step(t, 1.0 + T.LEAVE_S, False, "idle", _rnd()) == ("jump", True)

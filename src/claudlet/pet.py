@@ -5163,7 +5163,6 @@ class Pet(QWidget):
     # --- 터미널 방문: mod 가 프롬프트 위 띠에 펫을 그린다 ------------------------
     # 펫 창은 마스크로 숨기고, 매 몇 틱 크리처 한 장을 반 블록 칸으로 뽑아
     # claudlet-<sid>.frame 에 쓴다(core/termframe). 띠 안에서의 자리(0..1)도 같이.
-    TERM_SPEED = 0.01             # 띠 너비 비율 / 틱
     TERM_FRAME_EVERY = 3          # 20fps 중 ~7fps 만 내보낸다
     TERM_VISIT_S = (25.0, 50.0)
     TERM_CHANCE = 1 / 40.0        # 놀고 있을 때 1분마다 — 평균 40분에 한 번
@@ -5182,9 +5181,11 @@ class Pet(QWidget):
     def _term_enter(self, secs=None):
         if self._term is not None or not self._mod_alive():
             return False
-        self._term = {"until": time.monotonic() + (secs or random.uniform(*self.TERM_VISIT_S)),
-                      "x": random.random(), "dir": random.choice((-1, 1)), "n": 0,
-                      "home": modlink.beat(self.session_id).get("home")}
+        now = time.monotonic()
+        t = termframe.new_visit(now, random.random)
+        t.update(until=now + (secs or random.uniform(*self.TERM_VISIT_S)), n=0,
+                 home=modlink.beat(self.session_id).get("home"))
+        self._term = t
         return True
 
     def _term_leave(self):
@@ -5199,23 +5200,24 @@ class Pet(QWidget):
         t = self._term
         t["n"] += 1
         beat = modlink.beat(self.session_id) if t["n"] % FPS == 0 else None
-        if now > t["until"] or (beat is not None and (
-                not beat.get("alive") or beat.get("home") != t["home"])):     # 띠의 [집에 가] 버튼
+        if beat is not None and not beat.get("alive"):
+            self._term_leave()                   # 세션이 닫혔다 — 띠도 없다
+            return
+        if now > t["until"] or (beat is not None and beat.get("home") != t["home"]):
+            termframe.leave(t, now)              # 시간이 됐거나 띠의 ⌂ — 뛰어서 나간다
+        # 바깥에서처럼 반응한다: 일·끝남·에러·잠·모션(점프·손 흔들기…)은 제자리에서
+        shown = self._motion or self.claude_state
+        state, done = termframe.step(t, now, shown != "idle", shown, random.random)
+        if done:
             self._term_leave()
             return
-        working = self.claude_state not in ("idle", "sleeping")
-        if not working:                          # 일하는 중엔 제자리에서 일한다
-            t["x"] += t["dir"] * self.TERM_SPEED
-            if not 0.0 <= t["x"] <= 1.0:
-                t["dir"] = -t["dir"]
-                t["x"] = min(max(t["x"], 0.0), 1.0)
-        self._render_state = self.claude_state if working else "walk"
+        self._render_state = state
         if t["n"] % self.TERM_FRAME_EVERY == 1:
             try:
-                pic = self._term_picture(self._render_state, t["dir"])
+                pic = self._term_picture(state, t["dir"])
             except Exception:
                 pic = None
-            termframe.write(self.session_id, pic, t["x"])
+            termframe.write(self.session_id, pic, t["x"], y=t["y"])
 
     def _term_picture(self, state, facing):
         """크리처 한 장을 아트 픽셀 1:1 로 그려 칸으로. 큰 크리처는 줄인다."""

@@ -16,6 +16,7 @@ const POLL_MS = 500
 const FRAME_MS = 150
 const BEAT_MS = 10_000
 const STALE_S = 3 // 펫이 이만큼 그림을 안 보내면 띠를 비운다
+const LIFT = 3 // 점프·떨어지기에 쓰는 줄. 띠 높이는 늘 같다 — 프롬프트가 들썩이지 않게
 
 type Line = { id: number; text: string; framed?: boolean; context?: string }
 
@@ -64,7 +65,7 @@ export function parseFrame(raw: string, nowS: number): ClaudletFrame | null {
   try {
     const f = JSON.parse(raw)
     if (f?.gone || typeof f?.cells !== 'string' || nowS - f.ts > STALE_S) return null
-    return { columns: f.columns, rows: f.rows, cells: f.cells, x: f.x ?? 0, ts: f.ts }
+    return { columns: f.columns, rows: f.rows, cells: f.cells, x: f.x ?? 0, y: f.y ?? 0, ts: f.ts }
   } catch {
     return null
   }
@@ -153,14 +154,17 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const f = await read($, frame)
-    if (!f || f.rows > e.props.maxRows) return next(e)
+    if (!f || f.rows + LIFT > e.props.maxRows) return next(e)
     const { Box, Raster, Button } = $.ui.resolve(e)
     const room = Math.max(0, e.props.bodyColumns - f.columns - 6)
     return (
       <Box flexDirection="row" alignItems="flex-end">
         <Button key="home" plain label="⌂" onPress={() => void goHome?.()} />
         <Box width={1 + Math.round(f.x * room)} />
-        <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
+        <Box flexDirection="column" height={f.rows + LIFT}>
+          <Box height={Math.round((1 - f.y) * LIFT)} />
+          <Raster key="pet" columns={f.columns} rows={f.rows} cells={f.cells} />
+        </Box>
       </Box>
     )
   })
