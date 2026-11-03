@@ -6235,6 +6235,13 @@ def main():
                 "  Fedora:  sudo dnf install xcb-util-cursor    Arch:  sudo pacman -S xcb-util-cursor\n")
             return
 
+    if sys.platform == "darwin":
+        # Qt's cocoa plugin otherwise turns the process into a foreground app
+        # and activates it at launch, stealing keyboard focus from whatever the
+        # user is typing in every time a session spawns a pet. The pet is an
+        # accessory app anyway (set_accessory_policy below). Must be set before
+        # QApplication exists. Issue #10.
+        os.environ.setdefault("QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM", "1")
     app = QApplication(sys.argv[:1])          # keep our flags away from Qt
     app.setApplicationName("claudlet")
     app.setDesktopFileName("claudlet")
